@@ -153,6 +153,18 @@ Respond ONLY in JSON matching this schema:
     }
   }, [selectedCargo, selectedVessel]);
 
+  // Commercial safety: a fixture-grade result requires BOTH a high completeness
+  // score AND confirmed freight. Missing freight caps the score at 70, so relying
+  // on the score alone can falsely render "Above Market"/"Estimated Return". This
+  // freight-aware guard prevents misleading positive labels (UI-only; no formula change).
+  const isPending = !!calculation && (
+    /pending|indicative/i.test(calculation.tce || '') ||
+    /pending|indicative/i.test(calculation.estimatedFreight || '') ||
+    /indicative/i.test(calculation.commercialStatus || '') ||
+    (calculation.missingInputs?.some((m) => /freight|\bmt\b|weight|lump\s?sum/i.test(m)) ?? false)
+  );
+  const isFixtureGrade = !!calculation && calculation.completenessScore >= 70 && !isPending;
+
   return (
     <div className="flex-1 flex flex-col h-full bg-surface relative overflow-hidden">
       <div className="absolute inset-0 bg-surface-container-lowest opacity-90 backdrop-blur-3xl z-[-1]"></div>
@@ -331,7 +343,7 @@ Respond ONLY in JSON matching this schema:
                       </h4>
                       <p className="text-3xl sm:text-5xl text-on-surface font-display font-light leading-none tracking-tight">{calculation.tce}</p>
                       <p className="text-[9px] text-on-surface-variant mt-4 font-mono tracking-widest uppercase truncate">
-                        {calculation.completenessScore >= 70 ? "Above Market" : "Indicative / Pending"}
+                        {isFixtureGrade ? "Above Market" : "Indicative / Pending"}
                       </p>
                     </div>
                     <div className="bg-surface-container-low p-4 sm:p-8 relative overflow-hidden group">
@@ -343,14 +355,14 @@ Respond ONLY in JSON matching this schema:
                       </h4>
                       <p className="text-3xl sm:text-5xl text-on-surface font-display font-light leading-none tracking-tight">{calculation.profitability}</p>
                       <p className="text-[9px] text-on-surface-variant mt-4 font-mono tracking-widest uppercase">
-                        {calculation.completenessScore >= 70 ? "Estimated Return" : "Not fixture-grade"}
+                        {isFixtureGrade ? "Estimated Return" : "Not fixture-grade"}
                       </p>
                     </div>
                   </div>
 
                   {/* Commercial Warnings */}
-                  <div className={cn("bg-surface-container p-4 border rounded-sm", calculation.completenessScore < 70 ? "border-error/50" : "border-outline/20")}>
-                    <h4 className={cn("text-[9px] font-medium uppercase tracking-[0.3em] mb-3", calculation.completenessScore < 70 || calculation.commercialRecommendation?.includes('Weak') ? "text-error" : "text-tertiary")}>
+                  <div className={cn("bg-surface-container p-4 border rounded-sm", !isFixtureGrade ? "border-error/50" : "border-outline/20")}>
+                    <h4 className={cn("text-[9px] font-medium uppercase tracking-[0.3em] mb-3", !isFixtureGrade || calculation.commercialRecommendation?.includes('Weak') ? "text-error" : "text-tertiary")}>
                       Commercial Status: {calculation.commercialStatus}
                     </h4>
                     {calculation.commercialRecommendation && (
@@ -363,7 +375,7 @@ Respond ONLY in JSON matching this schema:
                         ⚠️ {calculation.dwtUtilizationWarning}
                       </p>
                     )}
-                    {calculation.completenessScore < 70 && (
+                    {!isFixtureGrade && (
                       <p className="text-[11px] text-on-surface-variant mb-2">Based on assumed economics. Do not treat as fixture-grade calculation.</p>
                     )}
                     <ul className="text-[10px] text-on-surface list-disc pl-4 space-y-1">

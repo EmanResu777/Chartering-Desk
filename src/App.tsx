@@ -30,6 +30,14 @@ type Tab = 'cargo' | 'vessel' | 'selection' | 'inbox' | 'analytics' | 'settings'
 
 import { FeedbackWidget } from './components/FeedbackWidget';
 
+// DEV-ONLY visual preview bypass. Renders the authenticated shell with mock data
+// so responsive layouts can be verified without Google OAuth. All Firestore effects
+// remain keyed on the real `user` (null here) so no backend/auth logic is exercised.
+// Activate with ?preview=1 in development. REMOVE before shipping.
+const PREVIEW = typeof window !== 'undefined'
+  && import.meta.env.DEV
+  && new URLSearchParams(window.location.search).get('preview') === '1';
+
 export default function App() {
   return (
     <ConfigProvider>
@@ -229,6 +237,12 @@ function AppContent() {
   const [emails, setEmails] = useState<Email[]>(INITIAL_EMAILS);
 
   useEffect(() => {
+    if (PREVIEW) {
+      setCargoList(INITIAL_CARGO);
+      setVesselList(INITIAL_VESSELS);
+      setContactList([]);
+      return;
+    }
     if (!user || !currentWorkspace) {
       setCargoList([]);
       setVesselList([]);
@@ -561,7 +575,7 @@ function AppContent() {
     }
   };
 
-  if (authLoading || workspaceLoading) {
+  if (!PREVIEW && (authLoading || workspaceLoading)) {
     return (
       <div className="flex h-screen bg-surface items-center justify-center">
         <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -569,7 +583,7 @@ function AppContent() {
     );
   }
 
-  if (!user) {
+  if (!user && !PREVIEW) {
     return (
       <div className="flex h-screen bg-surface flex-col items-center justify-center p-4">
         <div className="max-w-md w-full bg-surface-container border border-outline/20 p-8 rounded-sm shadow-xl flex flex-col items-center text-center">
