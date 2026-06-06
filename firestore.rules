@@ -1,0 +1,232 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+
+    function isWorkspaceMember(workspaceId) {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId));
+    }
+
+    function isWorkspaceWriter(workspaceId) {
+      let role = get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role;
+      return role == 'admin' || role == 'broker';
+    }
+
+    match /userEmails/{email} {
+      allow get: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Workspaces
+    match /workspaces/{workspaceId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (
+        resource.data.ownerId == request.auth.uid ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
+      );
+      
+      match /members/{memberId} {
+        allow read: if isSignedIn() && isWorkspaceMember(workspaceId);
+        allow write: if isSignedIn() && (
+          get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
+        );
+      }
+    }
+    
+    // Users
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && (!('subscription' in incoming()) && !('grants' in incoming()) && !('connectedTo' in incoming()));
+      allow update: if isOwner(userId) && (!incoming().diff(existing()).affectedKeys().hasAny(['subscription', 'grants', 'stripeCustomerId', 'stripeSubscriptionId', 'connectedTo']));
+      
+      match /networkConnections/{viewerId} {
+        allow read: if isOwner(userId) || request.auth.uid == viewerId;
+        allow write: if isOwner(userId);
+      }
+      
+      match /networkInvites/{inviteId} {
+        allow read: if isOwner(userId);
+        allow create: if isSignedIn()
+          && incoming().fromUserId == request.auth.uid
+          && userId != request.auth.uid
+          && incoming().status == 'pending'
+          && incoming().keys().hasOnly(['id', 'fromUserId', 'fromName', 'fromCompany', 'fromEmail', 'status', 'createdAt', 'updatedAt', 'message', 'source'])
+          && incoming().createdAt != null;
+        allow update: if isOwner(userId)
+          && (!incoming().diff(existing()).affectedKeys().hasAny(['fromUserId', 'fromName', 'fromCompany', 'fromEmail', 'createdAt', 'source']))
+          && incoming().status in ['pending', 'accepted', 'declined', 'archived'];
+        allow delete: if isOwner(userId);
+      }
+      
+      match /usage/{usageId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+      }
+
+      match /memberships/{workspaceId} {
+        allow read: if isOwner(userId);
+        allow write: if isSignedIn() && (
+          request.auth.uid == userId ||
+          get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
+        );
+      }
+      
+      match /recapDrafts/{draftId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /emailAccounts/{accountId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /notifications/{notificationId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /deskNetworkTests/{testId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) &&
+          incoming().keys().hasOnly(['userId', 'inviteId', 'status', 'timestamp', 'source', 'email', 'feedback']) &&
+          incoming().status in ['interested', 'not_interested', 'maybe_later', 'viewed', 'submitted'];
+      }
+    }
+
+    // Vessel Rules
+    function isValidVessel(data) {
+      return data.size() >= 5 && data.size() <= 30
+        && data.userId is string && data.userId.size() > 0 
+        && data.name is string && data.name.size() <= 100
+        && data.type is string && data.type.size() <= 100
+        && data.dwt is number
+        && data.status is string && data.status.size() <= 50;
+    }
+    
+    match /vessels/{vesselId} {
+      allow get: if isSignedIn() && isValidId(vesselId) && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
+      allow create: if isSignedIn() && isValidId(vesselId) && isValidVessel(incoming()) && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
+      allow update: if isSignedIn() && isValidId(vesselId) && isValidVessel(incoming()) && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
+      allow delete: if isSignedIn() && isValidId(vesselId) && (resource.data.userId == request.auth.uid || isWorkspaceWriter(resource.data.workspaceId));
+    }
+
+    // Cargo Rules
+    function isValidCargo(data) {
+      return data.size() >= 5 && data.size() <= 30
+        && data.userId is string && data.userId.size() > 0
+        && data.commodity is string && data.commodity.size() <= 100
+        && data.quantity is string && data.quantity.size() <= 100
+        && data.loadPort is string && data.loadPort.size() <= 100
+        && data.dischargePort is string && data.dischargePort.size() <= 100
+        && data.status is string && data.status.size() <= 50;
+    }
+
+    match /cargos/{cargoId} {
+      allow get: if isSignedIn() && isValidId(cargoId) && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
+      allow create: if isSignedIn() && isValidId(cargoId) && isValidCargo(incoming()) && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
+      allow update: if isSignedIn() && isValidId(cargoId) && isValidCargo(incoming()) && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
+      allow delete: if isSignedIn() && isValidId(cargoId) && (resource.data.userId == request.auth.uid || isWorkspaceWriter(resource.data.workspaceId));
+    }
+
+    // Contact Rules
+    function isValidContact(data) {
+      return data.size() >= 5 && data.size() <= 30
+        && data.userId is string && data.userId.size() > 0
+        && data.name is string && data.name.size() <= 100
+        && data.company is string && data.company.size() <= 100
+        && data.type is string && data.type.size() <= 50
+        && data.email is string && data.email.size() <= 150;
+    }
+
+    match /contacts/{contactId} {
+      allow get: if isSignedIn() && isValidId(contactId) && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
+      allow create: if isSignedIn() && isValidId(contactId) && isValidContact(incoming()) && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
+      allow update: if isSignedIn() && isValidId(contactId) && isValidContact(incoming()) && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
+      allow delete: if isSignedIn() && isValidId(contactId) && (resource.data.userId == request.auth.uid || isWorkspaceWriter(resource.data.workspaceId));
+    }
+
+    // Email Rules
+    function isValidEmail(data) {
+      return data.size() >= 6 && data.size() <= 30
+        && data.userId is string && data.userId.size() > 0
+        && data.sender is string && data.sender.size() <= 150
+        && data.subject is string && data.subject.size() <= 300
+        && data.summary is string && data.summary.size() <= 1000
+        && data.classification is string && data.classification.size() <= 50
+        && data.rawBody is string && data.rawBody.size() <= 10000;
+    }
+
+    match /emails/{emailId} {
+      allow get: if isSignedIn() && isValidId(emailId) && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
+      allow create: if isSignedIn() && isValidId(emailId) && isValidEmail(incoming()) && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
+      allow update: if isSignedIn() && isValidId(emailId) && isValidEmail(incoming()) && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
+      allow delete: if isSignedIn() && isValidId(emailId) && (resource.data.userId == request.auth.uid || isWorkspaceWriter(resource.data.workspaceId));
+    }
+
+    // Shared Items Rules
+    function isAllowedSharedCargo(data) {
+      return data.itemType == 'cargo'
+        && data.keys().hasOnly(['itemType', 'ownerId', 'ownerDisplayName', 'sourceItemId', 'commodity', 'raw_commodity', 'quantity', 'quantity_mt', 'quantity_cbm', 'loadPort', 'dischargePort', 'laycan', 'terms', 'special_requirements', 'status', 'createdAt', 'sharedAt'])
+        && !data.keys().hasAny(['rawBody', 'rawText', 'sourceId', 'dedupeKey', 'snippet', 'privateNotes', 'missing_fields', 'confidence', 'actualProvider', 'actualModel', 'degraded_analysis', 'access_token', 'refresh_token', 'gmailData']);
+    }
+
+    function isAllowedSharedVessel(data) {
+      return data.itemType == 'vessel'
+        && data.keys().hasOnly(['itemType', 'ownerId', 'ownerDisplayName', 'sourceItemId', 'vessel_name', 'name', 'vessel_type', 'dwt', 'openPort', 'openDate', 'cranes', 'gear', 'direction', 'restrictions', 'suitable_for', 'status', 'createdAt', 'sharedAt'])
+        && !data.keys().hasAny(['rawBody', 'rawText', 'sourceId', 'dedupeKey', 'snippet', 'privateNotes', 'missing_fields', 'confidence', 'actualProvider', 'actualModel', 'degraded_analysis', 'access_token', 'refresh_token']);
+    }
+    
+    function isAllowedProposal(data) {
+      return data.keys().hasOnly(['sharedItemId', 'ownerId', 'creatorId', 'proposalType', 'message', 'relatedCargoId', 'relatedVesselId', 'createdAt', 'status'])
+        && data.proposalType in ['interest', 'offer_cargo', 'offer_vessel', 'comment'];
+    }
+
+    match /sharedItems/{itemId} {
+      allow read: if isSignedIn() && (
+        isOwner(resource.data.ownerId) || 
+        (resource.data.status == 'active' && 
+         (
+           exists(/databases/$(database)/documents/users/$(resource.data.ownerId)/networkConnections/$(request.auth.uid)) ||
+           resource.data.ownerId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.connectedTo
+         )
+        )
+      );
+      allow create: if isOwner(incoming().ownerId) && (isAllowedSharedCargo(incoming()) || isAllowedSharedVessel(incoming()));
+      allow update: if isOwner(resource.data.ownerId) && isOwner(incoming().ownerId) && (isAllowedSharedCargo(incoming()) || isAllowedSharedVessel(incoming()));
+      allow delete: if isOwner(resource.data.ownerId);
+
+      match /proposals/{proposalId} {
+        allow read: if isOwner(get(/databases/$(database)/documents/sharedItems/$(itemId)).data.ownerId) || isOwner(resource.data.creatorId);
+        allow create: if isSignedIn() && isOwner(incoming().creatorId) 
+          && exists(/databases/$(database)/documents/users/$(get(/databases/$(database)/documents/sharedItems/$(itemId)).data.ownerId)/networkConnections/$(request.auth.uid))
+          && isAllowedProposal(incoming());
+        allow update: if false; // Proposals are append-only or handled via specific status updates if needed later
+        allow delete: if isOwner(resource.data.creatorId);
+      }
+    }
+
+    match /incoming_webhooks/{webhookId} {
+      allow read: if isSignedIn();
+      allow write: if false; // Only written via fast-server webhook API
+    }
+  }
+}

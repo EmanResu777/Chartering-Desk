@@ -1,0 +1,208 @@
+[
+  {
+    "type": "CARGO",
+    "cargo": {
+      "commodity": "steel / gen cargo",
+      "quantity": "",
+      "loadPort": "",
+      "dischargePort": "",
+      "laycan": "25-30 June",
+      "name": "",
+      "dwt": "50k",
+      "openPort": "CJK",
+      "openDate": "",
+      "confidence_score": 0.8,
+      "missing_fields": [
+        "quantity",
+        "loadPort",
+        "dischargePort"
+      ]
+    },
+    "summary": "Missing cargo details from the provided information.",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "degraded_analysis": true
+  },
+  {
+    "type": "CARGO",
+    "cargo": {
+      "commodity": "urea",
+      "quantity": "25,000 mt",
+      "loadPort": "Ruwais",
+      "dischargePort": "Durban",
+      "laycan": "10-15 Aug",
+      "name": null,
+      "dwt": null,
+      "openPort": null,
+      "openDate": null,
+      "confidence_score": 0.9,
+      "missing_fields": []
+    },
+    "summary": "Firm offer for bulk urea shipment.",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "degraded_analysis": true
+  },
+  {
+    "type": "CARGO",
+    "cargo": {
+      "commodity": "pipes",
+      "dischargePort": "Singapore",
+      "laycan": "1-5 July",
+      "loadPort": "Shanghai",
+      "missing_fields": [],
+      "quantity": "10k cbm"
+    },
+    "summary": "Propose a vessel for 10k cbm pipes from Shanghai to Singapore with a laycan of 1-5 July.",
+    "actualModel": "gemini-2.5-flash",
+    "actualProvider": "google",
+    "degraded_analysis": false
+  },
+  {
+    "type": "VESSEL",
+    "vessel": {
+      "commodity": null,
+      "quantity": null,
+      "loadPort": null,
+      "dischargePort": null,
+      "laycan": null,
+      "name": "MV Ocean Liberty",
+      "dwt": "60,000",
+      "openPort": "USG",
+      "openDate": "mid July",
+      "confidence_score": 0.85,
+      "missing_fields": []
+    },
+    "summary": "Cargo or vessel information extracted from the email.",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "degraded_analysis": true
+  },
+  {
+    "type": "CARGO",
+    "cargo": {
+      "commodity": "clean petroleum products",
+      "quantity": "30kt",
+      "loadPort": "MEG",
+      "dischargePort": "UKC",
+      "laycan": "5-10 Sept",
+      "name": null,
+      "dwt": null,
+      "openPort": null,
+      "openDate": null,
+      "confidence_score": 0.95,
+      "missing_fields": []
+    },
+    "summary": "Cargo order details extracted",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "degraded_analysis": true
+  },
+  {
+    "type": "VESSEL",
+    "vessel": {
+      "commodity": null,
+      "quantity": null,
+      "loadPort": null,
+      "dischargePort": null,
+      "laycan": null,
+      "name": "MV Navigator",
+      "dwt": "58k",
+      "openPort": "ARA",
+      "openDate": null,
+      "confidence_score": 0.8,
+      "missing_fields": [
+        "openDate",
+        "commodity",
+        "quantity",
+        "loadPort",
+        "dischargePort",
+        "laycan"
+      ]
+    },
+    "summary": "Cargo and vessel information extracted. Some fields are missing.",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "degraded_analysis": true
+  },
+  {
+    "type": "CARGO",
+    "cargo": {
+      "commodity": "sugar",
+      "quantity": "35,000 mt",
+      "loadPort": "Santos",
+      "dischargePort": "West Africa",
+      "laycan": "20-30 Oct",
+      "name": null,
+      "dwt": null,
+      "openPort": null,
+      "openDate": null,
+      "confidence_score": 0.9,
+      "missing_fields": []
+    },
+    "summary": "Cargo information extracted from the message.",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "degraded_analysis": true
+  },
+  {
+    "type": "VESSEL",
+    "vessel": {
+      "commodity": null,
+      "quantity": null,
+      "loadPort": null,
+      "dischargePort": null,
+      "laycan": null,
+      "name": "MV Pacific Trader",
+      "dwt": "82,000",
+      "openPort": "Newcastle",
+      "openDate": "15-20 Nov",
+      "confidence_score": 0.9,
+      "missing_fields": []
+    },
+    "summary": "Kamsarmax MV Pacific Trader is open in Newcastle.",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "degraded_analysis": true
+  },
+  {
+    "type": "CARGO",
+    "cargo": {
+      "commodity": "clinker",
+      "quantity": "40k mt",
+      "loadPort": "Vietnam",
+      "dischargePort": "Bangladesh",
+      "laycan": "10-15 Dec",
+      "name": null,
+      "dwt": null,
+      "openPort": null,
+      "openDate": null,
+      "confidence_score": 0.95,
+      "missing_fields": []
+    },
+    "summary": "Cargo details extracted from the email.",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "degraded_analysis": true
+  },
+  {
+    "type": "CARGO",
+    "cargo": {
+      "commodity": "project cargo",
+      "quantity": "15,000 mt",
+      "loadPort": "Bremen",
+      "dischargePort": "Houston",
+      "laycan": "End Jan",
+      "name": null,
+      "dwt": null,
+      "openPort": null,
+      "openDate": null,
+      "confidence_score": 0.9,
+      "missing_fields": []
+    },
+    "summary": "Request for vessels for project cargo from Bremen to Houston.",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "degraded_analysis": true
+  }
+]

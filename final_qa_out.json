@@ -1,0 +1,178 @@
+{
+  "A": {
+    "type": "CARGO",
+    "cargo": {
+      "commodity": "wheat",
+      "quantity": "30,000 mt",
+      "loadPort": "Houston",
+      "dischargePort": "Rotterdam",
+      "laycan": "15-20 June",
+      "name": null,
+      "dwt": null,
+      "openPort": null,
+      "openDate": null,
+      "confidence_score": 0.85,
+      "missing_fields": []
+    },
+    "summary": "Cargo details extracted from the message.",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "degraded_analysis": true
+  },
+  "B": {
+    "type": "CARGO",
+    "cargo": {
+      "commodity": "bagged rice",
+      "quantity": "25,000 mt",
+      "loadPort": "Kandla",
+      "dischargePort": "Chittagong",
+      "laycan": "",
+      "name": "",
+      "dwt": "",
+      "openPort": "",
+      "openDate": "",
+      "confidence_score": 1,
+      "missing_fields": [
+        "laycan"
+      ]
+    },
+    "summary": "Missing cargo fields for shipment of bagged rice from Kandla to Chittagong.",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "degraded_analysis": true
+  },
+  "C": {
+    "type": "VESSEL",
+    "vessel": {
+      "commodity": null,
+      "quantity": null,
+      "loadPort": null,
+      "dischargePort": null,
+      "laycan": null,
+      "name": "MV PACIFIC",
+      "dwt": "50,000",
+      "openPort": "Singapore",
+      "openDate": "20-25 June",
+      "confidence_score": 1,
+      "missing_fields": []
+    },
+    "summary": "Vessel open with details provided.",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "degraded_analysis": true
+  },
+  "D": {
+    "type": "VESSEL",
+    "vessel": {
+      "commodity": null,
+      "quantity": null,
+      "loadPort": null,
+      "dischargePort": null,
+      "laycan": null,
+      "name": "MV ATLANTIC",
+      "dwt": null,
+      "openPort": "Rotterdam",
+      "openDate": "12 July",
+      "confidence_score": 0.9,
+      "missing_fields": [
+        "dwt"
+      ]
+    },
+    "summary": "Vessel MV ATLANTIC is open in Rotterdam on 12 July.",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "degraded_analysis": true
+  },
+  "E": {
+    "type": "VESSEL",
+    "vessel": {
+      "commodity": null,
+      "quantity": null,
+      "loadPort": null,
+      "dischargePort": null,
+      "laycan": null,
+      "name": "MV STALE",
+      "dwt": "40,000",
+      "openPort": "Dubai",
+      "openDate": "1 May",
+      "confidence_score": 1,
+      "missing_fields": []
+    },
+    "summary": "Vessel open details extracted.",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "degraded_analysis": true
+  },
+  "F": {
+    "matches": [
+      {
+        "vesselId": "MV PERFECT",
+        "cargoId": "wheat",
+        "score": 95,
+        "reasoning": [
+          "Open port matches load port (Houston)",
+          "Vessel's open date falls within the laycan period (after 15 June)",
+          "DWT of vessel is sufficient for cargo quantity (30,000 mt)"
+        ],
+        "eta": "17 June",
+        "distance": "8000 km"
+      }
+    ],
+    "degraded_analysis": true,
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "fallback_reason": "Quota/auth fallback triggered"
+  },
+  "G": {
+    "matches": [
+      {
+        "vesselId": "MV RISKY",
+        "cargoId": "wheat_houston_rotterdam_30,000mt",
+        "score": 60,
+        "reasoning": [
+          "The vessel is open at the required load port (Houston) just before the laycan begins.",
+          "The cargo quantity is within the vessel's deadweight tonnage capacity.",
+          "Laycan window is suitable for the vessel's open date."
+        ],
+        "eta": "16 June",
+        "distance": "Approx. 5,000 nautical miles"
+      }
+    ],
+    "degraded_analysis": true,
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "fallback_reason": "Quota/auth fallback triggered"
+  },
+  "H": {
+    "text": "{\n  \"type\": \"RISK_ANALYSIS\",\n  \"risk_type\": \"CQD Risk\",\n  \"key_risk\": \"Owner laytime/demurrage exposure due to CQD\",\n  \"recommended_action\": \"Clarify demurrage terms or convert to fixed laytime\",\n  \"severity\": \"Medium\",\n  \"shouldReject\": false,\n  \"shouldFlagRisk\": true\n}",
+    "type": "RISK_ANALYSIS",
+    "risk_type": "CQD Risk",
+    "key_risk": "Owner laytime/demurrage exposure due to CQD",
+    "recommended_action": "Clarify demurrage terms or convert to fixed laytime",
+    "severity": "Medium",
+    "shouldReject": false,
+    "shouldFlagRisk": true,
+    "modelUsed": "gpt-4o-mini",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "warning": null,
+    "degraded_analysis": true,
+    "fallback_reason": "Quota/auth fallback triggered"
+  },
+  "I": {
+    "text": "{\n  \"type\": \"RISK_ANALYSIS\",\n  \"risk_type\": \"Missing demurrage\",\n  \"key_risk\": \"Owner laytime/demurrage exposure due to missing demurrage details\",\n  \"recommended_action\": \"Do not fix until demurrage/despatch agreed.\",\n  \"severity\": \"Critical\",\n  \"shouldReject\": true,\n  \"shouldFlagRisk\": true\n}",
+    "type": "RISK_ANALYSIS",
+    "risk_type": "Missing demurrage",
+    "key_risk": "Owner laytime/demurrage exposure due to missing demurrage details",
+    "recommended_action": "Do not fix until demurrage/despatch agreed.",
+    "severity": "Critical",
+    "shouldReject": true,
+    "shouldFlagRisk": true,
+    "modelUsed": "gpt-4o-mini",
+    "actualModel": "gpt-4o-mini",
+    "actualProvider": "openai",
+    "warning": null,
+    "degraded_analysis": true,
+    "fallback_reason": "Quota/auth fallback triggered"
+  }
+}

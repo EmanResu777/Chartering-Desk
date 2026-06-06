@@ -1,0 +1,6 @@
+{
+  "name": "Chartering Desk Pro",
+  "description": "Professional shipbroking platform that transforms chaotic email communications into structured, actionable cargo and vessel data with AI-powered matching.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
