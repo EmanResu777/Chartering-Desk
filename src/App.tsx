@@ -585,19 +585,46 @@ function AppContent() {
 
   if (!user && !PREVIEW) {
     return (
-      <div className="flex h-screen bg-surface flex-col items-center justify-center p-4">
-        <div className="max-w-md w-full bg-surface-container border border-outline/20 p-8 rounded-sm shadow-xl flex flex-col items-center text-center">
-          <Ship className="h-12 w-12 text-primary mb-4" />
-          <h1 className="text-2xl font-display font-light text-on-surface mb-2 tracking-tight">Cargo Desk App</h1>
-          <p className="text-on-surface-variant font-sans text-sm mb-8 leading-relaxed">
-            Please log in to your account or create a new one to start tracking vessels and cargos.
-          </p>
-          <button 
-            onClick={loginWithGoogle}
-            className="bg-primary text-on-primary px-8 py-3 rounded-sm font-bold uppercase tracking-widest text-[10px] hover:bg-primary-container transition-all shadow-md w-full max-w-[200px]"
-          >
-            Access Desk
-          </button>
+      <div className="relative flex min-h-screen bg-surface flex-col items-center justify-center p-5 overflow-hidden">
+        {/* Subtle premium backdrop using existing tokens */}
+        <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_-10%,rgba(var(--color-primary),0.10),transparent_55%)]" />
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
+
+        <div className="relative max-w-md w-full bg-surface-container border border-outline/30 rounded-sm shadow-2xl overflow-hidden">
+          <div className="h-0.5 w-full bg-gradient-to-r from-transparent via-primary to-transparent" />
+          <div className="p-8 sm:p-10 flex flex-col items-center text-center">
+            <div className="flex items-center justify-center h-16 w-16 rounded-full border border-primary/30 bg-primary/5 mb-6 shadow-[0_0_30px_rgba(var(--color-primary),0.12)]">
+              <Ship className="h-8 w-8 text-primary" strokeWidth={1.5} />
+            </div>
+
+            <p className="text-[10px] font-medium uppercase tracking-[0.4em] text-primary mb-3">
+              Maritime Chartering Terminal
+            </p>
+            <h1 className="text-3xl font-display font-light text-on-surface mb-3 tracking-tight text-balance">
+              Chartering Desk Pro
+            </h1>
+            <p className="text-on-surface-variant font-sans text-sm mb-8 leading-relaxed max-w-xs text-pretty">
+              Broker-grade cargo intake, voyage intelligence, and recap generation. Sign in to access your desk.
+            </p>
+
+            <button
+              onClick={loginWithGoogle}
+              className="bg-primary text-on-primary px-8 py-3.5 rounded-sm font-bold uppercase tracking-[0.2em] text-[10px] hover:bg-primary-container transition-all shadow-md w-full"
+            >
+              Access Desk
+            </button>
+            <p className="text-on-surface-variant/70 font-sans text-[11px] mt-4 tracking-wide">
+              Secure sign-in via Google
+            </p>
+
+            <div className="flex items-center justify-center gap-2 w-full mt-8 pt-6 border-t border-outline/20">
+              <span className="text-[9px] uppercase tracking-[0.25em] text-on-surface-variant/80">Cargo Intake</span>
+              <span className="text-outline/50" aria-hidden>·</span>
+              <span className="text-[9px] uppercase tracking-[0.25em] text-on-surface-variant/80">Voyage Intelligence</span>
+              <span className="text-outline/50" aria-hidden>·</span>
+              <span className="text-[9px] uppercase tracking-[0.25em] text-on-surface-variant/80">Desk Network</span>
+            </div>
+          </div>
         </div>
       </div>
     );
