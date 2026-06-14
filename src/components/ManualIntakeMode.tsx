@@ -66,7 +66,7 @@ export const ManualIntakeMode = ({
                   missing_fields: ["commodity", "quantity", "load port / area", "discharge port / area", "laycan", "freight / rate"]
               }],
               vessels: [],
-              _diagnostic: { buildVersion: "pilot-blocker-12-fix", endpoint: "parseEmail (frontend intercept)", fallbackUsed: true }
+              _diagnostic: { buildVersion: "pilot-blocker-13", endpoint: "parseEmail (frontend intercept)", fallbackUsed: true }
           };
       } else {
           result = await parseEmail(fakeEmail, auth.currentUser?.uid, defaultType);
@@ -382,7 +382,7 @@ export const ManualIntakeMode = ({
             <div className="p-6 flex flex-col h-full space-y-4">
                 <div className="flex justify-between items-center">
                     <div className="text-sm font-bold text-on-surface uppercase tracking-wider">Paste Broker Text</div>
-                    <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-12-FIX]</div>
+                    <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-13]</div>
                 </div>
 
                 {warning && (

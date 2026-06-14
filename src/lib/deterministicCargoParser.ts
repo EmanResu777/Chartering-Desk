@@ -21,11 +21,12 @@ export interface CargoCandidate {
   missing_fields: string[];
 }
 
-// A quantity is a number (optionally a range, optionally "abt") followed by a
-// recognised mass/volume unit. Requiring a digit before the unit avoids false
-// positives from port names that merely contain the letters "mt"/"ton" (e.g.
-// "Southampton").
-const QTY_REGEX = /(?:abt\s*)?\d[\d.,]*(?:\s*[-–]\s*\d[\d.,]*)?\s*(cbm|mts|mt|tons|ton)\b/i;
+// A quantity is a number (optionally a range, optionally "abt"/"ard") followed
+// by a recognised mass/volume unit. Requiring a digit before the unit avoids
+// false positives from port names that merely contain the letters "mt"/"ton"
+// (e.g. "Southampton"). Optionally captures a second "/ <n> <unit>" figure
+// ("891.37 MT / 3,669.03 CBM") and a "(+/- 5% chopt)" tolerance.
+const QTY_REGEX = /(?:(?:abt|ard|approx|about|ca)\.?\s*)?\d[\d.,]*(?:\s*[-–]\s*\d[\d.,]*)?\s*(?:cbm|mts|mt|tons|ton)\b(?:\s*\/\s*\d[\d.,]*\s*(?:cbm|mts|mt|tons|ton)\b)?(?:\s*\(\s*\+\/-\s*\d+\s*%[^)]*\))?/i;
 
 // Month names (word-bounded) and a 202x year are strong laycan signals.
 const MONTH_REGEX = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
@@ -63,6 +64,28 @@ function isRouteLine(line: string): boolean {
   if (QTY_REGEX.test(line)) return false;
   // A load/discharge rate figure ("50k / 20k") is not a route.
   if (RATE_SLASH_REGEX.test(line)) return false;
+  return true;
+}
+
+// Tokens that disqualify a line from being treated as a cargo-block HEADER
+// (a "Load / Discharge" route line that begins a new cargo).
+const HEADER_DENYLIST = /(load\s*\/?\s*disch|discharge|\brate\b|\bcqd\b|\bfios\b|\bfilo\b|\bfiost\b|\bflt\b|hook|\bfrt\b|freight|vessel|stack|surcharge|clause|\bthc\b|\bbaf\b|wrip|geared|laycan|\bcomm\b|\bpct\b|usd|pmt|\bws\b)/i;
+
+// A cargo-block HEADER is a route line whose two sides are short, alphabetic
+// place names. Stricter than isRouteLine — used to split circulars into cargo
+// blocks when blank lines are absent (e.g. mobile copy-paste collapses them).
+function isRouteHeaderLine(line: string): boolean {
+  if (!line.includes('/')) return false;
+  if (QTY_REGEX.test(line)) return false;
+  if (RATE_SLASH_REGEX.test(line)) return false;
+  if (HEADER_DENYLIST.test(line)) return false;
+  const idx = line.indexOf('/');
+  const left = line.slice(0, idx).trim();
+  const right = line.slice(idx + 1).trim();
+  if (!left || !right) return false;
+  if (/\d/.test(left) || /\d/.test(right)) return false; // ports have no digits
+  if (left.split(/\s+/).length > 4 || right.split(/\s+/).length > 5) return false;
+  if (!/^[a-z .,'()&/-]+$/i.test(left) || !/^[a-z .,'()&/-]+$/i.test(right)) return false;
   return true;
 }
 
@@ -149,17 +172,19 @@ export function parseDeterministicCargoBlock(blockText: string): CargoCandidate 
     }
   }
 
-  // 4. Terms (FIOS / CQD / FILO / FIOST). Consume a dedicated terms/rate line.
+  // 4. Terms (FIOS / CQD / FILO / FIOST / FLT). Consume a dedicated terms line.
   for (let i = 0; i < lines.length; i++) {
     if (consumed.has(i)) continue;
     const l = lines[i].toLowerCase();
     let matched = false;
-    if (l.includes('fiost')) { terms = 'FIOST'; matched = true; }
+    let consume = false;
+    if (/\bflt\b/.test(l)) { terms = lines[i]; matched = true; consume = true; }
+    else if (l.includes('fiost')) { terms = 'FIOST'; matched = true; }
     else if (l.includes('fios')) { terms = 'FIOS'; matched = true; }
     else if (l.includes('filo')) { terms = 'FILO'; matched = true; }
     else if (l.includes('cqd')) { terms = terms ? terms : 'CQD'; matched = true; }
-    // Only consume the line if it is essentially just the term / handling rate.
-    if (matched && (l.includes('rate') || l.replace(/[^a-z]/g, '').length <= 8)) {
+    // Consume the line only if it is essentially just the term / handling rate.
+    if (matched && (consume || l.includes('rate') || l.replace(/[^a-z]/g, '').length <= 8)) {
       consumed.add(i);
     }
   }
@@ -249,25 +274,47 @@ export function isCargoBlock(block: string): boolean {
 }
 
 /**
- * Parse the full pasted text into 0..N cargo candidates.
+ * Parse the full pasted text into 0..N cargo candidates. Supports any number of
+ * cargo blocks. Robust to mobile copy-paste that collapses blank lines.
  *
- * - Multiple blank-line separated blocks → one candidate per cargo block.
- * - A single block that itself looks like a cargo → one candidate.
- * - Otherwise → empty array (let the AI / incomplete-warning path handle it).
+ * Strategy 1 — blank-line separated blocks (clean desktop / email paste).
+ * Strategy 2 — route-header splitting (mobile paste with single-newline gaps):
+ *              each cargo begins at a "Load / Discharge" header line.
+ * Strategy 3 — single block.
+ * Otherwise → empty array (let the AI / incomplete-warning path handle it).
  */
 export function parseDeterministicCargoes(text: string): CargoCandidate[] {
   if (!text || !text.trim()) return [];
-  const blocks = splitIntoBlocks(text);
 
+  // Strategy 1: blank-line separated blocks.
+  const blocks = splitIntoBlocks(text);
   if (blocks.length >= 2) {
     const cargoes: CargoCandidate[] = [];
     for (const block of blocks) {
       if (isCargoBlock(block)) cargoes.push(parseDeterministicCargoBlock(block));
     }
-    return cargoes;
+    if (cargoes.length >= 1) return cargoes;
   }
 
-  // Single block.
+  // Strategy 2: header-line splitting (blank lines stripped). A new cargo
+  // starts at each route header line; leading orphan lines attach to block 0.
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const headerIdx: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (isRouteHeaderLine(lines[i])) headerIdx.push(i);
+  }
+  if (headerIdx.length >= 2) {
+    const cargoes: CargoCandidate[] = [];
+    for (let h = 0; h < headerIdx.length; h++) {
+      const start = h === 0 ? 0 : headerIdx[h];
+      const end = h + 1 < headerIdx.length ? headerIdx[h + 1] : lines.length;
+      const block = lines.slice(start, end).join('\n');
+      if (isCargoBlock(block)) cargoes.push(parseDeterministicCargoBlock(block));
+    }
+    if (cargoes.length >= 1) return cargoes;
+  }
+
+  // Strategy 3: single block.
   const only = blocks[0] || text.trim();
   if (isCargoBlock(only)) {
     return [parseDeterministicCargoBlock(only)];

@@ -15,7 +15,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import OpenAI from "openai";
 import { fetchAISPosition, getAISProviderStatus } from './src/server/aisProvider';
 import { estimateRoute } from './src/lib/routingProvider';
-import { tryDeterministicSplitAndParse, parseDeterministicCargoes } from './src/lib/deterministicCargoParser';
+import { parseDeterministicCargoes } from './src/lib/deterministicCargoParser';
 
 let firestore: Firestore | null = null;
 try {
@@ -2457,7 +2457,7 @@ const jobResults = new Map<string, any[]>();
         return res.status(403).json({ error: "Forbidden: userId mismatch" });
       }
 
-      const parserVersion = 'v1.2'; // Increment for cache keys
+      const parserVersion = 'v1.3-pb13'; // Increment for cache keys (invalidates pre-PB13 cached results)
       
       const rawText = email.rawBody || email.snippet || '';
       const normText = rawText.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
@@ -2592,8 +2592,8 @@ const jobResults = new Map<string, any[]>();
                   degraded_analysis: false,
                   memoryUsed: usedMemoryInfo,
                   _diagnostic: {
-                     buildVersion: "PILOT-BLOCKER-12-FIX",
-                     releaseLabel: "pilot-blocker-12-fix",
+                     buildVersion: "PILOT-BLOCKER-13",
+                     releaseLabel: "pilot-blocker-13",
                      parserVersion: "multi-cargo-v2",
                      endpoint: "parseEmail",
                      expectedType: expectedType || "auto",
@@ -2691,55 +2691,47 @@ const jobResults = new Map<string, any[]>();
            finalCargoes = Array.isArray(data.extractedData) ? data.extractedData.map(normalizeEntity) : [normalizeEntity(data.extractedData)];
       }
 
-      // DETERMINISTIC DUAL-BLOCK FALLBACK ENFORCER
-      const detCargoes = tryDeterministicSplitAndParse(rawText);
-      if (detCargoes && detCargoes.length >= 2) {
-          if (finalCargoes.length === 0 || finalCargoes.length === 1) {
-              finalCargoes = detCargoes.map(normalizeEntity);
-          } else {
-              // Merge AI extraction with deterministic fields so nothing is missing or lost
-              for (let i = 0; i < Math.min(finalCargoes.length, detCargoes.length); i++) {
-                  const fc = finalCargoes[i];
-                  const dc = detCargoes[i];
-                  if (!fc.loadPort && dc.loadPort) fc.loadPort = dc.loadPort;
-                  if (!fc.dischargePort && dc.dischargePort) fc.dischargePort = dc.dischargePort;
-                  if (!fc.raw_commodity && dc.raw_commodity) fc.raw_commodity = dc.raw_commodity;
-                  if (!fc.commodity && dc.raw_commodity) fc.commodity = dc.raw_commodity;
-                  if (!fc.quantity && dc.quantity) fc.quantity = dc.quantity;
-                  if (!fc.laycan && dc.laycan) fc.laycan = dc.laycan;
-                  if (!fc.terms && dc.terms) fc.terms = dc.terms;
-                  if (!fc.commission && dc.commission) fc.commission = dc.commission;
-                  if (!fc.comm && dc.commission) fc.comm = dc.commission;
-                  if (!fc.special_requirements && dc.special_requirements) fc.special_requirements = dc.special_requirements;
-              }
+      // DETERMINISTIC AUTHORITY ENFORCER (PILOT-BLOCKER-13)
+      // The deterministic parser is authoritative for structured cargo blocks
+      // (N cargoes, robust to mobile paste with collapsed blank lines). When it
+      // extracts >= 1 cargo, it becomes the base result and the AI may only
+      // ENRICH empty fields — it can never erase deterministic data, and the
+      // incomplete fallback can never override a real deterministic result.
+      // Gated to cargo intake (never touches vessel parsing).
+      const detAll = (expectedType !== 'VESSEL') ? parseDeterministicCargoes(rawText) : [];
+      if (detAll.length >= 1) {
+          const base = detAll.map(normalizeEntity);
+          for (let i = 0; i < base.length; i++) {
+              const dc = base[i];
+              const fc = finalCargoes[i]; // AI candidate at the same index, if any
+              if (!fc) continue;
+              if (!dc.loadPort && fc.loadPort) dc.loadPort = fc.loadPort;
+              if (!dc.dischargePort && fc.dischargePort) dc.dischargePort = fc.dischargePort;
+              if (!dc.commodity && (fc.commodity || fc.raw_commodity)) dc.commodity = fc.commodity || fc.raw_commodity;
+              if (!dc.raw_commodity && (fc.raw_commodity || fc.commodity)) dc.raw_commodity = fc.raw_commodity || fc.commodity;
+              if (!dc.quantity && fc.quantity) dc.quantity = fc.quantity;
+              if (!dc.laycan && fc.laycan) dc.laycan = fc.laycan;
+              if (!dc.terms && fc.terms) dc.terms = fc.terms;
+              if (!dc.commission && (fc.commission || fc.comm)) dc.commission = fc.commission || fc.comm;
+              if (!dc.freight_idea && fc.freight_idea) dc.freight_idea = fc.freight_idea;
+              if (!dc.special_requirements && fc.special_requirements) dc.special_requirements = fc.special_requirements;
           }
-      } else if (expectedType === 'CARGO') {
-          // SINGLE-BLOCK DETERMINISTIC BACKFILL
-          // A clearly-structured single cargo circular must never fall through
-          // to an "all fields missing" incomplete result just because the model
-          // under-performed. Use the deterministic candidate to seed an empty
-          // result or fill gaps in a single AI cargo (never overwrites the AI).
-          const detSingle = parseDeterministicCargoes(rawText);
-          if (detSingle.length === 1) {
-              const dc = detSingle[0];
-              if (finalCargoes.length === 0) {
-                  finalCargoes = [normalizeEntity(dc)];
-              } else if (finalCargoes.length === 1) {
-                  const fc = finalCargoes[0];
-                  if (!fc.loadPort && dc.loadPort) fc.loadPort = dc.loadPort;
-                  if (!fc.dischargePort && dc.dischargePort) fc.dischargePort = dc.dischargePort;
-                  if (!fc.raw_commodity && dc.raw_commodity) fc.raw_commodity = dc.raw_commodity;
-                  if (!fc.commodity && dc.commodity) fc.commodity = dc.commodity;
-                  if (!fc.quantity && dc.quantity) fc.quantity = dc.quantity;
-                  if (!fc.laycan && dc.laycan) fc.laycan = dc.laycan;
-                  if (!fc.terms && dc.terms) fc.terms = dc.terms;
-                  if (!fc.commission && dc.commission) fc.commission = dc.commission;
-                  if (!fc.comm && dc.commission) fc.comm = dc.commission;
-                  if (!fc.freight_idea && dc.freight_idea) fc.freight_idea = dc.freight_idea;
-                  if (!fc.special_requirements && dc.special_requirements) fc.special_requirements = dc.special_requirements;
-              }
-          }
+          // If the AI somehow found more distinct cargoes than the deterministic
+          // pass, keep the extras rather than dropping data.
+          for (let i = base.length; i < finalCargoes.length; i++) base.push(finalCargoes[i]);
+          finalCargoes = base;
       }
+
+      // Safe diagnostics: counts only. Never logs raw user text, AI response,
+      // provider payload, or secrets.
+      console.log('[parseEmail][PB13]', JSON.stringify({
+          expectedType: expectedType || 'auto',
+          manualIntake: operationName === 'manual_text_intake',
+          deterministicCargoes: detAll.length,
+          finalCargoes: finalCargoes.length,
+          multiCargoDetected: finalCargoes.length > 1,
+          incompleteFallbackTriggered: detAll.length === 0 && finalCargoes.length === 0
+      }));
 
       if (data.vessels && Array.isArray(data.vessels)) {
           finalVessels = data.vessels.map(normalizeEntity);
@@ -2762,8 +2754,8 @@ const jobResults = new Map<string, any[]>();
         degraded_analysis: response.degraded || false,
         memoryUsed: usedMemoryInfo,
         _diagnostic: {
-           buildVersion: "PILOT-BLOCKER-12-FIX",
-           releaseLabel: "pilot-blocker-12-fix",
+           buildVersion: "PILOT-BLOCKER-13",
+           releaseLabel: "pilot-blocker-13",
            parserVersion: "multi-cargo-v2",
            endpoint: "parseEmail",
            expectedType: expectedType || "auto",

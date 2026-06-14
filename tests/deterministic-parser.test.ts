@@ -87,6 +87,51 @@ if (a.length === 2) {
   check('A/Cargo2 no garbage in ports', !has(c2.loadPort, 'mts') && !has(c2.dischargePort, 'stackable'), `${c2.loadPort} | ${c2.dischargePort}`);
 }
 
+// --- PILOT-BLOCKER-13: 3-cargo circular (Houston / Vizag + the two above) ---
+const THREE_CARGO = `Houston / Vizag
+Ard 891.37 MT / 3,669.03 CBM  (+/- 5% chopt) Rig dismantled
+1th – 7th March 2026
+FLT Hook/hook
+Non-Stackable, under deck only
+Frt should inc. hooking/unhooking, wrip, awrip, thc, baf etc all surcharges, no waiting clause to be applicable
+Vessel should be self-geared to load/discharge
+5 pct
+
+${TWO_CARGO}`;
+
+// Mobile paste variant: blank lines collapsed to single newlines.
+const THREE_CARGO_NOBLANK = THREE_CARGO.replace(/\n\s*\n/g, '\n');
+const HOUSTON_BLOCK = THREE_CARGO.split('\n\n')[0];
+
+console.log('\nTest PB13-A — 3-cargo circular (with blank lines)');
+const t3 = parseDeterministicCargoes(THREE_CARGO);
+check('PB13-A: 3 cargo candidates detected', t3.length === 3, `got ${t3.length}`);
+if (t3.length === 3) {
+  check('PB13-A/Cargo1 load = Houston', has(t3[0].loadPort, 'houston'), t3[0].loadPort);
+  check('PB13-A/Cargo1 discharge = Vizag', has(t3[0].dischargePort, 'vizag'), t3[0].dischargePort);
+  check('PB13-A/Cargo1 quantity has MT', has(t3[0].quantity, 'mt'), t3[0].quantity);
+  check('PB13-A/Cargo1 no garbage port', !has(t3[0].loadPort, 'frt') && !has(t3[0].loadPort, 'hook'), `${t3[0].loadPort} | ${t3[0].dischargePort}`);
+  check('PB13-A/Cargo2 load = Saint Petersburg', has(t3[1].loadPort, 'saint petersburg'), t3[1].loadPort);
+  check('PB13-A/Cargo3 load = Pasir Gudang', has(t3[2].loadPort, 'pasir gudang'), t3[2].loadPort);
+}
+
+console.log('\nTest PB13-A2 — 3-cargo circular (mobile, blank lines stripped)');
+const t3nb = parseDeterministicCargoes(THREE_CARGO_NOBLANK);
+check('PB13-A2: 3 cargo candidates detected (no blank lines)', t3nb.length === 3, `got ${t3nb.length}`);
+if (t3nb.length === 3) {
+  check('PB13-A2/Cargo1 load = Houston', has(t3nb[0].loadPort, 'houston'), t3nb[0].loadPort);
+  check('PB13-A2/Cargo2 load = Saint Petersburg', has(t3nb[1].loadPort, 'saint petersburg'), t3nb[1].loadPort);
+  check('PB13-A2/Cargo3 load = Pasir Gudang', has(t3nb[2].loadPort, 'pasir gudang'), t3nb[2].loadPort);
+}
+
+console.log('\nTest PB13-C — Houston block only');
+const hb = parseDeterministicCargoes(HOUSTON_BLOCK);
+check('PB13-C: 1 cargo candidate', hb.length === 1, `got ${hb.length}`);
+if (hb.length === 1) {
+  check('PB13-C: load = Houston', has(hb[0].loadPort, 'houston'), hb[0].loadPort);
+  check('PB13-C: discharge = Vizag', has(hb[0].dischargePort, 'vizag'), hb[0].dischargePort);
+}
+
 console.log('\nTest B — first block only');
 const b = parseDeterministicCargoes(BLOCK_1);
 check('B: 1 cargo candidate', b.length === 1, `got ${b.length}`);
