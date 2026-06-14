@@ -43,17 +43,29 @@ service cloud.firestore {
       match /members/{memberId} {
         allow read: if isSignedIn() && isWorkspaceMember(workspaceId);
         allow write: if isSignedIn() && (
+          (request.auth.uid == memberId && getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid) ||
           get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid ||
           get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
         );
       }
     }
     
+    // Public Profiles
+    match /publicProfiles/{deskId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() 
+        && incoming().uid == request.auth.uid 
+        && deskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId
+        && deskId == incoming().deskId
+        && (!exists(/databases/$(database)/documents/publicProfiles/$(deskId)) || get(/databases/$(database)/documents/publicProfiles/$(deskId)).data.uid == request.auth.uid)
+        && incoming().keys().hasOnly(['uid', 'deskId', 'displayName', 'companyName', 'role', 'region', 'verifiedCompany', 'updatedAt', 'createdAt']);
+    }
+    
     // Users
     match /users/{userId} {
       allow get: if isOwner(userId);
       allow create: if isOwner(userId) && (!('subscription' in incoming()) && !('grants' in incoming()) && !('connectedTo' in incoming()));
-      allow update: if isOwner(userId) && (!incoming().diff(existing()).affectedKeys().hasAny(['subscription', 'grants', 'stripeCustomerId', 'stripeSubscriptionId', 'connectedTo']));
+      allow update: if isOwner(userId) && (!incoming().diff(existing()).affectedKeys().hasAny(['subscription', 'grants', 'stripeCustomerId', 'stripeSubscriptionId', 'connectedTo', 'deskId']));
       
       match /networkConnections/{viewerId} {
         allow read: if isOwner(userId) || request.auth.uid == viewerId;
@@ -79,6 +91,11 @@ service cloud.firestore {
         allow write: if isOwner(userId);
       }
 
+      match /emailSyncJobs/{jobId} {
+        allow read: if isOwner(userId);
+        allow write: if false; // Server only
+      }
+
       match /memberships/{workspaceId} {
         allow read: if isOwner(userId);
         allow write: if isSignedIn() && (
@@ -89,15 +106,35 @@ service cloud.firestore {
       }
       
       match /recapDrafts/{draftId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) || (
+          isSignedIn() && (
+            get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(draftId)).data.cargoOwnerUid == request.auth.uid ||
+            get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(draftId)).data.vesselOwnerUid == request.auth.uid
+          ) && (
+            get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(draftId)).data.cargoOwnerUid == userId ||
+            get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(draftId)).data.vesselOwnerUid == userId
+          )
+        );
       }
 
       match /emailAccounts/{accountId} {
         allow read, write: if isOwner(userId);
       }
 
+      match /settings/{settingId} {
+        allow read, write: if isOwner(userId);
+      }
+      
       match /notifications/{notificationId} {
         allow read, write: if isOwner(userId);
+      }
+
+      match /urgentNotifications/{notifId} {
+        allow read: if isOwner(userId);
+        allow update, delete: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && incoming().keys().hasOnly(['notificationId', 'dealId', 'type', 'title', 'safeMessage', 'status', 'relatedCargoItemId', 'relatedVesselItemId', 'matchScore', 'urgencyScore', 'createdAt', 'updatedAt', 'expiresAt']);
       }
 
       match /deskNetworkTests/{testId} {
@@ -185,14 +222,16 @@ service cloud.firestore {
     // Shared Items Rules
     function isAllowedSharedCargo(data) {
       return data.itemType == 'cargo'
-        && data.keys().hasOnly(['itemType', 'ownerId', 'ownerDisplayName', 'sourceItemId', 'commodity', 'raw_commodity', 'quantity', 'quantity_mt', 'quantity_cbm', 'loadPort', 'dischargePort', 'laycan', 'terms', 'special_requirements', 'status', 'createdAt', 'sharedAt'])
-        && !data.keys().hasAny(['rawBody', 'rawText', 'sourceId', 'dedupeKey', 'snippet', 'privateNotes', 'missing_fields', 'confidence', 'actualProvider', 'actualModel', 'degraded_analysis', 'access_token', 'refresh_token', 'gmailData']);
+        && data.keys().hasOnly(['itemType', 'ownerId', 'ownerDisplayName', 'sourceItemId', 'commodity', 'raw_commodity', 'quantity', 'quantity_mt', 'quantity_cbm', 'loadPort', 'dischargePort', 'laycan', 'terms', 'special_requirements', 'status', 'createdAt', 'sharedAt', 'updatedAt', 'lastPublishedUpdateAt', 'isUrgent', 'urgentReason', 'urgentUntil', 'urgentType', 'urgentNote', 'urgentMarkedBy', 'urgentMarkedAt', 'urgentStatus'])
+        && !data.keys().hasAny(['rawBody', 'rawText', 'sourceId', 'dedupeKey', 'snippet', 'privateNotes', 'missing_fields', 'confidence', 'actualProvider', 'actualModel', 'degraded_analysis', 'access_token', 'refresh_token', 'gmailData'])
+        && (!data.keys().hasAny(['urgentMarkedBy']) || data.urgentMarkedBy == data.ownerId || data.urgentMarkedBy == 'system');
     }
 
     function isAllowedSharedVessel(data) {
       return data.itemType == 'vessel'
-        && data.keys().hasOnly(['itemType', 'ownerId', 'ownerDisplayName', 'sourceItemId', 'vessel_name', 'name', 'vessel_type', 'dwt', 'openPort', 'openDate', 'cranes', 'gear', 'direction', 'restrictions', 'suitable_for', 'status', 'createdAt', 'sharedAt'])
-        && !data.keys().hasAny(['rawBody', 'rawText', 'sourceId', 'dedupeKey', 'snippet', 'privateNotes', 'missing_fields', 'confidence', 'actualProvider', 'actualModel', 'degraded_analysis', 'access_token', 'refresh_token']);
+        && data.keys().hasOnly(['itemType', 'ownerId', 'ownerDisplayName', 'sourceItemId', 'vessel_name', 'name', 'vessel_type', 'dwt', 'openPort', 'openDate', 'cranes', 'gear', 'direction', 'restrictions', 'suitable_for', 'status', 'createdAt', 'sharedAt', 'updatedAt', 'lastPublishedUpdateAt', 'isUrgent', 'urgentReason', 'urgentUntil', 'urgentType', 'urgentNote', 'urgentMarkedBy', 'urgentMarkedAt', 'urgentStatus', 'notes'])
+        && !data.keys().hasAny(['rawBody', 'rawText', 'sourceId', 'dedupeKey', 'snippet', 'privateNotes', 'missing_fields', 'confidence', 'actualProvider', 'actualModel', 'degraded_analysis', 'access_token', 'refresh_token'])
+        && (!data.keys().hasAny(['urgentMarkedBy']) || data.urgentMarkedBy == data.ownerId || data.urgentMarkedBy == 'system');
     }
     
     function isAllowedProposal(data) {
@@ -206,7 +245,7 @@ service cloud.firestore {
         (resource.data.status == 'active' && 
          (
            exists(/databases/$(database)/documents/users/$(resource.data.ownerId)/networkConnections/$(request.auth.uid)) ||
-           resource.data.ownerId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.connectedTo
+           resource.data.ownerId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('connectedTo', [])
          )
         )
       );
@@ -227,6 +266,264 @@ service cloud.firestore {
     match /incoming_webhooks/{webhookId} {
       allow read: if isSignedIn();
       allow write: if false; // Only written via fast-server webhook API
+    }
+
+    function getCargoApproval(data) {
+      return data.get('approvals', {}).get('cargoSide', {});
+    }
+    
+    function getVesselApproval(data) {
+      return data.get('approvals', {}).get('vesselSide', {});
+    }
+
+    match /deskNetworkUrgentDeals/{dealId} {
+      allow read: if isSignedIn() && (resource.data.vesselOwnerUid == request.auth.uid || resource.data.cargoOwnerUid == request.auth.uid || ('system' in [resource.data.vesselOwnerUid, resource.data.cargoOwnerUid]));
+      allow create: if isSignedIn() 
+        && (incoming().vesselOwnerUid == request.auth.uid || incoming().cargoOwnerUid == request.auth.uid)
+        && incoming().keys().hasOnly(['dealId', 'vesselItemId', 'cargoItemId', 'vesselOwnerUid', 'cargoOwnerUid', 'vesselSharedItemId', 'cargoSharedItemId', 'status', 'urgencyScore', 'matchScore', 'region', 'reason', 'createdAt', 'updatedAt', 'expiresAt', 'createdBySystem', 'auditTrail', 'cargoSideUid', 'vesselSideUid', 'interestedByUid', 'interestedAt', 'contactedAt', 'lastActionAt', 'negotiatingAt', 'approvals', 'approvalStatus', 'lastApprovalActionAt', 'lastApprovalActionBy', 'dualApprovedAt']);
+      allow update: if isSignedIn() 
+        && (resource.data.vesselOwnerUid == request.auth.uid || resource.data.cargoOwnerUid == request.auth.uid)
+        && incoming().vesselOwnerUid == resource.data.vesselOwnerUid
+        && incoming().cargoOwnerUid == resource.data.cargoOwnerUid
+        && incoming().vesselItemId == resource.data.vesselItemId
+        && incoming().cargoItemId == resource.data.cargoItemId
+        && incoming().keys().hasOnly(['dealId', 'vesselItemId', 'cargoItemId', 'vesselOwnerUid', 'cargoOwnerUid', 'vesselSharedItemId', 'cargoSharedItemId', 'status', 'urgencyScore', 'matchScore', 'region', 'reason', 'createdAt', 'updatedAt', 'expiresAt', 'createdBySystem', 'auditTrail', 'cargoSideUid', 'vesselSideUid', 'interestedByUid', 'interestedAt', 'contactedAt', 'lastActionAt', 'negotiatingAt', 'approvals', 'approvalStatus', 'lastApprovalActionAt', 'lastApprovalActionBy', 'dualApprovedAt'])
+        
+        // Audit trail append-only check
+        && (!('auditTrail' in incoming()) || (!('auditTrail' in existing()) && incoming().auditTrail is list) || (incoming().auditTrail is list && existing().auditTrail is list && incoming().auditTrail.size() >= existing().auditTrail.size()))
+        && (!('auditTrail' in existing()) || !('auditTrail' in incoming()) || existing().auditTrail == incoming().auditTrail[0:existing().auditTrail.size()])
+        
+        // Map access validation & Lock modification after dual approval logic
+        && (existing().status != 'dual_approved' || incoming().status == 'cancelled')
+        && (request.auth.uid != resource.data.cargoOwnerUid ? getCargoApproval(incoming()) == getCargoApproval(existing()) : true)
+        && (request.auth.uid != resource.data.vesselOwnerUid ? getVesselApproval(incoming()) == getVesselApproval(existing()) : true)
+        
+        // Status spoofing prevention
+        && (incoming().status != 'dual_approved' || (getCargoApproval(incoming()).get('approved', false) == true && getVesselApproval(incoming()).get('approved', false) == true))
+        && (incoming().approvalStatus != 'dual_approved' || (getCargoApproval(incoming()).get('approved', false) == true && getVesselApproval(incoming()).get('approved', false) == true));
+        
+      match /recaps/{recapId} {
+        allow read: if isSignedIn() && (
+          get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(dealId)).data.vesselOwnerUid == request.auth.uid || 
+          get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(dealId)).data.cargoOwnerUid == request.auth.uid
+        );
+        allow create: if isSignedIn() && (
+          get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(dealId)).data.vesselOwnerUid == request.auth.uid || 
+          get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(dealId)).data.cargoOwnerUid == request.auth.uid
+        ) && get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(dealId)).data.status == 'dual_approved';
+        allow update: if isSignedIn() && (
+          get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(dealId)).data.vesselOwnerUid == request.auth.uid || 
+          get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(dealId)).data.cargoOwnerUid == request.auth.uid
+        ) 
+        && (
+           (existing().status == 'locked' ? (
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'auditTrail', 'updatedAt']) &&
+              (incoming().status == 'cancelled' || incoming().status == 'locked')
+           ) : true)
+        )
+        && (
+           (existing().status == 'cancelled' ? false : true)
+        )
+        && (
+           request.auth.uid != get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(dealId)).data.cargoOwnerUid ?
+               incoming().get('confirmations', {}).get('cargoSide', {}) == existing().get('confirmations', {}).get('cargoSide', {})
+           : true
+        )
+        && (
+           request.auth.uid != get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(dealId)).data.vesselOwnerUid ?
+               incoming().get('confirmations', {}).get('vesselSide', {}) == existing().get('confirmations', {}).get('vesselSide', {})
+           : true
+        )
+        && (
+           (
+             existing().get('confirmations', {}).get('cargoSide', {}).get('confirmed', false) == true || 
+             existing().get('confirmations', {}).get('vesselSide', {}).get('confirmed', false) == true
+           ) 
+           ? incoming().get('recapData', {}) == existing().get('recapData', {})
+           : true
+        )
+        && get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(dealId)).data.status != 'cancelled'
+        && (!('auditTrail' in incoming()) || (!('auditTrail' in existing()) && incoming().auditTrail is list) || (incoming().auditTrail is list && existing().auditTrail is list && incoming().auditTrail.size() >= existing().auditTrail.size()))
+        && (!('auditTrail' in existing()) || !('auditTrail' in incoming()) || existing().auditTrail == incoming().auditTrail[0:existing().auditTrail.size()]);
+      }
+    }
+    match /marketRequests/{requestId} {
+      allow read: if isSignedIn() && (
+        resource.data.visibility == 'network' || 
+        (resource.data.visibility == 'private' && resource.data.createdByUid == request.auth.uid) ||
+        resource.data.createdByUid == request.auth.uid
+      );
+      allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid 
+        && incoming().keys().hasAll(['id', 'type', 'visibility', 'status', 'createdByUid'])
+        && incoming().status in ['active', 'matched', 'negotiating', 'closed', 'expired', 'cancelled'];
+      allow update: if isSignedIn() && existing().createdByUid == request.auth.uid
+        && incoming().createdByUid == existing().createdByUid;
+      allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
+    }
+
+    match /marketMatches/{matchId} {
+      allow read: if isSignedIn() && (
+        resource.data.vesselOwnerUid == request.auth.uid || 
+        resource.data.cargoOwnerUid == request.auth.uid
+      );
+      allow create: if isSignedIn() && (
+        incoming().vesselOwnerUid == request.auth.uid || 
+        incoming().cargoOwnerUid == request.auth.uid
+      );
+      allow update: if isSignedIn() && (
+        existing().vesselOwnerUid == request.auth.uid || 
+        existing().cargoOwnerUid == request.auth.uid
+      );
+      allow delete: if isSignedIn() && (
+        existing().vesselOwnerUid == request.auth.uid || 
+        existing().cargoOwnerUid == request.auth.uid
+      );
+    }
+
+    match /watchlists/{watchlistId} {
+      allow read: if isSignedIn() && (
+        resource.data.createdByUid == request.auth.uid || 
+        (resource.data.visibility == 'my_desk' && resource.data.createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+      );
+      allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid;
+      allow update: if isSignedIn() && existing().createdByUid == request.auth.uid && incoming().createdByUid == existing().createdByUid;
+      allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
+    }
+
+    match /watchlistMatches/{matchId} {
+      allow read: if isSignedIn() && resource.data.createdByUid == request.auth.uid;
+      allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid;
+      allow update: if isSignedIn() && existing().createdByUid == request.auth.uid && incoming().createdByUid == existing().createdByUid;
+      allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
+    }
+    match /dealBriefs/{briefId} {
+      allow read: if isSignedIn() && (
+        resource.data.createdByUid == request.auth.uid || 
+        (resource.data.visibility == 'my_desk' && resource.data.createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+      );
+      // Create/update is handled by Admin SDK on backend, but allow normal owner deletes if needed
+      allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
+    }
+
+    match /counterparties/{counterpartyId} {
+      allow read: if isSignedIn() && (
+        resource.data.createdByUid == request.auth.uid || 
+        (resource.data.visibility == 'my_desk' && resource.data.createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+      );
+      allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid;
+      allow update: if isSignedIn() && (
+        existing().createdByUid == request.auth.uid || 
+        (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+      );
+      allow delete: if isSignedIn() && (
+        existing().createdByUid == request.auth.uid || 
+        (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+      );
+    }
+
+    match /counterpartyNotes/{noteId} {
+      allow read: if isSignedIn() && (
+        resource.data.createdByUid == request.auth.uid || 
+        (resource.data.visibility == 'my_desk' && resource.data.createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+      );
+      allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid;
+      allow update: if isSignedIn() && existing().createdByUid == request.auth.uid;
+      allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
+    }
+
+    match /dealRooms/{roomId} {
+      allow read: if isSignedIn() && (
+        resource.data.createdByUid == request.auth.uid || 
+        (resource.data.participantUids != null && request.auth.uid in resource.data.participantUids) ||
+        (resource.data.visibility == 'my_desk' && resource.data.createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
+        (resource.data.visibility == 'my_desk' && resource.data.participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in resource.data.participantDeskIds)
+      );
+      allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid && (!('createdByDeskId' in incoming()) || incoming().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId);
+      allow update: if isSignedIn() && (
+        existing().createdByUid == request.auth.uid || 
+        (existing().participantUids != null && request.auth.uid in existing().participantUids) ||
+        (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
+        (existing().visibility == 'my_desk' && existing().participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in existing().participantDeskIds)
+      );
+      allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
+    }
+
+    match /dealRoomNotes/{noteId} {
+      allow read: if isSignedIn() && (
+        resource.data.createdByUid == request.auth.uid || 
+        (resource.data.visibility == 'my_desk' && resource.data.createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
+        (resource.data.visibility == 'participants' && resource.data.dealRoomId != null && (
+          get(/databases/$(database)/documents/dealRooms/$(resource.data.dealRoomId)).data.createdByUid == request.auth.uid ||
+          (get(/databases/$(database)/documents/dealRooms/$(resource.data.dealRoomId)).data.participantUids != null && request.auth.uid in get(/databases/$(database)/documents/dealRooms/$(resource.data.dealRoomId)).data.participantUids)
+        ))
+      );
+      allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid;
+      allow update: if isSignedIn() && existing().createdByUid == request.auth.uid;
+      allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
+    }
+    match /alerts/{alertId} {
+      allow read: if isSignedIn() && (
+        resource.data.recipientUid == request.auth.uid || 
+        (resource.data.recipientDeskId != null && resource.data.recipientDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+      );
+      allow create: if isSignedIn() && (
+        incoming().recipientUid == request.auth.uid || 
+        (incoming().recipientDeskId != null && incoming().recipientDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+      );
+      allow update: if isSignedIn() && (
+        existing().recipientUid == request.auth.uid || 
+        (existing().recipientDeskId != null && existing().recipientDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+      );
+      allow delete: if isSignedIn() && (
+        existing().recipientUid == request.auth.uid || 
+        (existing().recipientDeskId != null && existing().recipientDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+      );
+    }
+    
+    match /alertPreferences/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+    
+    match /dailyDigests/{digestId} {
+      allow read: if isSignedIn() && (
+        resource.data.recipientUid == request.auth.uid || 
+        (resource.data.recipientDeskId != null && resource.data.recipientDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+      );
+      allow create: if isSignedIn() && (
+        incoming().recipientUid == request.auth.uid || 
+        (incoming().recipientDeskId != null && incoming().recipientDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+      );
+      allow update, delete: if false;
+    }
+
+    match /voyageEstimates/{estimateId} {
+      allow read: if isSignedIn() && (
+        resource.data.createdByUid == request.auth.uid || 
+        (resource.data.participantUids != null && request.auth.uid in resource.data.participantUids) ||
+        (resource.data.visibility == 'my_desk' && resource.data.createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
+        (resource.data.visibility == 'my_desk' && resource.data.participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in resource.data.participantDeskIds)
+      );
+      allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid;
+      allow update: if isSignedIn() && (
+        existing().createdByUid == request.auth.uid || 
+        (existing().participantUids != null && request.auth.uid in existing().participantUids) ||
+        (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
+        (existing().visibility == 'my_desk' && existing().participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in existing().participantDeskIds)
+      );
+      allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
+    }
+    match /negotiationSuggestions/{suggestionId} {
+      allow read: if isSignedIn() && (
+        resource.data.createdByUid == request.auth.uid || 
+        (resource.data.participantUids != null && request.auth.uid in resource.data.participantUids) ||
+        (resource.data.visibility == 'my_desk' && resource.data.createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+      );
+      allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid;
+      allow update: if isSignedIn() && (
+        existing().createdByUid == request.auth.uid || 
+        (existing().participantUids != null && request.auth.uid in existing().participantUids)
+      );
+      allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
     }
   }
 }

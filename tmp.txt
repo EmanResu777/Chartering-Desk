@@ -1,0 +1,309 @@
+865-        const response = await generateContentWithFailover(ai, {
+866-          model: AI_MODELS.COMPLEX_CLOUD, // fallback to cloud for repair (lightweight 2.5 flash)
+867-          contents: repairPrompt,
+868-          config: {
+869-            systemInstruction: repairInstruction,
+870:            responseMimeType: "application/json"
+871-          }
+872-        });
+873-        
+874-        const repairedData = JSON.parse(response.text || '{}');
+875-        repairedData._repaired = true;
+876-        return repairedData;
+877-      } catch (repairError) {
+878-        console.error("AI JSON Repair failed:", repairError);
+879-        throw new Error("Failed to parse and repair strictly expected JSON from AI output");
+880-      }
+881-    }
+882-  }
+883-}
+884-
+885-async function startServer() {
+886-  const app = express();
+887-  const PORT = 3000;
+888-
+889-  app.set('trust proxy', true);
+890-  
+891-  // Webhook needs raw body for signature verification
+892-  app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+893-    const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+894-    
+895-    if (!stripe || !STRIPE_WEBHOOK_SECRET) {
+896-      console.error("Stripe keys not configured for webhook");
+897-      return res.status(400).send("Webhook secret not configured");
+898-    }
+899-
+900-    const sig = req.headers['stripe-signature'];
+901-    
+902-    if (!sig) {
+903-      return res.status(400).send("No signature found");
+904-    }
+905-
+906-    let event: Stripe.Event;
+907-
+908-    try {
+909-      event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
+910-    } catch (err: any) {
+--
+2273-          contents: payload.contents || payload.prompt || JSON.stringify(payload)
+2274-        };
+2275-        if (taskType === "analyze_risk") {
+2276-           aiConfig.config = {
+2277-             systemInstruction: RISK_ANALYST_SYSTEM,
+2278:             responseMimeType: "application/json",
+2279-             responseSchema: {
+2280-                type: Type.OBJECT,
+2281-                properties: {
+2282-                   type: { type: Type.STRING, description: "Must be RISK_ANALYSIS" },
+2283-                   risk_type: { type: Type.STRING },
+2284-                   key_risk: { type: Type.STRING },
+2285-                   recommended_action: { type: Type.STRING },
+2286-                   severity: { type: Type.STRING, description: "Low, Medium, High, Critical" },
+2287-                   shouldReject: { type: Type.BOOLEAN },
+2288-                   shouldFlagRisk: { type: Type.BOOLEAN }
+2289-                },
+2290-                required: ["type", "risk_type", "key_risk", "recommended_action", "severity", "shouldReject", "shouldFlagRisk"]
+2291-             }
+2292-           };
+2293-        }
+2294-        
+2295-        response = await generateContentWithFailover(ai, aiConfig);
+2296-      } catch (err: any) {
+2297-        if (routing.model === AI_MODELS.HEAVY_SERVER) {
+2298-          console.warn("Server Heavy AI failed, falling back to Complex Cloud AI", err);
+2299-          usedModel = AI_MODELS.COMPLEX_CLOUD;
+2300-          warning = "Failed to run heavy analysis model. Fell back to standard cloud AI.";
+2301-          
+2302-          let fallbackConfig = {};
+2303-          if (taskType === "analyze_risk") {
+2304-             fallbackConfig = {
+2305-               systemInstruction: RISK_ANALYST_SYSTEM,
+2306:               responseMimeType: "application/json",
+2307-               responseSchema: {
+2308-                  type: Type.OBJECT,
+2309-                  properties: {
+2310-                     type: { type: Type.STRING, description: "Must be RISK_ANALYSIS" },
+2311-                     risk_type: { type: Type.STRING },
+2312-                     key_risk: { type: Type.STRING },
+2313-                     recommended_action: { type: Type.STRING },
+2314-                     severity: { type: Type.STRING, description: "Low, Medium, High, or Critical" },
+2315-                     shouldReject: { type: Type.BOOLEAN },
+2316-                     shouldFlagRisk: { type: Type.BOOLEAN },
+2317-                     degraded_analysis: { type: Type.BOOLEAN },
+2318-                     actualModel: { type: Type.STRING }
+2319-                  },
+2320-                  required: ["type", "risk_type", "key_risk", "recommended_action", "severity", "shouldReject", "shouldFlagRisk"]
+2321-               }
+2322-             };
+2323-          }
+2324-
+2325-          response = await generateContentWithFailover(ai, {
+2326-            model: usedModel,
+2327-            contents: payload.contents || payload.prompt || JSON.stringify(payload),
+2328-            config: fallbackConfig
+2329-          });
+2330-        } else {
+2331-          throw err;
+2332-        }
+2333-      }
+2334-
+2335-      const text = response?.text || '';
+2336-      
+2337-      let parsedJson = {};
+2338-      try {
+2339-        if (text) {
+2340-          const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+2341-          parsedJson = JSON.parse(cleanedText);
+2342-        }
+2343-      } catch (e) {
+2344-        // Ignore JSON parse errors for non-JSON outputs
+2345-      }
+2346-      
+--
+2615-        response = await generateContentWithFailover(ai, {
+2616-          model: AI_MODELS.COMPLEX_CLOUD,
+2617-          contents: contentsInput,
+2618-          config: {
+2619-            systemInstruction: PARSE_EMAIL_SYSTEM_INSTRUCTION + memHint + explicitHint,
+2620:            responseMimeType: "application/json"
+2621-          }
+2622-        });
+2623-      } catch (err: any) {
+2624-        if (verifiedUid) await recordFailedNotCharged(verifiedUid, operationName, reqId, err.message || 'ai_error');
+2625-        console.error("AI SDK Threw Error:", err);
+2626-        // Fallback gracefully so UI does not show technical error.
+2627-        response = {
+2628-           text: JSON.stringify({
+2629-               type: expectedType === "VESSEL" ? "VESSEL" : "CARGO",
+2630-               decision: "Check",
+2631-               cargoes: expectedType === "VESSEL" ? [] : [{ missing_fields: ["commodity", "quantity", "loadPort", "dischargePort", "details_too_fragmented_or_AI_failed"] }],
+2632-               vessels: expectedType === "CARGO" ? [] : [{ missing_fields: ["name", "dwt", "openPort", "openDate", "details_too_fragmented_or_AI_failed"] }],
+2633-               summary: "Error occurred during AI processing, could not fully extract fields. Please input manually."
+2634-           }),
+2635-           actualModel: "fallback",
+2636-           actualProvider: "fallback"
+2637-        };
+2638-      }
+2639-      let data;
+2640-      try {
+2641-        data = await safeAIParseJSON(response.text || '{}');
+2642-      } catch (parseErr: any) {
+2643-        console.error("safeAIParseJSON failed:", parseErr, "Response text:", response.text);
+2644-        // Do not throw generic parse error if AI produced a text but it just failed to parse into schema.
+2645-        // Normalize as an OTHER email so the UI handles it gracefully.
+2646-        data = {
+2647-          type: "OTHER",
+2648-          summary: "Could not parse email into structured data.",
+2649-          decision: "Check",
+2650-          cargoes: [],
+2651-          vessels: []
+2652-        };
+2653-      }
+2654-      
+2655-      // Normalization as requested: "ensure missing_fields is always an array of safe non-empty strings;"
+2656-      // "ensure optional fields can be absent instead of empty invalid strings;"
+2657-      const normalizeEntity = (e: any) => {
+2658-          if (!e) return e;
+2659-          if (e.missing_fields) {
+2660-              if (Array.isArray(e.missing_fields)) {
+--
+2926-      const aiConfig: any = {
+2927-        model: AI_MODELS.HEAVY_SERVER,
+2928-        contents: contentsInput,
+2929-        config: {
+2930-          systemInstruction: MATCH_VESSELS_SYSTEM_INSTRUCTION,
+2931:          responseMimeType: "application/json"
+2932-        }
+2933-      };
+2934-
+2935-      try {
+2936-        response = await generateContentWithFailover(ai, aiConfig);
+2937-      } catch (err: any) {
+2938-        // If it was a non-quota error with Pro, fallback to Flash.
+2939-        console.warn("Server Heavy AI failed for matchVessels, falling back to Flash", err.message);
+2940-        degraded = true;
+2941-        fallbackReason = "Failed to run heavy analysis model. Fell back to standard cloud AI.";
+2942-        aiConfig.model = AI_MODELS.COMPLEX_CLOUD;
+2943-        try {
+2944-           response = await generateContentWithFailover(ai, aiConfig);
+2945-        } catch (innerErr: any) {
+2946-           const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
+2947-           if (verifiedUid) await recordFailedNotCharged(verifiedUid, 'match_cargo_vessel', reqId, innerErr.message || 'ai_error');
+2948-           throw innerErr;
+2949-        }
+2950-      }
+2951-
+2952-      const data = await safeAIParseJSON(response.text || '{}');
+2953-      
+2954-      if (verifiedUid && firestore) {
+2955-          try {
+2956-              const increment = FieldValue.increment(1);
+2957-              const updates: any = {
+2958-                  matchCallsMade: increment,
+2959-                  aiCallsMade: increment
+2960-              };
+2961-              if (response.actualProvider === 'google') updates.providerGoogleCount = increment;
+2962-              else if (response.actualProvider === 'openai') updates.providerOpenAICount = increment;
+2963-              else updates.fallbackUsedCount = increment;
+2964-
+2965-              await firestore.collection('users').doc(verifiedUid).collection('usage').doc('aiMetrics').set(updates, { merge: true });
+2966-              
+2967-              // P4.4B: Marginal Usage Tracking
+2968-              // P4.3: Non-blocking Usage Logging
+2969-              const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
+2970-              chargeCreditsAfterSuccess(
+2971-                verifiedUid,
+--
+3456-         aiResponse = await generateContentWithFailover(ai, {
+3457-            model: AI_MODELS.COMPLEX_CLOUD,
+3458-            contents: prompt,
+3459-            config: {
+3460-              systemInstruction,
+3461:              responseMimeType: "application/json",
+3462-              responseSchema
+3463-            }
+3464-         });
+3465-      } catch (err: any) {
+3466-         await recordFailedNotCharged(uid, operation, reqId, err.message || 'ai_error');
+3467-         throw err;
+3468-      }
+3469-
+3470-      let parsedBrief;
+3471-      try {
+3472-         parsedBrief = await safeAIParseJSON(aiResponse.text);
+3473-      } catch (e) {
+3474-         await recordFailedNotCharged(uid, operation, reqId, 'json_parse_error');
+3475-         return res.status(500).json({ error: "AI produced invalid format" });
+3476-      }
+3477-
+3478-      // Add disclaimer
+3479-      parsedBrief.disclaimer = "AI Deal Brief is decision support only. It is not a fixture, not a charter party, and not legal advice. It may contain errors. Principal approval may still be required.";
+3480-
+3481-      const inputTokens = Math.ceil(prompt.length / 4);
+3482-      const outputTokens = Math.ceil(aiResponse.text.length / 4);
+3483-      
+3484-      await chargeCreditsAfterSuccess(uid, operation, reqId, {
+3485-         provider: aiResponse.actualProvider,
+3486-         model: aiResponse.actualModel,
+3487-         inputTokens, outputTokens, totalTokens: inputTokens + outputTokens
+3488-      });
+3489-
+3490-      // Save to Firestore
+3491-      const briefId = uuidv4();
+3492-      const briefDoc = {
+3493-         id: briefId,
+3494-         createdByUid: uid,
+3495-         sourceItemId: itemId,
+3496-         sourceItemType: itemType,
+3497-         status: 'active',
+3498-         brief: parsedBrief,
+3499-         generatedAt: FieldValue.serverTimestamp(),
+3500-         audit: [{ action: 'deal brief generated', timestamp: new Date().toISOString() }]
+3501-      };
+--
+3719-      const result = await generateContentWithFailover(ai, {
+3720-        model: AI_MODELS.COMPLEX_CLOUD,
+3721-        contents: userPrompt,
+3722-        config: {
+3723-          systemInstruction: systemPrompt.replace('{TONE}', tone || 'professional'),
+3724:          responseMimeType: "application/json",
+3725-          responseSchema: responseSchema
+3726-        }
+3727-      });
+3728-
+3729-      const parsedJSON = await safeAIParseJSON(result.text);
+3730-      if (!parsedJSON || !parsedJSON.suggestedMessage) {
+3731-        throw new Error("AI returned malformed or empty negotiation suggestion.");
+3732-      }
+3733-      
+3734-      parsedJSON.disclaimer = "This is an AI-generated suggestion only. The broker must review, edit, and decide before taking any action. Does not constitute a final binding fixture.";
+3735-
+3736-      await chargeCreditsAfterSuccess(verifiedUid, 'negotiation_strategy', requestId);
+3737-
+3738-      res.status(200).json(parsedJSON);
+3739-    } catch (error: any) {
+3740-      console.error("Negotiation Copilot error:", error);
+3741-      res.status(500).json({ error: getErrorMsg(error) });
+3742-    }
+3743-  });
+3744-
+3745-  app.post('/api/offers/process', express.json(), async (req, res) => {
+3746-    try {
+3747-      const authHeader = req.headers.authorization;
+3748-      if (!authHeader?.startsWith('Bearer ')) {
+3749-        return res.status(401).json({ error: 'Missing token' });
+3750-      }
+3751-      const token = authHeader.split('Bearer ')[1];
+3752-      const decodedToken = await getAuth().verifyIdToken(token);
+3753-      const userId = decodedToken.uid;
+3754-
+3755-      const { cargoId, vesselId, eta } = req.body;
+3756-      if (!cargoId || !vesselId) {
+3757-        return res.status(400).json({ error: 'Missing cargoId or vesselId' });
+3758-      }
+3759-
+3760-      if (!firestore) return res.status(500).json({ error: 'Database not available' });
+3761-
+3762-      // Verify current user owns/has access to selected cargo
+3763-      const cargoDoc = await firestore.collection('cargos').doc(cargoId).get();
+3764-      if (!cargoDoc.exists) return res.status(404).json({ error: 'Cargo not found' });

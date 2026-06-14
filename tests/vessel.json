@@ -1,0 +1,1601 @@
+[
+  {
+    "id": "V-001",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Handysize Open Tonnage",
+        "sender": "vessels01@test.com",
+        "rawBody": "MV Ocean Handy 32,000 dwt open Santos 1-5 May."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Ocean Handy",
+        "dwt": 32000,
+        "open_port": "Santos",
+        "open_date": "1-5 May"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-002",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Supramax position",
+        "sender": "vessels02@test.com",
+        "rawBody": "MV Supra Star 58k dwt open CJK 10-15 Jun."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Supra Star",
+        "dwt": 58000,
+        "open_port": "CJK",
+        "open_date": "10-15 Jun"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-003",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Ultramax Gulf",
+        "sender": "vessels03@test.com",
+        "rawBody": "MV Ultra Max 63,000 dwt open USG end May."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Ultra Max",
+        "dwt": 63000,
+        "open_port": "USG",
+        "open_date": "end May"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-004",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Panamax NOPAC",
+        "sender": "vessels04@test.com",
+        "rawBody": "MV Panama View 75k dwt open NOPAC 10-20 Jul."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Panama View",
+        "dwt": 75000,
+        "open_port": "NOPAC",
+        "open_date": "10-20 Jul"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-005",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Kamsarmax India",
+        "sender": "vessels05@test.com",
+        "rawBody": "MV Kamsarmax King 82k dwt open EC India 15-20 Aug."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Kamsarmax King",
+        "dwt": 82000,
+        "open_port": "EC India",
+        "open_date": "15-20 Aug"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-006",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Capesize TUB",
+        "sender": "vessels06@test.com",
+        "rawBody": "MV Cape Giant 180k dwt open Tubarao 1-15 Sep."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Cape Giant",
+        "dwt": 180000,
+        "open_port": "Tubarao",
+        "open_date": "1-15 Sep"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-007",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MPP Tonnage",
+        "sender": "vessels07@test.com",
+        "rawBody": "MV Multi Purp 20k dwt MPP open Antwerp prompt."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Multi Purp",
+        "dwt": 20000,
+        "open_port": "Antwerp",
+        "open_date": "prompt"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-008",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Heavy Lift",
+        "sender": "vessels08@test.com",
+        "rawBody": "MV Heavy Lifter 12k dwt 2x400mt heavy lift open Shanghai 1 Oct."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Heavy Lifter",
+        "dwt": 12000,
+        "open_port": "Shanghai",
+        "open_date": "1 Oct",
+        "gear_cranes": 2,
+        "gear_capacity_mt": 400
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-009",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Tween Decker Open",
+        "sender": "vessels09@test.com",
+        "rawBody": "MV Tween Deck 15k dwt open Genoa 1-5 Nov."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Tween Deck",
+        "dwt": 15000,
+        "open_port": "Genoa",
+        "open_date": "1-5 Nov"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-010",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Coaster Position",
+        "sender": "vessels10@test.com",
+        "rawBody": "MV Coaster Small 4k dwt open Rotterdam prompt."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Coaster Small",
+        "dwt": 4000,
+        "open_port": "Rotterdam",
+        "open_date": "prompt"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-011",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Geared Open",
+        "sender": "vessels11@test.com",
+        "rawBody": "MV Geared Bulker 45k dwt 4x30t cranes open Durban 10-15 Dec."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Geared Bulker",
+        "dwt": 45000,
+        "open_port": "Durban",
+        "open_date": "10-15 Dec",
+        "gear_type": "cranes",
+        "gear_cranes": 4,
+        "gear_capacity_mt": 30
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-012",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Gearless Panamax",
+        "sender": "vessels12@test.com",
+        "rawBody": "MV Gearless Panamax 70k dwt gearless open Tubarao 5-10 Jan."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Gearless Panamax",
+        "dwt": 70000,
+        "open_port": "Tubarao",
+        "open_date": "5-10 Jan",
+        "gear_type": "gearless"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-013",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Project Tonnage",
+        "sender": "vessels13@test.com",
+        "rawBody": "MV PROJECT 14k dwt open Houston 15-30 April."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV PROJECT",
+        "dwt": 14000,
+        "open_port": "Houston",
+        "open_date": "15-30 April"
+      },
+      "missingFieldsShouldInclude": [
+        "gear_type",
+        "gear_cranes",
+        "gear_capacity_mt"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "gear_type",
+        "gear_cranes",
+        "gear_capacity_mt"
+      ]
+    }
+  },
+  {
+    "id": "V-014",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Open Prompt",
+        "sender": "vessels14@test.com",
+        "rawBody": "MV Prompt Ship 55k dwt open Singapore PROMPT."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Prompt Ship",
+        "dwt": 55000,
+        "open_port": "Singapore",
+        "open_date": "PROMPT"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-015",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Fwd: Fwd: Fwd: MV Old Ship",
+        "sender": "vessels15@test.com",
+        "rawBody": "FYI below... Fwd: Fwd: Fwd: MV Old Ship 60k open mid March EC India"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "stale"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-016",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Any supras?",
+        "sender": "vessels16@test.com",
+        "rawBody": "Any supras open USG next week? Have firm biz."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "inquiry"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-017",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Clean Ship",
+        "sender": "vessels17@test.com",
+        "rawBody": "MV Clean Ship 35k dwt open NY prompt. No dirty cargoes, no sulfur."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Clean Ship",
+        "dwt": 35000,
+        "open_port": "NY",
+        "open_date": "prompt",
+        "restrictions": "No dirty cargoes, no sulfur"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-018",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MV Alpha",
+        "sender": "vessels18@test.com",
+        "rawBody": "MV Alpha 55k open Santos next week. Scrap excluded."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Alpha",
+        "dwt": 55000,
+        "open_port": "Santos",
+        "open_date": "next week",
+        "restrictions": "Scrap excluded"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-019",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MV Beta",
+        "sender": "vessels19@test.com",
+        "rawBody": "MV Beta 80k open Newcastle prompt. No coal, no petcoke."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Beta",
+        "dwt": 80000,
+        "open_port": "Newcastle",
+        "open_date": "prompt",
+        "restrictions": "No coal, no petcoke"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-020",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "OPEN TONNAGE - MV PANAMAX STAR",
+        "sender": "vessels20@test.com",
+        "rawBody": "MV PANAMAX STAR\n75000 DWT\nOPEN SANTOS 12-16 DEC\nExcl sanctioned countries/cargoes"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV PANAMAX STAR",
+        "dwt": 75000,
+        "open_port": "Santos",
+        "open_date": "12-16 DEC",
+        "restrictions": "Excl sanctioned countries/cargoes"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "gear_type",
+        "gear_capacity_mt",
+        "gear_cranes"
+      ]
+    }
+  },
+  {
+    "id": "V-021",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Crane Ship",
+        "sender": "vessels21@test.com",
+        "rawBody": "MV Crane Ship 50k dwt 4x40mt open USEC 1-15 Feb."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Crane Ship",
+        "dwt": 50000,
+        "open_port": "USEC",
+        "open_date": "1-15 Feb",
+        "gear_cranes": 4,
+        "gear_capacity_mt": 40
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-022",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Combined Crane capability",
+        "sender": "vessels22@test.com",
+        "rawBody": "MV Combo 30k dwt 2x50mt (combinable 100mt) open China prompt."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Combo",
+        "dwt": 30000,
+        "open_port": "China",
+        "open_date": "prompt",
+        "gear_cranes": 2,
+        "gear_capacity_mt": 50,
+        "gear_combined_capacity_mt": 100
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-023",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Holds/Hatches",
+        "sender": "vessels23@test.com",
+        "rawBody": "MV HoldShip 40k dwt 5HO/5HA open Japan end Mar."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV HoldShip",
+        "dwt": 40000,
+        "open_port": "Japan",
+        "open_date": "end Mar",
+        "holds": 5,
+        "hatches": 5
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-024",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "ICE CLASS 1A VESSEL OPEN",
+        "sender": "vessels24@test.com",
+        "rawBody": "MV POLAR BEAR\n30000 DWT\nOPEN ST PETERSBURG 1-5 FEB\nICE CLASS 1A"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV POLAR BEAR",
+        "dwt": 30000,
+        "open_port": "St Petersburg",
+        "open_date": "1-5 FEB",
+        "ice_class": "1A"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-025",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Shallow draft tonnage",
+        "sender": "vessels25@test.com",
+        "rawBody": "MV SHALLOW SEAS\n45000 DWT\nOPEN ROUEN 10-20 SEP\nMax draft 11.5m completely laden"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV SHALLOW SEAS",
+        "dwt": 45000,
+        "open_port": "Rouen",
+        "open_date": "10-20 SEP",
+        "max_draft": "11.5m"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-026",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MV BIG BOX",
+        "sender": "vessels26@test.com",
+        "rawBody": "MV BIG BOX\n82000 DWT\nOPEN ROTTERDAM 1 OCT\nLOA 225m / BEAM 32.2m"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV BIG BOX",
+        "dwt": 82000,
+        "open_port": "Rotterdam",
+        "open_date": "1 OCT",
+        "loa": "225m",
+        "beam": "32.2m"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-027",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MV ECO RUNNER INFO",
+        "sender": "vessels27@test.com",
+        "rawBody": "MV ECO RUNNER\n58000 DWT\nOPEN SINGAPORE 5-10 NOV\nSPEED 13.5kn / CONS 28t IFO"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV ECO RUNNER",
+        "dwt": 58000,
+        "open_port": "Singapore",
+        "open_date": "5-10 NOV",
+        "speed": "13.5kn",
+        "consumption": "28t IFO"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-028",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Vessel BWTS Fitted",
+        "sender": "vessels28@test.com",
+        "rawBody": "MV MODERN SEA\n34000 DWT\nOPEN CHENNAI 20-30 AUG\nBWTS fitted"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV MODERN SEA",
+        "dwt": 34000,
+        "open_port": "Chennai",
+        "open_date": "20-30 AUG",
+        "bwts": "fitted"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-029",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "OPEN HATCH Tonnage",
+        "sender": "vessels29@test.com",
+        "rawBody": "MV OPEN MOON\n60000 DWT\nOPEN HOUSTON 15 DEC\nOHGC 4X40T"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV OPEN MOON",
+        "dwt": 60000,
+        "open_port": "Houston",
+        "open_date": "15 DEC",
+        "gear_type": "OHGC",
+        "gear_cranes": 4,
+        "gear_capacity_mt": 40
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-030",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MV WOODLANDER",
+        "sender": "vessels30@test.com",
+        "rawBody": "MV WOODLANDER\n32000 DWT\nOPEN VANCOUVER 5-15 JAN\nTimber fitted"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV WOODLANDER",
+        "dwt": 32000,
+        "open_port": "Vancouver",
+        "open_date": "5-15 JAN",
+        "timber_fitted": true
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-031",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Container Spec",
+        "sender": "vessels31@test.com",
+        "rawBody": "MV BOX CARRIER\n15000 DWT\nOPEN ANTWERP 25-28 FEB\nContainer fitted"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV BOX CARRIER",
+        "dwt": 15000,
+        "open_port": "Antwerp",
+        "open_date": "25-28 FEB",
+        "container_fitted": true
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-032",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MV DANGER ZONE",
+        "sender": "vessels32@test.com",
+        "rawBody": "MV DANGER ZONE\n28000 DWT\nOPEN JUBAIL 1-10 MAR\nIMO fitted for dangerous cargo"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV DANGER ZONE",
+        "dwt": 28000,
+        "open_port": "Jubail",
+        "open_date": "1-10 MAR",
+        "imo_fitted": true
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-033",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MULTIPLE VESSELS OPEN ASIA",
+        "sender": "vessels33@test.com",
+        "rawBody": "1) MV Ship One 55k dwt open Shanghai 10 May\n2) MV Ship Two 61k dwt open Busan 12 May"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_count": 2,
+        "vessel_name": "MV Ship One"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-034",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Fwd: MV Old Position",
+        "sender": "vessels34@test.com",
+        "rawBody": "Fwd: Fwd: Fwd: MV Old Ship 50k open mid March USG"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "stale"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-035",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Handy required",
+        "sender": "vessels35@test.com",
+        "rawBody": "Looking for handy open MED end month."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "inquiry"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-036",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Missing Vessel Name",
+        "sender": "vessels36@test.com",
+        "rawBody": "TBN\n55000 mt dwt open Singapore 10-15 Oct. Please propose."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "dwt": 55000,
+        "open_port": "Singapore",
+        "open_date": "10-15 Oct"
+      },
+      "missingFieldsShouldInclude": [
+        "vessel_name"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "vessel_name"
+      ]
+    }
+  },
+  {
+    "id": "V-037",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Missing DWT",
+        "sender": "vessels37@test.com",
+        "rawBody": "MV LADY BIRD open Santos 5-10 Nov. Need grain cargo."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV LADY BIRD",
+        "open_port": "Santos",
+        "open_date": "5-10 Nov"
+      },
+      "missingFieldsShouldInclude": [
+        "dwt"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "dwt"
+      ]
+    }
+  },
+  {
+    "id": "V-038",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "mv shp",
+        "sender": "vessels38@test.com",
+        "rawBody": "mv shp 40dwt opn Sngpore 15/? ideas??"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "dwt": 40000,
+        "open_port": "Sngpore"
+      },
+      "missingFieldsShouldInclude": [
+        "open_date"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "open_date"
+      ]
+    }
+  },
+  {
+    "id": "V-039",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "open",
+        "sender": "vessels39@test.com",
+        "rawBody": "50k dwt opn CJK end/earl."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "dwt": 50000,
+        "open_port": "CJK"
+      },
+      "missingFieldsShouldInclude": [
+        "vessel_name",
+        "open_date"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "vessel_name",
+        "open_date"
+      ]
+    }
+  },
+  {
+    "id": "V-040",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Unclear open position",
+        "sender": "vessels40@test.com",
+        "rawBody": "MV BLUE WAVE 60k dwt open Med somewhere early next month maybe."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV BLUE WAVE",
+        "dwt": 60000
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-041",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Missing open date",
+        "sender": "vessels41@test.com",
+        "rawBody": "MV ATLANTIC 80k dwt open Rotterdam. Any cargos?"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV ATLANTIC",
+        "dwt": 80000,
+        "open_port": "Rotterdam"
+      },
+      "missingFieldsShouldInclude": [
+        "open_date"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "open_date"
+      ]
+    }
+  },
+  {
+    "id": "V-042",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Box Shaped Vessel",
+        "sender": "vessels42@test.com",
+        "rawBody": "MV SQUARE BOX\n35000 DWT\nOPEN LISBON 1-10 MAY\nBox shaped holds"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV SQUARE BOX",
+        "dwt": 35000,
+        "open_port": "Lis Lisbon",
+        "open_date": "1-10 MAY",
+        "box_shaped_holds": true
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-043",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Grab Fitted Vessel",
+        "sender": "vessels43@test.com",
+        "rawBody": "MV GRABBER\n50000 DWT\nOPEN RICHARDS BAY 15-20 SEP\nGrab fitted"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV GRABBER",
+        "dwt": 50000,
+        "open_port": "Richards Bay",
+        "open_date": "15-20 SEP",
+        "grab_fitted": true
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-044",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MV Date Range",
+        "sender": "vessels44@test.com",
+        "rawBody": "MV Date Range 40k open USG 15-30 Aug."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Date Range",
+        "dwt": 40000,
+        "open_port": "USG",
+        "open_date": "15-30 Aug"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-045",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Position List",
+        "sender": "vessels45@test.com",
+        "rawBody": "MV UNKNOWN\nOpen somewhere soon\nNeed cargoes"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV UNKNOWN"
+      },
+      "missingFieldsShouldInclude": [
+        "dwt",
+        "open_port",
+        "open_date"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "dwt",
+        "open_port",
+        "open_date"
+      ]
+    }
+  },
+  {
+    "id": "V-046",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Formal circular",
+        "sender": "vessels46@test.com",
+        "rawBody": "Please note following open position: MV Formal 60k dwt built 2018 open USG 10-15 Sep."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Formal",
+        "dwt": 60000,
+        "open_port": "USG",
+        "open_date": "10-15 Sep"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-047",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "wassup",
+        "sender": "vessels47@test.com",
+        "rawBody": "mv wassup 30k dxb prmpt"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "mv wassup",
+        "dwt": 30000,
+        "open_port": "dxb",
+        "open_date": "prmpt"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "Medium",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-048",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Notes on positions",
+        "sender": "vessels48@test.com",
+        "rawBody": "MV Notes 55k open CJK 5-10 Oct. Owners can look at slightly dirty cargoes."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Notes",
+        "dwt": 55000,
+        "open_port": "CJK",
+        "open_date": "5-10 Oct"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "Low",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-049",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Dirty Cargoes ok",
+        "sender": "vessels49@test.com",
+        "rawBody": "MV MESSY\n40000 DWT\nOPEN RIO 10-20 OCT\nDirty ok but strictly no sulfur"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV MESSY",
+        "dwt": 40000,
+        "open_port": "Rio",
+        "open_date": "10-20 OCT",
+        "restrictions": "Dirty ok but strictly no sulfur"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-050",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Generic bulker",
+        "sender": "vessels50@test.com",
+        "rawBody": "MV Generic Bulker 55k dwt open CJK 10-15 May."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Generic Bulker",
+        "dwt": 55000,
+        "open_port": "CJK",
+        "open_date": "10-15 May"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  }
+]

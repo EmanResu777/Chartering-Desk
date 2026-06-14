@@ -1,0 +1,94 @@
+{
+  "entities": {
+    "Vessel": {
+      "title": "Vessel",
+      "description": "Information about a vessel",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "dwt": { "type": "number" },
+        "grt": { "type": "number" },
+        "nrt": { "type": "number" },
+        "builtYear": { "type": "number" },
+        "status": { "type": "string" },
+        "openPort": { "type": "string" },
+        "openDate": { "type": "string" },
+        "owner": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "name", "type", "dwt", "status"]
+    },
+    "Cargo": {
+      "title": "Cargo",
+      "description": "Information about a cargo",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "commodity": { "type": "string" },
+        "quantity": { "type": "string" },
+        "loadPort": { "type": "string" },
+        "dischargePort": { "type": "string" },
+        "laycan": { "type": "string" },
+        "category": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["userId", "commodity", "quantity", "loadPort", "dischargePort", "status"]
+    },
+    "Contact": {
+      "title": "Contact",
+      "description": "Business contact for a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "company": { "type": "string" },
+        "type": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "country": { "type": "string" },
+        "specialization": { "type": "array", "items": { "type": "string" } },
+        "lastInteraction": { "type": "string" }
+      },
+      "required": ["userId", "name", "company", "type", "email"]
+    },
+    "Email": {
+      "title": "Email",
+      "description": "Parsed email message",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "sender": { "type": "string" },
+        "subject": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "summary": { "type": "string" },
+        "classification": { "type": "string" },
+        "category": { "type": "string" },
+        "confidence": { "type": "number" },
+        "rawBody": { "type": "string" },
+        "accountId": { "type": "string" },
+        "provider": { "type": "string" }
+      },
+      "required": ["userId", "sender", "subject", "summary", "classification", "rawBody"]
+    }
+  },
+  "firestore": {
+    "/emails/{emailId}": {
+      "schema": { "$ref": "#/entities/Email" },
+      "description": "Saved emails associated with a user"
+    },
+    "/contacts/{contactId}": {
+      "schema": { "$ref": "#/entities/Contact" },
+      "description": "Contacts associated with a user"
+    },
+    "/vessels/{vesselId}": {
+      "schema": { "$ref": "#/entities/Vessel" },
+      "description": "Vessels associated with a user"
+    },
+    "/cargos/{cargoId}": {
+      "schema": { "$ref": "#/entities/Cargo" },
+      "description": "Cargos associated with a user"
+    }
+  }
+}

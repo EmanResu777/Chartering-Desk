@@ -1,0 +1,1941 @@
+[
+  {
+    "id": "C-001",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Cargo",
+        "sender": "broker@test.com",
+        "rawBody": "30,000 mts urea in bulk, Bandar Abbas to Mersin, laycan 15-20 June, 2.5% addcom, load/disch 8000x / CQD."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "urea in bulk",
+        "quantity": 30000,
+        "load_port": "Bandar Abbas",
+        "discharge_port": "Mersin",
+        "laycan": "15-20 June",
+        "commission": "2.5%",
+        "loading_rate": "8000x",
+        "discharging_rate": "CQD"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-002",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Breakbulk Houston",
+        "sender": "broker@test.com",
+        "rawBody": "15,000 mt general breakbulk pipes and machinery, Shanghai to Houston. 1-10 July. Freight idea ."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "general breakbulk pipes and machinery",
+        "quantity": 15000,
+        "load_port": "Shanghai",
+        "discharge_port": "Houston",
+        "laycan": "1-10 July"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-003",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "DAP Cargo",
+        "sender": "broker@test.com",
+        "rawBody": "50,000 mt DAP, Jorf Lasfar to Paradip. 5-15 Aug. 2.5% ttl. 20k/15k shinc."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "DAP",
+        "quantity": 50000,
+        "load_port": "Jorf Lasfar",
+        "discharge_port": "Paradip",
+        "laycan": "5-15 Aug",
+        "commission": "2.5%",
+        "loading_rate": "20k",
+        "discharging_rate": "15k"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-004",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Wheat",
+        "sender": "broker@test.com",
+        "rawBody": "60,000 mt wheat in bulk, Vancouver to Tokyo, laycan first half Sep. Target 25 usd. 3.75%"
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "wheat in bulk",
+        "quantity": 60000,
+        "load_port": "Vancouver",
+        "discharge_port": "Tokyo",
+        "laycan": "first half Sep",
+        "freight_idea": "25",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-005",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Rice",
+        "sender": "broker@test.com",
+        "rawBody": "25,000 mt bagged rice, Visakhapatnam to Dakar. 10-20 Sep. CQD/CQD. 5% comm."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bagged rice",
+        "quantity": 25000,
+        "load_port": "Visakhapatnam",
+        "discharge_port": "Dakar",
+        "laycan": "10-20 Sep",
+        "loading_rate": "CQD",
+        "discharging_rate": "CQD",
+        "commission": "5%"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-006",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Bulk Cement",
+        "sender": "broker@test.com",
+        "rawBody": "35kt bulk cement, Ube to Singapore, 1-15 Oct. 10kts / 8kts."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bulk cement",
+        "quantity": 35000,
+        "load_port": "Ube",
+        "discharge_port": "Singapore",
+        "laycan": "1-15 Oct",
+        "loading_rate": "10kts",
+        "discharging_rate": "8kts"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-007",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Steel Coils",
+        "sender": "broker@test.com",
+        "rawBody": "40,000 mt steel coils, Pohang to Jebel Ali, 20-30 Oct. Freight idea mid 40s. 3.75%"
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "steel coils",
+        "quantity": 40000,
+        "load_port": "Pohang",
+        "discharge_port": "Jebel Ali",
+        "laycan": "20-30 Oct",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-008",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Steel Billets",
+        "sender": "broker@test.com",
+        "rawBody": "10,000 mt steel billets Novorossiysk to Alexandria. Nov 1-10. 5000/3000."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "steel billets",
+        "quantity": 10000,
+        "load_port": "Novorossiysk",
+        "discharge_port": "Alexandria",
+        "laycan": "Nov 1-10",
+        "loading_rate": "5000",
+        "discharging_rate": "3000"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-009",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Petcoke USG",
+        "sender": "broker@test.com",
+        "rawBody": "50,000 mt petcoke Houston to Aliaga, late Nov, 30usd, 25000c/15000x."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "petcoke",
+        "quantity": 50000,
+        "load_port": "Houston",
+        "discharge_port": "Aliaga",
+        "laycan": "late Nov",
+        "freight_idea": "30",
+        "loading_rate": "25000c",
+        "discharging_rate": "15000x"
+      },
+      "missingFieldsShouldInclude": [
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-010",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Coal DBEX",
+        "sender": "broker@test.com",
+        "rawBody": "75,000 mt coal Dalrymple Bay to Qinzhou, Dec 1-15. 2.5% comm, 30k/20k."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "coal",
+        "quantity": 75000,
+        "load_port": "Dalrymple Bay",
+        "discharge_port": "Qinzhou",
+        "laycan": "Dec 1-15",
+        "commission": "2.5%",
+        "loading_rate": "30k",
+        "discharging_rate": "20k"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-011",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "DRI Fines",
+        "sender": "broker@test.com",
+        "rawBody": "40,000 mt DRI fines, Paradip to Chittagong, Dec 10-20. 15k/10k. IMO class 4.2."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "DRI fines",
+        "quantity": 40000,
+        "load_port": "Paradip",
+        "discharge_port": "Chittagong",
+        "laycan": "Dec 10-20"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-012",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Rock Phosphate ecdia",
+        "sender": "broker@test.com",
+        "rawBody": "Need vessel for 20k mt rock phosphate from Aqaba to ecdia, 15-20 Aug, 50k / 20k."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "rock phosphate",
+        "quantity": 20000,
+        "load_port": "Aqaba",
+        "discharge_port": "EC India",
+        "laycan": "15-20 Aug",
+        "loading_rate": "50k",
+        "discharging_rate": "20k"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-013",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Windmills",
+        "sender": "broker@test.com",
+        "rawBody": "Project cargo: 3 sets of windmills (approx 5,000cbm), Taicang to Bremerhaven. 10-30 Jan. Indication 500,000 usd lump sum."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "windmills",
+        "load_port": "Taicang",
+        "discharge_port": "Bremerhaven",
+        "laycan": "10-30 Jan"
+      },
+      "missingFieldsShouldInclude": [
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-014",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Two Stems",
+        "sender": "broker@test.com",
+        "rawBody": "1) 30k mt steel coils Mumbai to Antwerp 1-5 Sep. 2) 20k mt bagged rice Kandla to Jebel Ali 5-10 Sep."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_count": 2,
+        "cargo_name": "steel coils",
+        "load_port": "Mumbai",
+        "discharge_port": "Antwerp"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-015",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Fwd: Firm Sugar",
+        "sender": "broker@test.com",
+        "rawBody": "FYI this was fixed last week. --- Original Message --- 40k mt sugar Santos to Dubai laycan 1-10 May."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "stale"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "laycan",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-016",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Indicative Freight Needed",
+        "sender": "broker@test.com",
+        "rawBody": "Pls give ideas for 50k mt clinker from Vietnam to Manila for late Oct. Not firm yet, just calculating."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "inquiry"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "laycan",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-017",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Wheat",
+        "sender": "broker@test.com",
+        "rawBody": "40,000 mt wheat Rouen to Algiers. 15 usd, 2.5%, 10k/5k."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "wheat",
+        "quantity": 40000,
+        "load_port": "Rouen",
+        "discharge_port": "Algiers",
+        "freight_idea": "15",
+        "commission": "2.5%",
+        "loading_rate": "10k",
+        "discharging_rate": "5k"
+      },
+      "missingFieldsShouldInclude": [
+        "laycan"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "laycan"
+      ]
+    }
+  },
+  {
+    "id": "C-018",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Fertilizers",
+        "sender": "broker@test.com",
+        "rawBody": "30,000 mt MAP, Tampa to Santos. 1-10 Feb. 20k/15k. 3.75% comm."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "MAP",
+        "quantity": 30000,
+        "load_port": "Tampa",
+        "discharge_port": "Santos",
+        "laycan": "1-10 Feb",
+        "loading_rate": "20k",
+        "discharging_rate": "15k",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "Medium",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-019",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Coal",
+        "sender": "broker@test.com",
+        "rawBody": "60,000 mt coal, Samarinda to Kandla, 15-20 Feb, 12 usd, 2.5% addcom."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "coal",
+        "quantity": 60000,
+        "load_port": "Samarinda",
+        "discharge_port": "Kandla",
+        "laycan": "15-20 Feb",
+        "freight_idea": "12",
+        "commission": "2.5%"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-020",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Iron Ore",
+        "sender": "broker@test.com",
+        "rawBody": "160,000 mt iron ore, WAF to China, mid March. 20 usd."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "iron ore",
+        "quantity": 160000,
+        "load_port": "WAF",
+        "discharge_port": "China",
+        "laycan": "mid March",
+        "freight_idea": "20"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate",
+        "commission"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-021",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "PROMPT CARGO",
+        "sender": "broker@test.com",
+        "rawBody": "We need vessel promptest possible for 30k bauxite Kamsar to Aughinish, 15 usd, 2.5%."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bauxite",
+        "quantity": 30000,
+        "load_port": "Kamsar",
+        "discharge_port": "Aughinish",
+        "freight_idea": "15",
+        "commission": "2.5%"
+      },
+      "missingFieldsShouldInclude": [
+        "laycan",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-022",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Reminder Cargo",
+        "sender": "broker@test.com",
+        "rawBody": "Reminder firm: 45k mt petcoke Houston to Haldia, 20-30 March. Same as yesterday."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "petcoke",
+        "quantity": 45000,
+        "load_port": "Houston",
+        "discharge_port": "Haldia",
+        "laycan": "20-30 March"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "Low",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-023",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Corn",
+        "sender": "broker@test.com",
+        "rawBody": "50,000 mt corn Santos to Chiba laycan 10-20 Oct ideas 45 usd."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "corn",
+        "quantity": 50000,
+        "load_port": "Santos",
+        "discharge_port": "Chiba",
+        "laycan": "10-20 Oct",
+        "freight_idea": "45"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate",
+        "commission"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-024",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "wa",
+        "sender": "broker@test.com",
+        "rawBody": "30k st coils tianjin/antwerp 10/20apr ideas 40 3.75%"
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "st coils",
+        "quantity": 30000,
+        "load_port": "Tianjin",
+        "discharge_port": "Antwerp",
+        "laycan": "10/20apr",
+        "freight_idea": "40",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-025",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Carga Firme",
+        "sender": "broker@test.com",
+        "rawBody": "40,000 tm de trigo, San Lorenzo a Callao, 5-15 May, ideas 30 usd, 5% comision."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "trigo",
+        "quantity": 40000,
+        "load_port": "San Lorenzo",
+        "discharge_port": "Callao",
+        "laycan": "5-15 May",
+        "freight_idea": "30",
+        "commission": "5%"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "Medium",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-026",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Complex Comm",
+        "sender": "broker@test.com",
+        "rawBody": "50k coal Richards Bay to Ennore, 1-10 June, 12 usd. 2.5% address + 1.25% bkr1 + 1.25% bkr2 = 5% ttl."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "coal",
+        "quantity": 50000,
+        "load_port": "Richards Bay",
+        "discharge_port": "Ennore",
+        "laycan": "1-10 June",
+        "freight_idea": "12",
+        "commission": "5% ttl"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-027",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Date Typo",
+        "sender": "broker@test.com",
+        "rawBody": "30k clinker, Mina Saqr to Mombasa, 31 Feb - 5 March, 15 usd."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "clinker",
+        "quantity": 30000,
+        "load_port": "Mina Saqr",
+        "discharge_port": "Mombasa",
+        "laycan": "31 Feb - 5 March",
+        "freight_idea": "15"
+      },
+      "missingFieldsShouldInclude": [
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "Low",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-028",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Grain with Addcom",
+        "sender": "broker@test.com",
+        "rawBody": "60k mt soybeans, Santos to Qingdao, 15-25 July, 40 usd, 3.75% + 1.25% addcom."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "soybeans",
+        "quantity": 60000,
+        "load_port": "Santos",
+        "discharge_port": "Qingdao",
+        "laycan": "15-25 July",
+        "freight_idea": "40"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-029",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Rice CQD",
+        "sender": "broker@test.com",
+        "rawBody": "20k bagged rice Kakinada to Cotonou 1-5 Nov. CQD b/e. 3.75% comm."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bagged rice",
+        "quantity": 20000,
+        "load_port": "Kakinada",
+        "discharge_port": "Cotonou",
+        "laycan": "1-5 Nov",
+        "loading_rate": "CQD",
+        "discharging_rate": "CQD",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-030",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "FIOS terms",
+        "sender": "broker@test.com",
+        "rawBody": "30,000 mt bulk slag, Tobata to Chittagong, 10-20 Aug, FIOS 10k/8k, 5%."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bulk slag",
+        "quantity": 30000,
+        "load_port": "Tobata",
+        "discharge_port": "Chittagong",
+        "laycan": "10-20 Aug",
+        "loading_rate": "10k",
+        "discharging_rate": "8k",
+        "commission": "5%"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-031",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "SHINC Cargo",
+        "sender": "broker@test.com",
+        "rawBody": "50k bauxite, Trombetas to Aughinish, 5-15 Sep. 30k SHINC / 20k SHEX. 15 usd."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bauxite",
+        "quantity": 50000,
+        "load_port": "Trombetas",
+        "discharge_port": "Aughinish",
+        "laycan": "5-15 Sep",
+        "loading_rate": "30k",
+        "discharging_rate": "20k",
+        "freight_idea": "15"
+      },
+      "missingFieldsShouldInclude": [
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-032",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Missing load port",
+        "sender": "broker@test.com",
+        "rawBody": "Need supra for 50k clinker discharging Manila, 10-20 Oct, 15 usd, 5%."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "clinker",
+        "quantity": 50000,
+        "discharge_port": "Manila",
+        "laycan": "10-20 Oct",
+        "freight_idea": "15",
+        "commission": "5%"
+      },
+      "missingFieldsShouldInclude": [
+        "load_port",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "load_port",
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-033",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Two options",
+        "sender": "broker@test.com",
+        "rawBody": "Stem 1: 40k petcoke Houston to Aliaga 10-15 Nov. Stem 2: 50k coal Mobile to Rotterdam 12-20 Nov."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_count": 2,
+        "cargo_name": "petcoke"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-034",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Fwd: Firm Petcoke",
+        "sender": "broker@test.com",
+        "rawBody": "Already concluded but for ref: 50k mt petcoke USG to Med, mid Oct."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "stale"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "laycan",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-035",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Checking rates",
+        "sender": "broker@test.com",
+        "rawBody": "Hi, what are current rates for 30k mt steel from Xingang to West Africa for late Dec? Just a budget check."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "inquiry"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "laycan",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-036",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Ammonium Nitrate",
+        "sender": "broker@test.com",
+        "rawBody": "10,000 mt Ammonium Nitrate, Constanta to Mersin, 1-10 Jan, 5000/3000."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "Ammonium Nitrate",
+        "quantity": 10000,
+        "load_port": "Constanta",
+        "discharge_port": "Mersin",
+        "laycan": "1-10 Jan",
+        "loading_rate": "5000",
+        "discharging_rate": "3000"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-037",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Missing disch",
+        "sender": "broker@test.com",
+        "rawBody": "40k mt grains, Santos to TBN, 15-20 Feb. Ideas 30."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "grains",
+        "quantity": 40000,
+        "load_port": "Santos",
+        "laycan": "15-20 Feb",
+        "freight_idea": "30"
+      },
+      "missingFieldsShouldInclude": [
+        "discharge_port",
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "discharge_port",
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-038",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Steel Scrap CQD",
+        "sender": "broker@test.com",
+        "rawBody": "30,000 mt steel scrap, Rotterdam to Iskenderun, 10-20 March. CQD/CQD. 25 usd."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "steel scrap",
+        "quantity": 30000,
+        "load_port": "Rotterdam",
+        "discharge_port": "Iskenderun",
+        "laycan": "10-20 March",
+        "freight_idea": "25",
+        "loading_rate": "CQD",
+        "discharging_rate": "CQD"
+      },
+      "missingFieldsShouldInclude": [
+        "commission"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-039",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Bauxite",
+        "sender": "broker@test.com",
+        "rawBody": "180k bauxite, Kamsar to Qingdao, 1-15 April, 15 usd. 50k/30k shinc."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bauxite",
+        "quantity": 180000,
+        "load_port": "Kamsar",
+        "discharge_port": "Qingdao",
+        "laycan": "1-15 April",
+        "freight_idea": "15",
+        "loading_rate": "50k",
+        "discharging_rate": "30k"
+      },
+      "missingFieldsShouldInclude": [
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-040",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Iron Ore Tubarao",
+        "sender": "broker@test.com",
+        "rawBody": "170k iron ore, Tubarao to Qingdao, 20-30 May, 20 usd. 60k shinc/30k shinc."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "iron ore",
+        "quantity": 170000,
+        "load_port": "Tubarao",
+        "discharge_port": "Qingdao",
+        "laycan": "20-30 May",
+        "freight_idea": "20",
+        "loading_rate": "60k",
+        "discharging_rate": "30k"
+      },
+      "missingFieldsShouldInclude": [
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-041",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Coal",
+        "sender": "broker@test.com",
+        "rawBody": "100,000 mt coal Richards Bay to Tianjin, early Jan."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "coal",
+        "quantity": 100000,
+        "load_port": "Richards Bay",
+        "discharge_port": "Tianjin",
+        "laycan": "early Jan"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "loading_rate",
+        "discharging_rate",
+        "commission"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-042",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Alumina",
+        "sender": "broker@test.com",
+        "rawBody": "30k alumina, Bunbury to Sohar, 15-20 June, 10k/8k, 3.75%"
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "alumina",
+        "quantity": 30000,
+        "load_port": "Bunbury",
+        "discharge_port": "Sohar",
+        "laycan": "15-20 June",
+        "loading_rate": "10k",
+        "discharging_rate": "8k",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-043",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Pig Iron",
+        "sender": "broker@test.com",
+        "rawBody": "40k mt pig iron, Vitoria to NOLA, 1-10 July, 12k/10k, 5% comm."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "pig iron",
+        "quantity": 40000,
+        "load_port": "Vitoria",
+        "discharge_port": "NOLA",
+        "laycan": "1-10 July",
+        "loading_rate": "12k",
+        "discharging_rate": "10k",
+        "commission": "5%"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-044",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Scrap Cargo",
+        "sender": "broker@test.com",
+        "rawBody": "25,000 mt HMS 1&2, Boston to Nemrut Bay, 15-25 July, 25 usd, 5k/5k."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "HMS 1&2",
+        "quantity": 25000,
+        "load_port": "Boston",
+        "discharge_port": "Nemrut Bay",
+        "laycan": "15-25 July",
+        "freight_idea": "25",
+        "loading_rate": "5k",
+        "discharging_rate": "5k"
+      },
+      "missingFieldsShouldInclude": [
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-045",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "CQD/CQD 3",
+        "sender": "broker@test.com",
+        "rawBody": "10k mt general cargo, Mumbai to Mombasa, 1-5 Aug, CQD/CQD. 5%."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "general cargo",
+        "quantity": 10000,
+        "load_port": "Mumbai",
+        "discharge_port": "Mombasa",
+        "laycan": "1-5 Aug",
+        "loading_rate": "CQD",
+        "discharging_rate": "CQD",
+        "commission": "5%"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-046",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Missing quantity",
+        "sender": "broker@test.com",
+        "rawBody": "sugar in bags Santos to Dubai 1-10 Sep. 30 usd. 2k/2k. 3.75%"
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "sugar in bags",
+        "load_port": "Santos",
+        "discharge_port": "Dubai",
+        "laycan": "1-10 Sep",
+        "freight_idea": "30",
+        "loading_rate": "2k",
+        "discharging_rate": "2k",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [
+        "quantity"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "quantity"
+      ]
+    }
+  },
+  {
+    "id": "C-047",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Missing cargo name",
+        "sender": "broker@test.com",
+        "rawBody": "50,000 mt, Newcastle to Kinuura, 15-25 Oct. 12 usd. 30k/20k. 2.5%"
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "quantity": 50000,
+        "load_port": "Newcastle",
+        "discharge_port": "Kinuura",
+        "laycan": "15-25 Oct",
+        "freight_idea": "12",
+        "loading_rate": "30k",
+        "discharging_rate": "20k",
+        "commission": "2.5%"
+      },
+      "missingFieldsShouldInclude": [
+        "cargo_name"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "cargo_name"
+      ]
+    }
+  },
+  {
+    "id": "C-048",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Clinker",
+        "sender": "broker@test.com",
+        "rawBody": "40k mt clinker Mina Saqr to Chittagong, 10-15 Jan. 35 usd."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "clinker",
+        "quantity": 40000,
+        "load_port": "Mina Saqr",
+        "discharge_port": "Chittagong",
+        "laycan": "10-15 Jan",
+        "freight_idea": "35"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate",
+        "commission"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-049",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Coal",
+        "sender": "broker@test.com",
+        "rawBody": "75k coal DBCT to Krishnapatnam, 20-30 Feb. Target 20 usd. 30k/20k. 3.75%"
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "coal",
+        "quantity": 75000,
+        "load_port": "DBCT",
+        "discharge_port": "Krishnapatnam",
+        "laycan": "20-30 Feb",
+        "freight_idea": "20",
+        "loading_rate": "30k",
+        "discharging_rate": "20k",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "C-050",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Bauxite",
+        "sender": "broker@test.com",
+        "rawBody": "150k mt bauxite Kamsar to Qingdao, 20-30 Jan. aim 15 usd, 2.5% comm, 30k SHINC / 25k SHINC."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bauxite",
+        "quantity": 150000,
+        "load_port": "Kamsar",
+        "discharge_port": "Qingdao",
+        "laycan": "20-30 Jan",
+        "freight_idea": "15",
+        "commission": "2.5%",
+        "loading_rate": "30k",
+        "discharging_rate": "25k"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  }
+]

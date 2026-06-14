@@ -1,0 +1,5409 @@
+[
+  {
+    "id": "M-001",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Houston",
+        "discharge_port": "Rotterdam",
+        "laycan": "15-20 June",
+        "quantity_mt": 30000,
+        "cargo_type": "Grains"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Perfect",
+          "dwt": 35000,
+          "open_port": "Houston",
+          "open_date": "10 June"
+        },
+        {
+          "vessel_name": "MV Too Big",
+          "dwt": 150000,
+          "open_port": "Houston",
+          "open_date": "10 June"
+        },
+        {
+          "vessel_name": "MV Too Late",
+          "dwt": 35000,
+          "open_port": "Houston",
+          "open_date": "25 June"
+        },
+        {
+          "vessel_name": "MV Too Small",
+          "dwt": 15000,
+          "open_port": "Houston",
+          "open_date": "10 June"
+        },
+        {
+          "vessel_name": "MV Far Away",
+          "dwt": 35000,
+          "open_port": "Singapore",
+          "open_date": "10 June"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "MV Perfect",
+        "recommended_action": "Proceed"
+      },
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-002",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Miami",
+        "discharge_port": "Santos",
+        "laycan": "1-5 July",
+        "quantity_mt": 45000,
+        "cargo_type": "Sugar"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Tiny 1",
+          "dwt": 10000,
+          "open_port": "Miami",
+          "open_date": "1 July"
+        },
+        {
+          "vessel_name": "MV Tiny 2",
+          "dwt": 20000,
+          "open_port": "Miami",
+          "open_date": "1 July"
+        },
+        {
+          "vessel_name": "MV Tiny 3",
+          "dwt": 25000,
+          "open_port": "Miami",
+          "open_date": "1 July"
+        },
+        {
+          "vessel_name": "MV Tiny 4",
+          "dwt": 30000,
+          "open_port": "Miami",
+          "open_date": "1 July"
+        },
+        {
+          "vessel_name": "MV Tiny 5",
+          "dwt": 15000,
+          "open_port": "Miami",
+          "open_date": "1 July"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "None",
+        "recommended_action": "Reject"
+      },
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-003",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Santos",
+        "discharge_port": "Lisbon",
+        "laycan": "10-20 Aug",
+        "quantity_mt": 10000,
+        "cargo_type": "Sugar"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Cape 1",
+          "dwt": 180000,
+          "open_port": "Santos",
+          "open_date": "10 Aug"
+        },
+        {
+          "vessel_name": "MV Cape 2",
+          "dwt": 175000,
+          "open_port": "Santos",
+          "open_date": "10 Aug"
+        },
+        {
+          "vessel_name": "MV Panamax 1",
+          "dwt": 75000,
+          "open_port": "Santos",
+          "open_date": "10 Aug"
+        },
+        {
+          "vessel_name": "MV Panamax 2",
+          "dwt": 80000,
+          "open_port": "Santos",
+          "open_date": "10 Aug"
+        },
+        {
+          "vessel_name": "MV Kamsarmax",
+          "dwt": 82000,
+          "open_port": "Santos",
+          "open_date": "10 Aug"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "None",
+        "recommended_action": "Reject"
+      },
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-004",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Durban",
+        "discharge_port": "Mombasa",
+        "laycan": "1-5 Sept",
+        "quantity_mt": 20000,
+        "cargo_type": "Coal"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Late 1",
+          "dwt": 25000,
+          "open_port": "Durban",
+          "open_date": "15 Sept"
+        },
+        {
+          "vessel_name": "MV Late 2",
+          "dwt": 25000,
+          "open_port": "Durban",
+          "open_date": "20 Sept"
+        },
+        {
+          "vessel_name": "MV Late 3",
+          "dwt": 25000,
+          "open_port": "Durban",
+          "open_date": "25 Sept"
+        },
+        {
+          "vessel_name": "MV Late 4",
+          "dwt": 25000,
+          "open_port": "Durban",
+          "open_date": "10 Sept"
+        },
+        {
+          "vessel_name": "MV Late 5",
+          "dwt": 25000,
+          "open_port": "Durban",
+          "open_date": "18 Sept"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "None",
+        "recommended_action": "Reject"
+      },
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-005",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Rotterdam",
+        "discharge_port": "New York",
+        "laycan": "10-15 Oct",
+        "quantity_mt": 30000,
+        "cargo_type": "Steel"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Far East",
+          "dwt": 35000,
+          "open_port": "Tokyo",
+          "open_date": "10 Oct"
+        },
+        {
+          "vessel_name": "MV Australia",
+          "dwt": 35000,
+          "open_port": "Sydney",
+          "open_date": "10 Oct"
+        },
+        {
+          "vessel_name": "MV South Africa",
+          "dwt": 35000,
+          "open_port": "Cape Town",
+          "open_date": "10 Oct"
+        },
+        {
+          "vessel_name": "MV West Coast",
+          "dwt": 35000,
+          "open_port": "Los Angeles",
+          "open_date": "10 Oct"
+        },
+        {
+          "vessel_name": "MV Pacific",
+          "dwt": 35000,
+          "open_port": "Fiji",
+          "open_date": "10 Oct"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "MV Far East",
+        "recommended_action": "Reject"
+      },
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-006",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Lagos",
+        "discharge_port": "Dakar",
+        "laycan": "1-10 Nov",
+        "quantity_mt": 20000,
+        "cargo_type": "Rice",
+        "gear_required": true
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Gearless 1",
+          "dwt": 25000,
+          "open_port": "Lagos",
+          "open_date": "1 Nov",
+          "gear_type": "Gearless"
+        },
+        {
+          "vessel_name": "MV Gearless 2",
+          "dwt": 25000,
+          "open_port": "Lagos",
+          "open_date": "1 Nov",
+          "gear_type": "Gearless"
+        },
+        {
+          "vessel_name": "MV Gearless 3",
+          "dwt": 25000,
+          "open_port": "Lagos",
+          "open_date": "1 Nov",
+          "gear_type": "Gearless"
+        },
+        {
+          "vessel_name": "MV Gearless 4",
+          "dwt": 25000,
+          "open_port": "Lagos",
+          "open_date": "1 Nov",
+          "gear_type": "Gearless"
+        },
+        {
+          "vessel_name": "MV Gearless 5",
+          "dwt": 25000,
+          "open_port": "Lagos",
+          "open_date": "1 Nov",
+          "gear_type": "Gearless"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "None",
+        "recommended_action": "Reject"
+      },
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-007",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Bremen",
+        "discharge_port": "Shanghai",
+        "laycan": "15-20 Nov",
+        "quantity_mt": 5000,
+        "cargo_type": "Project Cargo",
+        "max_unit_weight_mt": 200
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Weak Cranes 1",
+          "dwt": 15000,
+          "open_port": "Bremen",
+          "open_date": "15 Nov",
+          "gear_capacity_mt": 30
+        },
+        {
+          "vessel_name": "MV Weak Cranes 2",
+          "dwt": 15000,
+          "open_port": "Bremen",
+          "open_date": "15 Nov",
+          "gear_capacity_mt": 50
+        },
+        {
+          "vessel_name": "MV Weak Cranes 3",
+          "dwt": 15000,
+          "open_port": "Bremen",
+          "open_date": "15 Nov",
+          "gear_capacity_mt": 40
+        },
+        {
+          "vessel_name": "MV Weak Cranes 4",
+          "dwt": 15000,
+          "open_port": "Bremen",
+          "open_date": "15 Nov",
+          "gear_capacity_mt": 30
+        },
+        {
+          "vessel_name": "MV Weak Cranes 5",
+          "dwt": 15000,
+          "open_port": "Bremen",
+          "open_date": "15 Nov",
+          "gear_capacity_mt": 25
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "None",
+        "recommended_action": "Reject"
+      },
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-008",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Houston",
+        "discharge_port": "Rotterdam",
+        "laycan": "1-5 Dec",
+        "quantity_mt": 30000,
+        "cargo_type": "Petcoke"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Clean Only 1",
+          "dwt": 35000,
+          "open_port": "Houston",
+          "open_date": "1 Dec",
+          "restrictions": "No dirty cargoes, no petcoke"
+        },
+        {
+          "vessel_name": "MV Clean Only 2",
+          "dwt": 35000,
+          "open_port": "Houston",
+          "open_date": "1 Dec",
+          "restrictions": "No coal, no petcoke"
+        },
+        {
+          "vessel_name": "MV Clean Only 3",
+          "dwt": 35000,
+          "open_port": "Houston",
+          "open_date": "1 Dec",
+          "restrictions": "Clean cargoes only"
+        },
+        {
+          "vessel_name": "MV Clean Only 4",
+          "dwt": 35000,
+          "open_port": "Houston",
+          "open_date": "1 Dec",
+          "restrictions": "Excl petcoke"
+        },
+        {
+          "vessel_name": "MV Clean Only 5",
+          "dwt": 35000,
+          "open_port": "Houston",
+          "open_date": "1 Dec",
+          "restrictions": "Strictly no petcoke"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "None",
+        "recommended_action": "Reject"
+      },
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-009",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "New Orleans",
+        "discharge_port": "Alexandria",
+        "laycan": "10-20 Dec",
+        "quantity_mt": 25000,
+        "cargo_type": "Wheat"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Dirty Last 1",
+          "dwt": 30000,
+          "open_port": "New Orleans",
+          "open_date": "10 Dec",
+          "last_cargo": "Coal"
+        },
+        {
+          "vessel_name": "MV Far",
+          "dwt": 30000,
+          "open_port": "Tokyo",
+          "open_date": "10 Dec",
+          "last_cargo": "Grains"
+        },
+        {
+          "vessel_name": "MV Small",
+          "dwt": 15000,
+          "open_port": "New Orleans",
+          "open_date": "10 Dec",
+          "last_cargo": "Grains"
+        },
+        {
+          "vessel_name": "MV Big",
+          "dwt": 150000,
+          "open_port": "New Orleans",
+          "open_date": "10 Dec",
+          "last_cargo": "Grains"
+        },
+        {
+          "vessel_name": "MV Dirty Last 2",
+          "dwt": 30000,
+          "open_port": "New Orleans",
+          "open_date": "10 Dec",
+          "last_cargo": "Petcoke"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "MV Dirty Last 1",
+        "recommended_action": "Check"
+      },
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-010",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Rio Grande",
+        "discharge_port": "Dakar",
+        "laycan": "1-10 Jan",
+        "quantity_mt": 40000,
+        "cargo_type": "Grains",
+        "max_draft": "10.0m"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Deep Draft 1",
+          "dwt": 45000,
+          "open_port": "Rio Grande",
+          "open_date": "1 Jan",
+          "draft": "12.5m"
+        },
+        {
+          "vessel_name": "MV Deep Draft 2",
+          "dwt": 45000,
+          "open_port": "Rio Grande",
+          "open_date": "1 Jan",
+          "draft": "11.5m"
+        },
+        {
+          "vessel_name": "MV Deep Draft 3",
+          "dwt": 45000,
+          "open_port": "Rio Grande",
+          "open_date": "1 Jan",
+          "draft": "12.0m"
+        },
+        {
+          "vessel_name": "MV Deep Draft 4",
+          "dwt": 45000,
+          "open_port": "Rio Grande",
+          "open_date": "1 Jan",
+          "draft": "13.0m"
+        },
+        {
+          "vessel_name": "MV Deep Draft 5",
+          "dwt": 45000,
+          "open_port": "Rio Grande",
+          "open_date": "1 Jan",
+          "draft": "11.8m"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "None",
+        "recommended_action": "Reject"
+      },
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-011",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Singapore",
+        "discharge_port": "Shanghai",
+        "laycan": "1-5 Feb",
+        "quantity_mt": 20000,
+        "cargo_type": "Steel"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Westbound Only 1",
+          "dwt": 25000,
+          "open_port": "Singapore",
+          "open_date": "1 Feb",
+          "desired_direction": "Direction Med"
+        },
+        {
+          "vessel_name": "MV Westbound Only 2",
+          "dwt": 25000,
+          "open_port": "Singapore",
+          "open_date": "1 Feb",
+          "desired_direction": "Direction USG"
+        },
+        {
+          "vessel_name": "MV Westbound Only 3",
+          "dwt": 25000,
+          "open_port": "Singapore",
+          "open_date": "1 Feb",
+          "desired_direction": "Direction Continent"
+        },
+        {
+          "vessel_name": "MV Westbound Only 4",
+          "dwt": 25000,
+          "open_port": "Singapore",
+          "open_date": "1 Feb",
+          "desired_direction": "Direction Black Sea"
+        },
+        {
+          "vessel_name": "MV Westbound Only 5",
+          "dwt": 25000,
+          "open_port": "Singapore",
+          "open_date": "1 Feb",
+          "desired_direction": "Direction UK"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "None",
+        "recommended_action": "Reject"
+      },
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-012",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Bandar Abbas",
+        "discharge_port": "Mumbai",
+        "laycan": "10-20 Feb",
+        "quantity_mt": 30000,
+        "cargo_type": "Urea"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Safe 1",
+          "dwt": 35000,
+          "open_port": "Bandar Abbas",
+          "open_date": "10 Feb",
+          "restrictions": "Excl sanctioned countries/cargoes"
+        },
+        {
+          "vessel_name": "MV Safe 2",
+          "dwt": 35000,
+          "open_port": "Bandar Abbas",
+          "open_date": "10 Feb",
+          "restrictions": "No Iran"
+        },
+        {
+          "vessel_name": "MV Safe 3",
+          "dwt": 35000,
+          "open_port": "Bandar Abbas",
+          "open_date": "10 Feb",
+          "restrictions": "No sanctioned zones"
+        },
+        {
+          "vessel_name": "MV Safe 4",
+          "dwt": 35000,
+          "open_port": "Bandar Abbas",
+          "open_date": "10 Feb",
+          "restrictions": "Trading excluding OFAC sanctioned countries"
+        },
+        {
+          "vessel_name": "MV Safe 5",
+          "dwt": 35000,
+          "open_port": "Bandar Abbas",
+          "open_date": "10 Feb",
+          "restrictions": "Strictly worldwide excl sanctioned"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "None",
+        "recommended_action": "Reject"
+      },
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-013",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "St Petersburg",
+        "discharge_port": "Rotterdam",
+        "laycan": "1-10 Jan",
+        "quantity_mt": 20000,
+        "cargo_type": "Steel",
+        "required_ice_class": "1A"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Summer 1",
+          "dwt": 25000,
+          "open_port": "St Petersburg",
+          "open_date": "1 Jan",
+          "ice_class": "None"
+        },
+        {
+          "vessel_name": "MV Summer 2",
+          "dwt": 25000,
+          "open_port": "St Petersburg",
+          "open_date": "1 Jan",
+          "ice_class": "None"
+        },
+        {
+          "vessel_name": "MV Summer 3",
+          "dwt": 25000,
+          "open_port": "St Petersburg",
+          "open_date": "1 Jan",
+          "ice_class": "None"
+        },
+        {
+          "vessel_name": "MV Summer 4",
+          "dwt": 25000,
+          "open_port": "St Petersburg",
+          "open_date": "1 Jan",
+          "ice_class": "None"
+        },
+        {
+          "vessel_name": "MV Summer 5",
+          "dwt": 25000,
+          "open_port": "St Petersburg",
+          "open_date": "1 Jan",
+          "ice_class": "None"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "None",
+        "recommended_action": "Reject"
+      },
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-014",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Seattle",
+        "discharge_port": "Tokyo",
+        "laycan": "1-5 Mar",
+        "quantity_mt": 30000,
+        "cargo_type": "Woodchips",
+        "stowage_factor": 110,
+        "cubic_required": 3300000
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Heavy Cargo 1",
+          "dwt": 35000,
+          "open_port": "Seattle",
+          "open_date": "1 Mar",
+          "cubic_capacity": 1500000
+        },
+        {
+          "vessel_name": "MV Heavy Cargo 2",
+          "dwt": 35000,
+          "open_port": "Seattle",
+          "open_date": "1 Mar",
+          "cubic_capacity": 1400000
+        },
+        {
+          "vessel_name": "MV Heavy Cargo 3",
+          "dwt": 35000,
+          "open_port": "Seattle",
+          "open_date": "1 Mar",
+          "cubic_capacity": 1600000
+        },
+        {
+          "vessel_name": "MV Heavy Cargo 4",
+          "dwt": 35000,
+          "open_port": "Seattle",
+          "open_date": "1 Mar",
+          "cubic_capacity": 1550000
+        },
+        {
+          "vessel_name": "MV Heavy Cargo 5",
+          "dwt": 35000,
+          "open_port": "Seattle",
+          "open_date": "1 Mar",
+          "cubic_capacity": 1450000
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "None",
+        "recommended_action": "Reject"
+      },
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-015",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Rotterdam",
+        "discharge_port": "Houston",
+        "laycan": "10-20 Mar",
+        "quantity_mt": 10000,
+        "cargo_type": "Steel"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Space Available",
+          "dwt": 40000,
+          "open_port": "Rotterdam",
+          "open_date": "10 Mar",
+          "available_capacity_mt": 12000,
+          "already_booked": "28000mt Steel for Houston"
+        },
+        {
+          "vessel_name": "MV Full",
+          "dwt": 40000,
+          "open_port": "Rotterdam",
+          "open_date": "10 Mar",
+          "available_capacity_mt": 0
+        },
+        {
+          "vessel_name": "MV Too Big",
+          "dwt": 150000,
+          "open_port": "Rotterdam",
+          "open_date": "10 Mar"
+        },
+        {
+          "vessel_name": "MV Wrong Way",
+          "dwt": 35000,
+          "open_port": "Rotterdam",
+          "open_date": "10 Mar",
+          "desired_direction": "Direction Far East"
+        },
+        {
+          "vessel_name": "MV Far Away",
+          "dwt": 35000,
+          "open_port": "Shanghai",
+          "open_date": "10 Mar"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "MV Space Available",
+        "recommended_action": "Proceed"
+      },
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-016",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Durban",
+        "discharge_port": "Mombasa",
+        "laycan": "1-10 Apr",
+        "quantity_mt": 30000,
+        "cargo_type": "Coal",
+        "freight_idea": "Low"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Expensive Position",
+          "dwt": 35000,
+          "open_port": "Durban",
+          "open_date": "1 Apr",
+          "owner_idea": "High"
+        },
+        {
+          "vessel_name": "MV Wrong Gear",
+          "dwt": 35000,
+          "open_port": "Durban",
+          "open_date": "1 Apr",
+          "gear_type": "Gearless"
+        },
+        {
+          "vessel_name": "MV Small",
+          "dwt": 15000,
+          "open_port": "Durban",
+          "open_date": "1 Apr"
+        },
+        {
+          "vessel_name": "MV Big",
+          "dwt": 150000,
+          "open_port": "Durban",
+          "open_date": "1 Apr"
+        },
+        {
+          "vessel_name": "MV Far",
+          "dwt": 35000,
+          "open_port": "Singapore",
+          "open_date": "1 Apr"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "MV Expensive Position",
+        "recommended_action": "Check"
+      },
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "M-017",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Shanghai",
+        "discharge_port": "Los Angeles",
+        "laycan": "10-15 Apr",
+        "quantity_mt": 40000,
+        "cargo_type": "Steel"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Congested",
+          "dwt": 45000,
+          "open_port": "Shanghai",
+          "open_date": "14 Apr",
+          "current_status": "Waiting in congestion for 10 days"
+        },
+        {
+          "vessel_name": "MV Clear",
+          "dwt": 45000,
+          "open_port": "Shanghai",
+          "open_date": "25 Apr"
+        },
+        {
+          "vessel_name": "MV Small",
+          "dwt": 15000,
+          "open_port": "Shanghai",
+          "open_date": "10 Apr"
+        },
+        {
+          "vessel_name": "MV Big",
+          "dwt": 150000,
+          "open_port": "Shanghai",
+          "open_date": "10 Apr"
+        },
+        {
+          "vessel_name": "MV Far",
+          "dwt": 45000,
+          "open_port": "Rotterdam",
+          "open_date": "10 Apr"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "MV Congested",
+        "recommended_action": "Check"
+      },
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-018",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Unknown",
+        "discharge_port": "Unknown",
+        "laycan": "End May",
+        "quantity_mt": 30000,
+        "cargo_type": "General Cargo"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Ready 1",
+          "dwt": 35000,
+          "open_port": "Houston",
+          "open_date": "25 May"
+        },
+        {
+          "vessel_name": "MV Ready 2",
+          "dwt": 35000,
+          "open_port": "Rotterdam",
+          "open_date": "25 May"
+        },
+        {
+          "vessel_name": "MV Ready 3",
+          "dwt": 35000,
+          "open_port": "Singapore",
+          "open_date": "25 May"
+        },
+        {
+          "vessel_name": "MV Ready 4",
+          "dwt": 35000,
+          "open_port": "Shanghai",
+          "open_date": "25 May"
+        },
+        {
+          "vessel_name": "MV Ready 5",
+          "dwt": 35000,
+          "open_port": "Durban",
+          "open_date": "25 May"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "None",
+        "recommended_action": "Check"
+      },
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-019",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Singapore",
+        "discharge_port": "Jakarta",
+        "laycan": "1-5 Jun",
+        "quantity_mt": 20000,
+        "cargo_type": "Cement"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Right Here",
+          "dwt": 25000,
+          "open_port": "Singapore",
+          "open_date": "1 Jun"
+        },
+        {
+          "vessel_name": "MV Small",
+          "dwt": 10000,
+          "open_port": "Singapore",
+          "open_date": "1 Jun"
+        },
+        {
+          "vessel_name": "MV Far Time",
+          "dwt": 25000,
+          "open_port": "Singapore",
+          "open_date": "20 Jun"
+        },
+        {
+          "vessel_name": "MV Far Space",
+          "dwt": 25000,
+          "open_port": "Tokyo",
+          "open_date": "1 Jun"
+        },
+        {
+          "vessel_name": "MV Big",
+          "dwt": 80000,
+          "open_port": "Singapore",
+          "open_date": "1 Jun"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "MV Right Here",
+        "recommended_action": "Proceed"
+      },
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "M-020",
+    "category": "MATCHING",
+    "endpoint": "/api/ai/matchVessels",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "cargo": {
+        "load_port": "Houston",
+        "discharge_port": "Rotterdam",
+        "laycan": "15-20 Jun",
+        "quantity_mt": 30000,
+        "cargo_type": "Grains"
+      },
+      "vessels": [
+        {
+          "vessel_name": "MV Perfect Triangulation",
+          "dwt": 35000,
+          "open_port": "New Orleans",
+          "open_date": "15 Jun",
+          "next_employment_preference": "Continent"
+        },
+        {
+          "vessel_name": "MV Wrong Direction",
+          "dwt": 35000,
+          "open_port": "Houston",
+          "open_date": "15 Jun",
+          "next_employment_preference": "Far East Only"
+        },
+        {
+          "vessel_name": "MV Far",
+          "dwt": 35000,
+          "open_port": "Rotterdam",
+          "open_date": "15 Jun"
+        },
+        {
+          "vessel_name": "MV Small",
+          "dwt": 15000,
+          "open_port": "Houston",
+          "open_date": "15 Jun"
+        },
+        {
+          "vessel_name": "MV Big",
+          "dwt": 80000,
+          "open_port": "Houston",
+          "open_date": "15 Jun"
+        }
+      ]
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/matchVessels",
+      "criticalFields": {
+        "best_vessel": "MV Perfect Triangulation",
+        "recommended_action": "Proceed"
+      },
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "R-001",
+    "category": "REPLY_GENERATION",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "generate_reply",
+      "payload": {
+        "contents": "Please draft a message to Polite but firm regarding Decline vessel due to dates not working"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "tone": "Polite but firm",
+        "commercial_intent": "Decline vessel due to dates not working",
+        "must_include": "Dates do not work"
+      },
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "R-002",
+    "category": "REPLY_GENERATION",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "generate_reply",
+      "payload": {
+        "contents": "Please draft a message to Professional and direct regarding Express firm interest and request full terms"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "tone": "Professional and direct",
+        "commercial_intent": "Express firm interest and request full terms",
+        "must_include": "Firm interest, send full terms"
+      },
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "R-003",
+    "category": "REPLY_GENERATION",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "generate_reply",
+      "payload": {
+        "contents": "Please draft a message to Negotiating regarding Counter freight rate"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "tone": "Negotiating",
+        "commercial_intent": "Counter freight rate",
+        "must_include": "Counter offer"
+      },
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "R-004",
+    "category": "REPLY_GENERATION",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "generate_reply",
+      "payload": {
+        "contents": "Please draft a message to Inquiring regarding Ask charterer for firm freight idea"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "tone": "Inquiring",
+        "commercial_intent": "Ask charterer for firm freight idea",
+        "must_include": "Firm freight idea"
+      },
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "R-005",
+    "category": "REPLY_GENERATION",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "generate_reply",
+      "payload": {
+        "contents": "Please draft a message to Inquiring regarding Ask for exact laycan"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "tone": "Inquiring",
+        "commercial_intent": "Ask for exact laycan",
+        "must_include": "Exact laycan"
+      },
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "R-006",
+    "category": "REPLY_GENERATION",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "generate_reply",
+      "payload": {
+        "contents": "Please draft a message to Informative regarding Tell owner charterer is checking draft/port restrictions"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "tone": "Informative",
+        "commercial_intent": "Tell owner charterer is checking draft/port restrictions",
+        "must_include": "Charterer checking draft"
+      },
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "R-007",
+    "category": "REPLY_GENERATION",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "generate_reply",
+      "payload": {
+        "contents": "Please draft a message to Negotiating regarding Tell charterer owners need minimum freight to work"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "tone": "Negotiating",
+        "commercial_intent": "Tell charterer owners need minimum freight to work",
+        "must_include": "Minimum freight required"
+      },
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "R-008",
+    "category": "REPLY_GENERATION",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "generate_reply",
+      "payload": {
+        "contents": "Please draft a message to Polite follow-up regarding Push for reply without sounding weak"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "tone": "Polite follow-up",
+        "commercial_intent": "Push for reply without sounding weak",
+        "must_include": "Awaiting your reply"
+      },
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "R-009",
+    "category": "REPLY_GENERATION",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "generate_reply",
+      "payload": {
+        "contents": "Please draft a message to Firm regarding Indication not enough, ask for firm offer"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "tone": "Firm",
+        "commercial_intent": "Indication not enough, ask for firm offer",
+        "must_include": "Need firm offer"
+      },
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "R-010",
+    "category": "REPLY_GENERATION",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "generate_reply",
+      "payload": {
+        "contents": "Please draft a message to Cautious regarding Hold interest subject approval without firm commitment"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "tone": "Cautious",
+        "commercial_intent": "Hold interest subject approval without firm commitment",
+        "must_include": "Subject to approval"
+      },
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "F-001",
+    "category": "RISK_ANALYSIS",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "analyze_risk",
+      "payload": {
+        "contents": "Please analyze risk for CQD Risk"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "risk_type": "CQD Risk",
+        "key_risk": "Owner laytime/demurrage exposure due to CQD",
+        "recommended_action": "Clarify demurrage terms or convert to fixed laytime",
+        "severity": "Medium"
+      },
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "F-002",
+    "category": "RISK_ANALYSIS",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "analyze_risk",
+      "payload": {
+        "contents": "Please analyze risk for FIOS Ambiguity"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "risk_type": "FIOS Ambiguity",
+        "key_risk": "Missing operational load/discharge rates",
+        "recommended_action": "Request specific rates",
+        "severity": "Medium"
+      },
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "F-003",
+    "category": "RISK_ANALYSIS",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "analyze_risk",
+      "payload": {
+        "contents": "Please analyze risk for Missing Demurrage"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "risk_type": "Missing Demurrage",
+        "key_risk": "Freight/laytime present but demurrage missing",
+        "recommended_action": "Add demurrage rate",
+        "severity": "Critical"
+      },
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "F-004",
+    "category": "RISK_ANALYSIS",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "analyze_risk",
+      "payload": {
+        "contents": "Please analyze risk for Reversible Laytime"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "risk_type": "Reversible Laytime",
+        "key_risk": "Commercial flexibility differences",
+        "recommended_action": "Clarify laytime terms",
+        "severity": "Medium"
+      },
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "F-005",
+    "category": "RISK_ANALYSIS",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "analyze_risk",
+      "payload": {
+        "contents": "Please analyze risk for SHINC/SHEX/EIU"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "risk_type": "SHINC/SHEX/EIU",
+        "key_risk": "Time counting ambiguity during weekends/holidays",
+        "recommended_action": "Specify exact terms",
+        "severity": "Medium"
+      },
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "F-006",
+    "category": "RISK_ANALYSIS",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "analyze_risk",
+      "payload": {
+        "contents": "Please analyze risk for NOR Tendering"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "risk_type": "NOR Tendering",
+        "key_risk": "Owner protection and waiting time start",
+        "recommended_action": "Ensure WIBON/WIFPON included",
+        "severity": "Medium"
+      },
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "F-007",
+    "category": "RISK_ANALYSIS",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "analyze_risk",
+      "payload": {
+        "contents": "Please analyze risk for Weather Working Days"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "risk_type": "Weather Working Days",
+        "key_risk": "Laytime stops during weather delays",
+        "recommended_action": "Verify weather definitions",
+        "severity": "Medium"
+      },
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "F-008",
+    "category": "RISK_ANALYSIS",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "analyze_risk",
+      "payload": {
+        "contents": "Please analyze risk for Laycan Squeeze"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "risk_type": "Laycan Squeeze",
+        "key_risk": "Risk of missing cancelling date",
+        "recommended_action": "Expand laycan",
+        "severity": "Medium"
+      },
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "F-009",
+    "category": "RISK_ANALYSIS",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "analyze_risk",
+      "payload": {
+        "contents": "Please analyze risk for Unclear Commission"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "risk_type": "Unclear Commission",
+        "key_risk": "Payment/distribution risk with multiple brokers",
+        "recommended_action": "Clarify commission structure",
+        "severity": "Medium"
+      },
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "F-010",
+    "category": "RISK_ANALYSIS",
+    "endpoint": "/api/ai/routeTask",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "taskType": "analyze_risk",
+      "payload": {
+        "contents": "Please analyze risk for Missing Subjects"
+      }
+    },
+    "expected": {
+      "modelExpected": "gemini-2.5-pro",
+      "endpointExpected": "/api/ai/routeTask",
+      "criticalFields": {
+        "risk_type": "Missing Subjects",
+        "key_risk": "Fixture certainty risk due to incomplete subjects list",
+        "recommended_action": "List all subjects explicitly",
+        "severity": "Medium"
+      },
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "C-001",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Cargo",
+        "sender": "broker@test.com",
+        "rawBody": "30,000 mts urea in bulk, Bandar Abbas to Mersin, laycan 15-20 June, 2.5% addcom, load/disch 8000x / CQD."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "urea in bulk",
+        "quantity": 30000,
+        "load_port": "Bandar Abbas",
+        "discharge_port": "Mersin",
+        "laycan": "15-20 June",
+        "commission": "2.5%",
+        "loading_rate": "8000x",
+        "discharging_rate": "CQD"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-002",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Breakbulk Houston",
+        "sender": "broker@test.com",
+        "rawBody": "15,000 mt general breakbulk pipes and machinery, Shanghai to Houston. 1-10 July. Freight idea ."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "general breakbulk pipes and machinery",
+        "quantity": 15000,
+        "load_port": "Shanghai",
+        "discharge_port": "Houston",
+        "laycan": "1-10 July"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-003",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "DAP Cargo",
+        "sender": "broker@test.com",
+        "rawBody": "50,000 mt DAP, Jorf Lasfar to Paradip. 5-15 Aug. 2.5% ttl. 20k/15k shinc."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "DAP",
+        "quantity": 50000,
+        "load_port": "Jorf Lasfar",
+        "discharge_port": "Paradip",
+        "laycan": "5-15 Aug",
+        "commission": "2.5%",
+        "loading_rate": "20k",
+        "discharging_rate": "15k"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-004",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Wheat",
+        "sender": "broker@test.com",
+        "rawBody": "60,000 mt wheat in bulk, Vancouver to Tokyo, laycan first half Sep. Target 25 usd. 3.75%"
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "wheat in bulk",
+        "quantity": 60000,
+        "load_port": "Vancouver",
+        "discharge_port": "Tokyo",
+        "laycan": "first half Sep",
+        "freight_idea": "25",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-005",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Rice",
+        "sender": "broker@test.com",
+        "rawBody": "25,000 mt bagged rice, Visakhapatnam to Dakar. 10-20 Sep. CQD/CQD. 5% comm."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bagged rice",
+        "quantity": 25000,
+        "load_port": "Visakhapatnam",
+        "discharge_port": "Dakar",
+        "laycan": "10-20 Sep",
+        "loading_rate": "CQD",
+        "discharging_rate": "CQD",
+        "commission": "5%"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-006",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Bulk Cement",
+        "sender": "broker@test.com",
+        "rawBody": "35kt bulk cement, Ube to Singapore, 1-15 Oct. 10kts / 8kts."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bulk cement",
+        "quantity": 35000,
+        "load_port": "Ube",
+        "discharge_port": "Singapore",
+        "laycan": "1-15 Oct",
+        "loading_rate": "10kts",
+        "discharging_rate": "8kts"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-007",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Steel Coils",
+        "sender": "broker@test.com",
+        "rawBody": "40,000 mt steel coils, Pohang to Jebel Ali, 20-30 Oct. Freight idea mid 40s. 3.75%"
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "steel coils",
+        "quantity": 40000,
+        "load_port": "Pohang",
+        "discharge_port": "Jebel Ali",
+        "laycan": "20-30 Oct",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-008",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Steel Billets",
+        "sender": "broker@test.com",
+        "rawBody": "10,000 mt steel billets Novorossiysk to Alexandria. Nov 1-10. 5000/3000."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "steel billets",
+        "quantity": 10000,
+        "load_port": "Novorossiysk",
+        "discharge_port": "Alexandria",
+        "laycan": "Nov 1-10",
+        "loading_rate": "5000",
+        "discharging_rate": "3000"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-009",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Petcoke USG",
+        "sender": "broker@test.com",
+        "rawBody": "50,000 mt petcoke Houston to Aliaga, late Nov, 30usd, 25000c/15000x."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "petcoke",
+        "quantity": 50000,
+        "load_port": "Houston",
+        "discharge_port": "Aliaga",
+        "laycan": "late Nov",
+        "freight_idea": "30",
+        "loading_rate": "25000c",
+        "discharging_rate": "15000x"
+      },
+      "missingFieldsShouldInclude": [
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-010",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Coal DBEX",
+        "sender": "broker@test.com",
+        "rawBody": "75,000 mt coal Dalrymple Bay to Qinzhou, Dec 1-15. 2.5% comm, 30k/20k."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "coal",
+        "quantity": 75000,
+        "load_port": "Dalrymple Bay",
+        "discharge_port": "Qinzhou",
+        "laycan": "Dec 1-15",
+        "commission": "2.5%",
+        "loading_rate": "30k",
+        "discharging_rate": "20k"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-011",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "DRI Fines",
+        "sender": "broker@test.com",
+        "rawBody": "40,000 mt DRI fines, Paradip to Chittagong, Dec 10-20. 15k/10k. IMO class 4.2."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "DRI fines",
+        "quantity": 40000,
+        "load_port": "Paradip",
+        "discharge_port": "Chittagong",
+        "laycan": "Dec 10-20"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-012",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Rock Phosphate ecdia",
+        "sender": "broker@test.com",
+        "rawBody": "Need vessel for 20k mt rock phosphate from Aqaba to ecdia, 15-20 Aug, 50k / 20k."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "rock phosphate",
+        "quantity": 20000,
+        "load_port": "Aqaba",
+        "discharge_port": "EC India",
+        "laycan": "15-20 Aug",
+        "loading_rate": "50k",
+        "discharging_rate": "20k"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-013",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Windmills",
+        "sender": "broker@test.com",
+        "rawBody": "Project cargo: 3 sets of windmills (approx 5,000cbm), Taicang to Bremerhaven. 10-30 Jan. Indication 500,000 usd lump sum."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "windmills",
+        "load_port": "Taicang",
+        "discharge_port": "Bremerhaven",
+        "laycan": "10-30 Jan"
+      },
+      "missingFieldsShouldInclude": [
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-014",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Two Stems",
+        "sender": "broker@test.com",
+        "rawBody": "1) 30k mt steel coils Mumbai to Antwerp 1-5 Sep. 2) 20k mt bagged rice Kandla to Jebel Ali 5-10 Sep."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_count": 2,
+        "cargo_name": "steel coils",
+        "load_port": "Mumbai",
+        "discharge_port": "Antwerp"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-015",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Fwd: Firm Sugar",
+        "sender": "broker@test.com",
+        "rawBody": "FYI this was fixed last week. --- Original Message --- 40k mt sugar Santos to Dubai laycan 1-10 May."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "stale"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "laycan",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-016",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Indicative Freight Needed",
+        "sender": "broker@test.com",
+        "rawBody": "Pls give ideas for 50k mt clinker from Vietnam to Manila for late Oct. Not firm yet, just calculating."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "inquiry"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "laycan",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-017",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Wheat",
+        "sender": "broker@test.com",
+        "rawBody": "40,000 mt wheat Rouen to Algiers. 15 usd, 2.5%, 10k/5k."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "wheat",
+        "quantity": 40000,
+        "load_port": "Rouen",
+        "discharge_port": "Algiers",
+        "freight_idea": "15",
+        "commission": "2.5%",
+        "loading_rate": "10k",
+        "discharging_rate": "5k"
+      },
+      "missingFieldsShouldInclude": [
+        "laycan"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "laycan"
+      ]
+    }
+  },
+  {
+    "id": "C-018",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Fertilizers",
+        "sender": "broker@test.com",
+        "rawBody": "30,000 mt MAP, Tampa to Santos. 1-10 Feb. 20k/15k. 3.75% comm."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "MAP",
+        "quantity": 30000,
+        "load_port": "Tampa",
+        "discharge_port": "Santos",
+        "laycan": "1-10 Feb",
+        "loading_rate": "20k",
+        "discharging_rate": "15k",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "Medium",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-019",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Coal",
+        "sender": "broker@test.com",
+        "rawBody": "60,000 mt coal, Samarinda to Kandla, 15-20 Feb, 12 usd, 2.5% addcom."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "coal",
+        "quantity": 60000,
+        "load_port": "Samarinda",
+        "discharge_port": "Kandla",
+        "laycan": "15-20 Feb",
+        "freight_idea": "12",
+        "commission": "2.5%"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-020",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Iron Ore",
+        "sender": "broker@test.com",
+        "rawBody": "160,000 mt iron ore, WAF to China, mid March. 20 usd."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "iron ore",
+        "quantity": 160000,
+        "load_port": "WAF",
+        "discharge_port": "China",
+        "laycan": "mid March",
+        "freight_idea": "20"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate",
+        "commission"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-021",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "PROMPT CARGO",
+        "sender": "broker@test.com",
+        "rawBody": "We need vessel promptest possible for 30k bauxite Kamsar to Aughinish, 15 usd, 2.5%."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bauxite",
+        "quantity": 30000,
+        "load_port": "Kamsar",
+        "discharge_port": "Aughinish",
+        "freight_idea": "15",
+        "commission": "2.5%"
+      },
+      "missingFieldsShouldInclude": [
+        "laycan",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-022",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Reminder Cargo",
+        "sender": "broker@test.com",
+        "rawBody": "Reminder firm: 45k mt petcoke Houston to Haldia, 20-30 March. Same as yesterday."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "petcoke",
+        "quantity": 45000,
+        "load_port": "Houston",
+        "discharge_port": "Haldia",
+        "laycan": "20-30 March"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "Low",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-023",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Corn",
+        "sender": "broker@test.com",
+        "rawBody": "50,000 mt corn Santos to Chiba laycan 10-20 Oct ideas 45 usd."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "corn",
+        "quantity": 50000,
+        "load_port": "Santos",
+        "discharge_port": "Chiba",
+        "laycan": "10-20 Oct",
+        "freight_idea": "45"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate",
+        "commission"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-024",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "wa",
+        "sender": "broker@test.com",
+        "rawBody": "30k st coils tianjin/antwerp 10/20apr ideas 40 3.75%"
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "st coils",
+        "quantity": 30000,
+        "load_port": "Tianjin",
+        "discharge_port": "Antwerp",
+        "laycan": "10/20apr",
+        "freight_idea": "40",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-025",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Carga Firme",
+        "sender": "broker@test.com",
+        "rawBody": "40,000 tm de trigo, San Lorenzo a Callao, 5-15 May, ideas 30 usd, 5% comision."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "trigo",
+        "quantity": 40000,
+        "load_port": "San Lorenzo",
+        "discharge_port": "Callao",
+        "laycan": "5-15 May",
+        "freight_idea": "30",
+        "commission": "5%"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "Medium",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-026",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Complex Comm",
+        "sender": "broker@test.com",
+        "rawBody": "50k coal Richards Bay to Ennore, 1-10 June, 12 usd. 2.5% address + 1.25% bkr1 + 1.25% bkr2 = 5% ttl."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "coal",
+        "quantity": 50000,
+        "load_port": "Richards Bay",
+        "discharge_port": "Ennore",
+        "laycan": "1-10 June",
+        "freight_idea": "12",
+        "commission": "5% ttl"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-027",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Date Typo",
+        "sender": "broker@test.com",
+        "rawBody": "30k clinker, Mina Saqr to Mombasa, 31 Feb - 5 March, 15 usd."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "clinker",
+        "quantity": 30000,
+        "load_port": "Mina Saqr",
+        "discharge_port": "Mombasa",
+        "laycan": "31 Feb - 5 March",
+        "freight_idea": "15"
+      },
+      "missingFieldsShouldInclude": [
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "Low",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-028",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Grain with Addcom",
+        "sender": "broker@test.com",
+        "rawBody": "60k mt soybeans, Santos to Qingdao, 15-25 July, 40 usd, 3.75% + 1.25% addcom."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "soybeans",
+        "quantity": 60000,
+        "load_port": "Santos",
+        "discharge_port": "Qingdao",
+        "laycan": "15-25 July",
+        "freight_idea": "40"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-029",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Rice CQD",
+        "sender": "broker@test.com",
+        "rawBody": "20k bagged rice Kakinada to Cotonou 1-5 Nov. CQD b/e. 3.75% comm."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bagged rice",
+        "quantity": 20000,
+        "load_port": "Kakinada",
+        "discharge_port": "Cotonou",
+        "laycan": "1-5 Nov",
+        "loading_rate": "CQD",
+        "discharging_rate": "CQD",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-030",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "FIOS terms",
+        "sender": "broker@test.com",
+        "rawBody": "30,000 mt bulk slag, Tobata to Chittagong, 10-20 Aug, FIOS 10k/8k, 5%."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bulk slag",
+        "quantity": 30000,
+        "load_port": "Tobata",
+        "discharge_port": "Chittagong",
+        "laycan": "10-20 Aug",
+        "loading_rate": "10k",
+        "discharging_rate": "8k",
+        "commission": "5%"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-031",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "SHINC Cargo",
+        "sender": "broker@test.com",
+        "rawBody": "50k bauxite, Trombetas to Aughinish, 5-15 Sep. 30k SHINC / 20k SHEX. 15 usd."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bauxite",
+        "quantity": 50000,
+        "load_port": "Trombetas",
+        "discharge_port": "Aughinish",
+        "laycan": "5-15 Sep",
+        "loading_rate": "30k",
+        "discharging_rate": "20k",
+        "freight_idea": "15"
+      },
+      "missingFieldsShouldInclude": [
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-032",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Missing load port",
+        "sender": "broker@test.com",
+        "rawBody": "Need supra for 50k clinker discharging Manila, 10-20 Oct, 15 usd, 5%."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "clinker",
+        "quantity": 50000,
+        "discharge_port": "Manila",
+        "laycan": "10-20 Oct",
+        "freight_idea": "15",
+        "commission": "5%"
+      },
+      "missingFieldsShouldInclude": [
+        "load_port",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "load_port",
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-033",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Two options",
+        "sender": "broker@test.com",
+        "rawBody": "Stem 1: 40k petcoke Houston to Aliaga 10-15 Nov. Stem 2: 50k coal Mobile to Rotterdam 12-20 Nov."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_count": 2,
+        "cargo_name": "petcoke"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-034",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Fwd: Firm Petcoke",
+        "sender": "broker@test.com",
+        "rawBody": "Already concluded but for ref: 50k mt petcoke USG to Med, mid Oct."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "stale"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "laycan",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-035",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Checking rates",
+        "sender": "broker@test.com",
+        "rawBody": "Hi, what are current rates for 30k mt steel from Xingang to West Africa for late Dec? Just a budget check."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "inquiry"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "laycan",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-036",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Ammonium Nitrate",
+        "sender": "broker@test.com",
+        "rawBody": "10,000 mt Ammonium Nitrate, Constanta to Mersin, 1-10 Jan, 5000/3000."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "Ammonium Nitrate",
+        "quantity": 10000,
+        "load_port": "Constanta",
+        "discharge_port": "Mersin",
+        "laycan": "1-10 Jan",
+        "loading_rate": "5000",
+        "discharging_rate": "3000"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "commission"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": true,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-037",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Missing disch",
+        "sender": "broker@test.com",
+        "rawBody": "40k mt grains, Santos to TBN, 15-20 Feb. Ideas 30."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "grains",
+        "quantity": 40000,
+        "load_port": "Santos",
+        "laycan": "15-20 Feb",
+        "freight_idea": "30"
+      },
+      "missingFieldsShouldInclude": [
+        "discharge_port",
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "discharge_port",
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-038",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Steel Scrap CQD",
+        "sender": "broker@test.com",
+        "rawBody": "30,000 mt steel scrap, Rotterdam to Iskenderun, 10-20 March. CQD/CQD. 25 usd."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "steel scrap",
+        "quantity": 30000,
+        "load_port": "Rotterdam",
+        "discharge_port": "Iskenderun",
+        "laycan": "10-20 March",
+        "freight_idea": "25",
+        "loading_rate": "CQD",
+        "discharging_rate": "CQD"
+      },
+      "missingFieldsShouldInclude": [
+        "commission"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-039",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Bauxite",
+        "sender": "broker@test.com",
+        "rawBody": "180k bauxite, Kamsar to Qingdao, 1-15 April, 15 usd. 50k/30k shinc."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bauxite",
+        "quantity": 180000,
+        "load_port": "Kamsar",
+        "discharge_port": "Qingdao",
+        "laycan": "1-15 April",
+        "freight_idea": "15",
+        "loading_rate": "50k",
+        "discharging_rate": "30k"
+      },
+      "missingFieldsShouldInclude": [
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-040",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Iron Ore Tubarao",
+        "sender": "broker@test.com",
+        "rawBody": "170k iron ore, Tubarao to Qingdao, 20-30 May, 20 usd. 60k shinc/30k shinc."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "iron ore",
+        "quantity": 170000,
+        "load_port": "Tubarao",
+        "discharge_port": "Qingdao",
+        "laycan": "20-30 May",
+        "freight_idea": "20",
+        "loading_rate": "60k",
+        "discharging_rate": "30k"
+      },
+      "missingFieldsShouldInclude": [
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-041",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Firm Coal",
+        "sender": "broker@test.com",
+        "rawBody": "100,000 mt coal Richards Bay to Tianjin, early Jan."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "coal",
+        "quantity": 100000,
+        "load_port": "Richards Bay",
+        "discharge_port": "Tianjin",
+        "laycan": "early Jan"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea",
+        "loading_rate",
+        "discharging_rate",
+        "commission"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea",
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-042",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Alumina",
+        "sender": "broker@test.com",
+        "rawBody": "30k alumina, Bunbury to Sohar, 15-20 June, 10k/8k, 3.75%"
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "alumina",
+        "quantity": 30000,
+        "load_port": "Bunbury",
+        "discharge_port": "Sohar",
+        "laycan": "15-20 June",
+        "loading_rate": "10k",
+        "discharging_rate": "8k",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-043",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Pig Iron",
+        "sender": "broker@test.com",
+        "rawBody": "40k mt pig iron, Vitoria to NOLA, 1-10 July, 12k/10k, 5% comm."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "pig iron",
+        "quantity": 40000,
+        "load_port": "Vitoria",
+        "discharge_port": "NOLA",
+        "laycan": "1-10 July",
+        "loading_rate": "12k",
+        "discharging_rate": "10k",
+        "commission": "5%"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-044",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Scrap Cargo",
+        "sender": "broker@test.com",
+        "rawBody": "25,000 mt HMS 1&2, Boston to Nemrut Bay, 15-25 July, 25 usd, 5k/5k."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "HMS 1&2",
+        "quantity": 25000,
+        "load_port": "Boston",
+        "discharge_port": "Nemrut Bay",
+        "laycan": "15-25 July",
+        "freight_idea": "25",
+        "loading_rate": "5k",
+        "discharging_rate": "5k"
+      },
+      "missingFieldsShouldInclude": [
+        "commission"
+      ],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission"
+      ]
+    }
+  },
+  {
+    "id": "C-045",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "CQD/CQD 3",
+        "sender": "broker@test.com",
+        "rawBody": "10k mt general cargo, Mumbai to Mombasa, 1-5 Aug, CQD/CQD. 5%."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "general cargo",
+        "quantity": 10000,
+        "load_port": "Mumbai",
+        "discharge_port": "Mombasa",
+        "laycan": "1-5 Aug",
+        "loading_rate": "CQD",
+        "discharging_rate": "CQD",
+        "commission": "5%"
+      },
+      "missingFieldsShouldInclude": [
+        "freight_idea"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "freight_idea"
+      ]
+    }
+  },
+  {
+    "id": "C-046",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Missing quantity",
+        "sender": "broker@test.com",
+        "rawBody": "sugar in bags Santos to Dubai 1-10 Sep. 30 usd. 2k/2k. 3.75%"
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "sugar in bags",
+        "load_port": "Santos",
+        "discharge_port": "Dubai",
+        "laycan": "1-10 Sep",
+        "freight_idea": "30",
+        "loading_rate": "2k",
+        "discharging_rate": "2k",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [
+        "quantity"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "quantity"
+      ]
+    }
+  },
+  {
+    "id": "C-047",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Missing cargo name",
+        "sender": "broker@test.com",
+        "rawBody": "50,000 mt, Newcastle to Kinuura, 15-25 Oct. 12 usd. 30k/20k. 2.5%"
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "quantity": 50000,
+        "load_port": "Newcastle",
+        "discharge_port": "Kinuura",
+        "laycan": "15-25 Oct",
+        "freight_idea": "12",
+        "loading_rate": "30k",
+        "discharging_rate": "20k",
+        "commission": "2.5%"
+      },
+      "missingFieldsShouldInclude": [
+        "cargo_name"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "cargo_name"
+      ]
+    }
+  },
+  {
+    "id": "C-048",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Clinker",
+        "sender": "broker@test.com",
+        "rawBody": "40k mt clinker Mina Saqr to Chittagong, 10-15 Jan. 35 usd."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "clinker",
+        "quantity": 40000,
+        "load_port": "Mina Saqr",
+        "discharge_port": "Chittagong",
+        "laycan": "10-15 Jan",
+        "freight_idea": "35"
+      },
+      "missingFieldsShouldInclude": [
+        "loading_rate",
+        "discharging_rate",
+        "commission"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "commission",
+        "loading_rate",
+        "discharging_rate"
+      ]
+    }
+  },
+  {
+    "id": "C-049",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Coal",
+        "sender": "broker@test.com",
+        "rawBody": "75k coal DBCT to Krishnapatnam, 20-30 Feb. Target 20 usd. 30k/20k. 3.75%"
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "coal",
+        "quantity": 75000,
+        "load_port": "DBCT",
+        "discharge_port": "Krishnapatnam",
+        "laycan": "20-30 Feb",
+        "freight_idea": "20",
+        "loading_rate": "30k",
+        "discharging_rate": "20k",
+        "commission": "3.75%"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "C-050",
+    "category": "CARGO",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Bauxite",
+        "sender": "broker@test.com",
+        "rawBody": "150k mt bauxite Kamsar to Qingdao, 20-30 Jan. aim 15 usd, 2.5% comm, 30k SHINC / 25k SHINC."
+      }
+    },
+    "expected": {
+      "type": "CARGO",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "cargo_name": "bauxite",
+        "quantity": 150000,
+        "load_port": "Kamsar",
+        "discharge_port": "Qingdao",
+        "laycan": "20-30 Jan",
+        "freight_idea": "15",
+        "commission": "2.5%",
+        "loading_rate": "30k",
+        "discharging_rate": "25k"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-001",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Handysize Open Tonnage",
+        "sender": "vessels01@test.com",
+        "rawBody": "MV Ocean Handy 32,000 dwt open Santos 1-5 May."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Ocean Handy",
+        "dwt": 32000,
+        "open_port": "Santos",
+        "open_date": "1-5 May"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-002",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Supramax position",
+        "sender": "vessels02@test.com",
+        "rawBody": "MV Supra Star 58k dwt open CJK 10-15 Jun."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Supra Star",
+        "dwt": 58000,
+        "open_port": "CJK",
+        "open_date": "10-15 Jun"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-003",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Ultramax Gulf",
+        "sender": "vessels03@test.com",
+        "rawBody": "MV Ultra Max 63,000 dwt open USG end May."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Ultra Max",
+        "dwt": 63000,
+        "open_port": "USG",
+        "open_date": "end May"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-004",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Panamax NOPAC",
+        "sender": "vessels04@test.com",
+        "rawBody": "MV Panama View 75k dwt open NOPAC 10-20 Jul."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Panama View",
+        "dwt": 75000,
+        "open_port": "NOPAC",
+        "open_date": "10-20 Jul"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-005",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Kamsarmax India",
+        "sender": "vessels05@test.com",
+        "rawBody": "MV Kamsarmax King 82k dwt open EC India 15-20 Aug."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Kamsarmax King",
+        "dwt": 82000,
+        "open_port": "EC India",
+        "open_date": "15-20 Aug"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-006",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Capesize TUB",
+        "sender": "vessels06@test.com",
+        "rawBody": "MV Cape Giant 180k dwt open Tubarao 1-15 Sep."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Cape Giant",
+        "dwt": 180000,
+        "open_port": "Tubarao",
+        "open_date": "1-15 Sep"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-007",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MPP Tonnage",
+        "sender": "vessels07@test.com",
+        "rawBody": "MV Multi Purp 20k dwt MPP open Antwerp prompt."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Multi Purp",
+        "dwt": 20000,
+        "open_port": "Antwerp",
+        "open_date": "prompt"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-008",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Heavy Lift",
+        "sender": "vessels08@test.com",
+        "rawBody": "MV Heavy Lifter 12k dwt 2x400mt heavy lift open Shanghai 1 Oct."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Heavy Lifter",
+        "dwt": 12000,
+        "open_port": "Shanghai",
+        "open_date": "1 Oct",
+        "gear_cranes": 2,
+        "gear_capacity_mt": 400
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-009",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Tween Decker Open",
+        "sender": "vessels09@test.com",
+        "rawBody": "MV Tween Deck 15k dwt open Genoa 1-5 Nov."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Tween Deck",
+        "dwt": 15000,
+        "open_port": "Genoa",
+        "open_date": "1-5 Nov"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-010",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Coaster Position",
+        "sender": "vessels10@test.com",
+        "rawBody": "MV Coaster Small 4k dwt open Rotterdam prompt."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Coaster Small",
+        "dwt": 4000,
+        "open_port": "Rotterdam",
+        "open_date": "prompt"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-011",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Geared Open",
+        "sender": "vessels11@test.com",
+        "rawBody": "MV Geared Bulker 45k dwt 4x30t cranes open Durban 10-15 Dec."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Geared Bulker",
+        "dwt": 45000,
+        "open_port": "Durban",
+        "open_date": "10-15 Dec",
+        "gear_type": "cranes",
+        "gear_cranes": 4,
+        "gear_capacity_mt": 30
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-012",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Gearless Panamax",
+        "sender": "vessels12@test.com",
+        "rawBody": "MV Gearless Panamax 70k dwt gearless open Tubarao 5-10 Jan."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Gearless Panamax",
+        "dwt": 70000,
+        "open_port": "Tubarao",
+        "open_date": "5-10 Jan",
+        "gear_type": "gearless"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-013",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Project Tonnage",
+        "sender": "vessels13@test.com",
+        "rawBody": "MV PROJECT 14k dwt open Houston 15-30 April."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV PROJECT",
+        "dwt": 14000,
+        "open_port": "Houston",
+        "open_date": "15-30 April"
+      },
+      "missingFieldsShouldInclude": [
+        "gear_type",
+        "gear_cranes",
+        "gear_capacity_mt"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "gear_type",
+        "gear_cranes",
+        "gear_capacity_mt"
+      ]
+    }
+  },
+  {
+    "id": "V-014",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Open Prompt",
+        "sender": "vessels14@test.com",
+        "rawBody": "MV Prompt Ship 55k dwt open Singapore PROMPT."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Prompt Ship",
+        "dwt": 55000,
+        "open_port": "Singapore",
+        "open_date": "PROMPT"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-015",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Fwd: Fwd: Fwd: MV Old Ship",
+        "sender": "vessels15@test.com",
+        "rawBody": "FYI below... Fwd: Fwd: Fwd: MV Old Ship 60k open mid March EC India"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "stale"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-016",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Any supras?",
+        "sender": "vessels16@test.com",
+        "rawBody": "Any supras open USG next week? Have firm biz."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "inquiry"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-017",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Clean Ship",
+        "sender": "vessels17@test.com",
+        "rawBody": "MV Clean Ship 35k dwt open NY prompt. No dirty cargoes, no sulfur."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Clean Ship",
+        "dwt": 35000,
+        "open_port": "NY",
+        "open_date": "prompt",
+        "restrictions": "No dirty cargoes, no sulfur"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-018",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MV Alpha",
+        "sender": "vessels18@test.com",
+        "rawBody": "MV Alpha 55k open Santos next week. Scrap excluded."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Alpha",
+        "dwt": 55000,
+        "open_port": "Santos",
+        "open_date": "next week",
+        "restrictions": "Scrap excluded"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-019",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MV Beta",
+        "sender": "vessels19@test.com",
+        "rawBody": "MV Beta 80k open Newcastle prompt. No coal, no petcoke."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Beta",
+        "dwt": 80000,
+        "open_port": "Newcastle",
+        "open_date": "prompt",
+        "restrictions": "No coal, no petcoke"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-020",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "OPEN TONNAGE - MV PANAMAX STAR",
+        "sender": "vessels20@test.com",
+        "rawBody": "MV PANAMAX STAR\n75000 DWT\nOPEN SANTOS 12-16 DEC\nExcl sanctioned countries/cargoes"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV PANAMAX STAR",
+        "dwt": 75000,
+        "open_port": "Santos",
+        "open_date": "12-16 DEC",
+        "restrictions": "Excl sanctioned countries/cargoes"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "gear_type",
+        "gear_capacity_mt",
+        "gear_cranes"
+      ]
+    }
+  },
+  {
+    "id": "V-021",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Crane Ship",
+        "sender": "vessels21@test.com",
+        "rawBody": "MV Crane Ship 50k dwt 4x40mt open USEC 1-15 Feb."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Crane Ship",
+        "dwt": 50000,
+        "open_port": "USEC",
+        "open_date": "1-15 Feb",
+        "gear_cranes": 4,
+        "gear_capacity_mt": 40
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-022",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Combined Crane capability",
+        "sender": "vessels22@test.com",
+        "rawBody": "MV Combo 30k dwt 2x50mt (combinable 100mt) open China prompt."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Combo",
+        "dwt": 30000,
+        "open_port": "China",
+        "open_date": "prompt",
+        "gear_cranes": 2,
+        "gear_capacity_mt": 50,
+        "gear_combined_capacity_mt": 100
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-023",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Holds/Hatches",
+        "sender": "vessels23@test.com",
+        "rawBody": "MV HoldShip 40k dwt 5HO/5HA open Japan end Mar."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV HoldShip",
+        "dwt": 40000,
+        "open_port": "Japan",
+        "open_date": "end Mar",
+        "holds": 5,
+        "hatches": 5
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-024",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "ICE CLASS 1A VESSEL OPEN",
+        "sender": "vessels24@test.com",
+        "rawBody": "MV POLAR BEAR\n30000 DWT\nOPEN ST PETERSBURG 1-5 FEB\nICE CLASS 1A"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV POLAR BEAR",
+        "dwt": 30000,
+        "open_port": "St Petersburg",
+        "open_date": "1-5 FEB",
+        "ice_class": "1A"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-025",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Shallow draft tonnage",
+        "sender": "vessels25@test.com",
+        "rawBody": "MV SHALLOW SEAS\n45000 DWT\nOPEN ROUEN 10-20 SEP\nMax draft 11.5m completely laden"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV SHALLOW SEAS",
+        "dwt": 45000,
+        "open_port": "Rouen",
+        "open_date": "10-20 SEP",
+        "max_draft": "11.5m"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-026",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MV BIG BOX",
+        "sender": "vessels26@test.com",
+        "rawBody": "MV BIG BOX\n82000 DWT\nOPEN ROTTERDAM 1 OCT\nLOA 225m / BEAM 32.2m"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV BIG BOX",
+        "dwt": 82000,
+        "open_port": "Rotterdam",
+        "open_date": "1 OCT",
+        "loa": "225m",
+        "beam": "32.2m"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-027",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MV ECO RUNNER INFO",
+        "sender": "vessels27@test.com",
+        "rawBody": "MV ECO RUNNER\n58000 DWT\nOPEN SINGAPORE 5-10 NOV\nSPEED 13.5kn / CONS 28t IFO"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV ECO RUNNER",
+        "dwt": 58000,
+        "open_port": "Singapore",
+        "open_date": "5-10 NOV",
+        "speed": "13.5kn",
+        "consumption": "28t IFO"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-028",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Vessel BWTS Fitted",
+        "sender": "vessels28@test.com",
+        "rawBody": "MV MODERN SEA\n34000 DWT\nOPEN CHENNAI 20-30 AUG\nBWTS fitted"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV MODERN SEA",
+        "dwt": 34000,
+        "open_port": "Chennai",
+        "open_date": "20-30 AUG",
+        "bwts": "fitted"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-029",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "OPEN HATCH Tonnage",
+        "sender": "vessels29@test.com",
+        "rawBody": "MV OPEN MOON\n60000 DWT\nOPEN HOUSTON 15 DEC\nOHGC 4X40T"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV OPEN MOON",
+        "dwt": 60000,
+        "open_port": "Houston",
+        "open_date": "15 DEC",
+        "gear_type": "OHGC",
+        "gear_cranes": 4,
+        "gear_capacity_mt": 40
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-030",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MV WOODLANDER",
+        "sender": "vessels30@test.com",
+        "rawBody": "MV WOODLANDER\n32000 DWT\nOPEN VANCOUVER 5-15 JAN\nTimber fitted"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV WOODLANDER",
+        "dwt": 32000,
+        "open_port": "Vancouver",
+        "open_date": "5-15 JAN",
+        "timber_fitted": true
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-031",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Container Spec",
+        "sender": "vessels31@test.com",
+        "rawBody": "MV BOX CARRIER\n15000 DWT\nOPEN ANTWERP 25-28 FEB\nContainer fitted"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV BOX CARRIER",
+        "dwt": 15000,
+        "open_port": "Antwerp",
+        "open_date": "25-28 FEB",
+        "container_fitted": true
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-032",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MV DANGER ZONE",
+        "sender": "vessels32@test.com",
+        "rawBody": "MV DANGER ZONE\n28000 DWT\nOPEN JUBAIL 1-10 MAR\nIMO fitted for dangerous cargo"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV DANGER ZONE",
+        "dwt": 28000,
+        "open_port": "Jubail",
+        "open_date": "1-10 MAR",
+        "imo_fitted": true
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-033",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MULTIPLE VESSELS OPEN ASIA",
+        "sender": "vessels33@test.com",
+        "rawBody": "1) MV Ship One 55k dwt open Shanghai 10 May\n2) MV Ship Two 61k dwt open Busan 12 May"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_count": 2,
+        "vessel_name": "MV Ship One"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-034",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Fwd: MV Old Position",
+        "sender": "vessels34@test.com",
+        "rawBody": "Fwd: Fwd: Fwd: MV Old Ship 50k open mid March USG"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "stale"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Reject",
+      "severityIfFailed": "High",
+      "shouldReject": true,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-035",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Handy required",
+        "sender": "vessels35@test.com",
+        "rawBody": "Looking for handy open MED end month."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "commercial_status": "inquiry"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-036",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Missing Vessel Name",
+        "sender": "vessels36@test.com",
+        "rawBody": "TBN\n55000 mt dwt open Singapore 10-15 Oct. Please propose."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "dwt": 55000,
+        "open_port": "Singapore",
+        "open_date": "10-15 Oct"
+      },
+      "missingFieldsShouldInclude": [
+        "vessel_name"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "vessel_name"
+      ]
+    }
+  },
+  {
+    "id": "V-037",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Missing DWT",
+        "sender": "vessels37@test.com",
+        "rawBody": "MV LADY BIRD open Santos 5-10 Nov. Need grain cargo."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV LADY BIRD",
+        "open_port": "Santos",
+        "open_date": "5-10 Nov"
+      },
+      "missingFieldsShouldInclude": [
+        "dwt"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "dwt"
+      ]
+    }
+  },
+  {
+    "id": "V-038",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "mv shp",
+        "sender": "vessels38@test.com",
+        "rawBody": "mv shp 40dwt opn Sngpore 15/? ideas??"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "dwt": 40000,
+        "open_port": "Sngpore"
+      },
+      "missingFieldsShouldInclude": [
+        "open_date"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "open_date"
+      ]
+    }
+  },
+  {
+    "id": "V-039",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "open",
+        "sender": "vessels39@test.com",
+        "rawBody": "50k dwt opn CJK end/earl."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "dwt": 50000,
+        "open_port": "CJK"
+      },
+      "missingFieldsShouldInclude": [
+        "vessel_name",
+        "open_date"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "vessel_name",
+        "open_date"
+      ]
+    }
+  },
+  {
+    "id": "V-040",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Unclear open position",
+        "sender": "vessels40@test.com",
+        "rawBody": "MV BLUE WAVE 60k dwt open Med somewhere early next month maybe."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV BLUE WAVE",
+        "dwt": 60000
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-041",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Missing open date",
+        "sender": "vessels41@test.com",
+        "rawBody": "MV ATLANTIC 80k dwt open Rotterdam. Any cargos?"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV ATLANTIC",
+        "dwt": 80000,
+        "open_port": "Rotterdam"
+      },
+      "missingFieldsShouldInclude": [
+        "open_date"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "open_date"
+      ]
+    }
+  },
+  {
+    "id": "V-042",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Box Shaped Vessel",
+        "sender": "vessels42@test.com",
+        "rawBody": "MV SQUARE BOX\n35000 DWT\nOPEN LISBON 1-10 MAY\nBox shaped holds"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV SQUARE BOX",
+        "dwt": 35000,
+        "open_port": "Lis Lisbon",
+        "open_date": "1-10 MAY",
+        "box_shaped_holds": true
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-043",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Grab Fitted Vessel",
+        "sender": "vessels43@test.com",
+        "rawBody": "MV GRABBER\n50000 DWT\nOPEN RICHARDS BAY 15-20 SEP\nGrab fitted"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV GRABBER",
+        "dwt": 50000,
+        "open_port": "Richards Bay",
+        "open_date": "15-20 SEP",
+        "grab_fitted": true
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-044",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "MV Date Range",
+        "sender": "vessels44@test.com",
+        "rawBody": "MV Date Range 40k open USG 15-30 Aug."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Date Range",
+        "dwt": 40000,
+        "open_port": "USG",
+        "open_date": "15-30 Aug"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-045",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Position List",
+        "sender": "vessels45@test.com",
+        "rawBody": "MV UNKNOWN\nOpen somewhere soon\nNeed cargoes"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV UNKNOWN"
+      },
+      "missingFieldsShouldInclude": [
+        "dwt",
+        "open_port",
+        "open_date"
+      ],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": [
+        "dwt",
+        "open_port",
+        "open_date"
+      ]
+    }
+  },
+  {
+    "id": "V-046",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Formal circular",
+        "sender": "vessels46@test.com",
+        "rawBody": "Please note following open position: MV Formal 60k dwt built 2018 open USG 10-15 Sep."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Formal",
+        "dwt": 60000,
+        "open_port": "USG",
+        "open_date": "10-15 Sep"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-047",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "wassup",
+        "sender": "vessels47@test.com",
+        "rawBody": "mv wassup 30k dxb prmpt"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "mv wassup",
+        "dwt": 30000,
+        "open_port": "dxb",
+        "open_date": "prmpt"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "Medium",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-048",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Notes on positions",
+        "sender": "vessels48@test.com",
+        "rawBody": "MV Notes 55k open CJK 5-10 Oct. Owners can look at slightly dirty cargoes."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Notes",
+        "dwt": 55000,
+        "open_port": "CJK",
+        "open_date": "5-10 Oct"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "Low",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-049",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Dirty Cargoes ok",
+        "sender": "vessels49@test.com",
+        "rawBody": "MV MESSY\n40000 DWT\nOPEN RIO 10-20 OCT\nDirty ok but strictly no sulfur"
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV MESSY",
+        "dwt": 40000,
+        "open_port": "Rio",
+        "open_date": "10-20 OCT",
+        "restrictions": "Dirty ok but strictly no sulfur"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Check",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  },
+  {
+    "id": "V-050",
+    "category": "VESSEL",
+    "endpoint": "/api/ai/parseEmail",
+    "payload": {
+      "testMode": true,
+      "dryRun": true,
+      "email": {
+        "subject": "Generic bulker",
+        "sender": "vessels50@test.com",
+        "rawBody": "MV Generic Bulker 55k dwt open CJK 10-15 May."
+      }
+    },
+    "expected": {
+      "type": "VESSEL",
+      "modelExpected": "gemini-2.5-flash",
+      "endpointExpected": "/api/ai/parseEmail",
+      "criticalFields": {
+        "vessel_name": "MV Generic Bulker",
+        "dwt": 55000,
+        "open_port": "CJK",
+        "open_date": "10-15 May"
+      },
+      "missingFieldsShouldInclude": [],
+      "humanExpectedDecision": "Proceed",
+      "severityIfFailed": "High",
+      "shouldReject": false,
+      "shouldFlagRisk": false,
+      "shouldNotHallucinateFields": []
+    }
+  }
+]
