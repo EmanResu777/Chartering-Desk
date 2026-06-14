@@ -15,6 +15,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import OpenAI from "openai";
 import { fetchAISPosition, getAISProviderStatus } from './src/server/aisProvider';
 import { estimateRoute } from './src/lib/routingProvider';
+import { tryDeterministicSplitAndParse, parseDeterministicCargoes } from './src/lib/deterministicCargoParser';
 
 let firestore: Firestore | null = null;
 try {
@@ -2427,151 +2428,6 @@ const jobResults = new Map<string, any[]>();
     }
   });
 
-  function parseDeterministicCargoBlock(blockText: string): any {
-    const lines = blockText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    let loadPort = '';
-    let dischargePort = '';
-    let raw_commodity = '';
-    let quantity = '';
-    let laycan = '';
-    let terms = '';
-    let commission = '';
-    let special_requirements = '';
-    
-    // 1. Identify route line
-    for (const line of lines) {
-      if (line.includes('/') && !line.toLowerCase().includes('load/discharge') && !line.toLowerCase().includes('load / discharge') && !line.toLowerCase().includes('rate')) {
-        const parts = line.split('/');
-        if (parts.length === 2) {
-          loadPort = parts[0].trim();
-          dischargePort = parts[1].trim();
-        }
-      }
-    }
-
-    // 2. Identify laycan line
-    const monthRegex = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)/i;
-    const yearRegex = /202[5678]/;
-    const datePatternRegex = /\d{1,2}[–\/.-]\s*\d{1,2}/;
-    for (const line of lines) {
-      const isRoute = line.includes('/') && !line.toLowerCase().includes('load/discharge') && !line.toLowerCase().includes('load / discharge') && !line.toLowerCase().includes('rate');
-      if (!isRoute) {
-        if (monthRegex.test(line) || yearRegex.test(line) || datePatternRegex.test(line)) {
-          laycan = line;
-        }
-      }
-    }
-
-    // 3. Identify quantity & commodity line
-    for (const line of lines) {
-      if (line.toLowerCase().match(/(?:cbm|mts|tons|mt|ton)/i) && !line.toLowerCase().includes('load/discharge') && !line.toLowerCase().includes('carrier shall') && !line.toLowerCase().includes('rate')) {
-        const qtyMatch = line.match(/(?:abt\s*)?\d+(?:[.,]\d+)*(?:\s*-\s*\d+(?:[.,]\d+)*)?\s*(?:cbm|mts|tons|mt|ton|CBM)/i);
-        if (qtyMatch) {
-          quantity = qtyMatch[0].trim();
-          raw_commodity = line.replace(qtyMatch[0], '').trim();
-          if (raw_commodity.startsWith('g/c')) {
-            raw_commodity = raw_commodity.replace(/^g\/c\s*/i, '').trim();
-          }
-          raw_commodity = raw_commodity.replace(/^[,.\s-]+|[,.\s-]+$/g, '').trim();
-        } else {
-          raw_commodity = line;
-        }
-      }
-    }
-
-    // 4. Identify terms and rates
-    for (const line of lines) {
-      const lowerLine = line.toLowerCase();
-      if (lowerLine === 'fios' || lowerLine === 'fiox' || lowerLine.includes('fios')) {
-        terms = 'FIOS';
-      } else if (lowerLine.includes('cqd')) {
-        terms = 'CQD';
-      }
-      if (lowerLine.includes('pct') || lowerLine.includes('%') || lowerLine.includes('commission')) {
-        commission = line;
-      }
-    }
-
-    // 5. Special Notes & requirements
-    const unmatched = [];
-    for (const line of lines) {
-      if (line.includes('/') && !line.toLowerCase().includes('load/discharge') && !line.toLowerCase().includes('load / discharge') && !line.toLowerCase().includes('rate')) continue;
-      if (line === laycan) continue;
-      if (line === commission) continue;
-      if (line.toLowerCase().includes('fios') || line.toLowerCase().includes('cqd')) continue;
-      if (quantity && line.includes(quantity)) continue;
-      if (raw_commodity && line.includes(raw_commodity)) continue;
-      unmatched.push(line);
-    }
-    if (unmatched.length > 0) {
-      special_requirements = unmatched.join('. ');
-    }
-
-    // Backfill raw_commodity if empty
-    if (!raw_commodity) {
-      for (const line of lines) {
-        if (!line.includes('/') && !line.match(monthRegex) && !line.match(yearRegex) && !line.includes('pct') && !line.includes('%')) {
-          raw_commodity = line;
-          break;
-        }
-      }
-    }
-
-    return {
-      raw_commodity: raw_commodity || 'coil',
-      quantity: quantity,
-      loadPort: loadPort,
-      dischargePort: dischargePort,
-      laycan: laycan,
-      terms: terms,
-      commission: commission,
-      special_requirements: special_requirements,
-      missing_fields: []
-    };
-  }
-
-  function tryDeterministicSplitAndParse(text: string): any[] | null {
-    const normalizedText = text.trim();
-    const blocks = normalizedText.split(/\r?\n\s*\r?\n/).map(b => b.trim()).filter(Boolean);
-    
-    if (blocks.length < 2) return null;
-    
-    const cargoes: any[] = [];
-    
-    for (const block of blocks) {
-      const lines = block.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      
-      let hasRoute = false;
-      let hasLaycan = false;
-      let hasQty = false;
-      
-      const monthRegex = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)/i;
-      const yearRegex = /202[5678]/;
-      const datePatternRegex = /\d{1,2}[–\/.-]\s*\d{1,2}/;
-
-      for (const line of lines) {
-        if (line.includes('/') && !line.toLowerCase().includes('load/discharge') && !line.toLowerCase().includes('load / discharge') && !line.toLowerCase().includes('rate')) {
-          hasRoute = true;
-        }
-        if (monthRegex.test(line) || yearRegex.test(line) || datePatternRegex.test(line)) {
-          hasLaycan = true;
-        }
-        if (line.toLowerCase().match(/(?:cbm|mts|tons|mt|ton)/i) && !line.toLowerCase().includes('load/discharge')) {
-          hasQty = true;
-        }
-      }
-      
-      if (hasRoute && (hasLaycan || hasQty)) {
-        const cargo = parseDeterministicCargoBlock(block);
-        cargoes.push(cargo);
-      }
-    }
-    
-    if (cargoes.length >= 2) {
-      return cargoes;
-    }
-    return null;
-  }
 
   // AI Routes
   app.post('/api/ai/parseEmail', async (req, res) => {
@@ -2854,6 +2710,32 @@ const jobResults = new Map<string, any[]>();
                   if (!fc.terms && dc.terms) fc.terms = dc.terms;
                   if (!fc.commission && dc.commission) fc.commission = dc.commission;
                   if (!fc.comm && dc.commission) fc.comm = dc.commission;
+                  if (!fc.special_requirements && dc.special_requirements) fc.special_requirements = dc.special_requirements;
+              }
+          }
+      } else if (expectedType === 'CARGO') {
+          // SINGLE-BLOCK DETERMINISTIC BACKFILL
+          // A clearly-structured single cargo circular must never fall through
+          // to an "all fields missing" incomplete result just because the model
+          // under-performed. Use the deterministic candidate to seed an empty
+          // result or fill gaps in a single AI cargo (never overwrites the AI).
+          const detSingle = parseDeterministicCargoes(rawText);
+          if (detSingle.length === 1) {
+              const dc = detSingle[0];
+              if (finalCargoes.length === 0) {
+                  finalCargoes = [normalizeEntity(dc)];
+              } else if (finalCargoes.length === 1) {
+                  const fc = finalCargoes[0];
+                  if (!fc.loadPort && dc.loadPort) fc.loadPort = dc.loadPort;
+                  if (!fc.dischargePort && dc.dischargePort) fc.dischargePort = dc.dischargePort;
+                  if (!fc.raw_commodity && dc.raw_commodity) fc.raw_commodity = dc.raw_commodity;
+                  if (!fc.commodity && dc.commodity) fc.commodity = dc.commodity;
+                  if (!fc.quantity && dc.quantity) fc.quantity = dc.quantity;
+                  if (!fc.laycan && dc.laycan) fc.laycan = dc.laycan;
+                  if (!fc.terms && dc.terms) fc.terms = dc.terms;
+                  if (!fc.commission && dc.commission) fc.commission = dc.commission;
+                  if (!fc.comm && dc.commission) fc.comm = dc.commission;
+                  if (!fc.freight_idea && dc.freight_idea) fc.freight_idea = dc.freight_idea;
                   if (!fc.special_requirements && dc.special_requirements) fc.special_requirements = dc.special_requirements;
               }
           }
