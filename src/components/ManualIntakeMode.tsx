@@ -382,7 +382,7 @@ export const ManualIntakeMode = ({
             <div className="p-6 flex flex-col h-full space-y-4">
                 <div className="flex justify-between items-center">
                     <div className="text-sm font-bold text-on-surface uppercase tracking-wider">Paste Broker Text</div>
-                    <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-13]</div>
+                    <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-14]</div>
                 </div>
 
                 {warning && (

@@ -16,6 +16,7 @@ import OpenAI from "openai";
 import { fetchAISPosition, getAISProviderStatus } from './src/server/aisProvider';
 import { estimateRoute } from './src/lib/routingProvider';
 import { parseDeterministicCargoes } from './src/lib/deterministicCargoParser';
+import { parseDeterministicVessels } from './src/lib/deterministicVesselParser';
 
 let firestore: Firestore | null = null;
 try {
@@ -2457,13 +2458,13 @@ const jobResults = new Map<string, any[]>();
         return res.status(403).json({ error: "Forbidden: userId mismatch" });
       }
 
-      const parserVersion = 'v1.3-pb13'; // Increment for cache keys (invalidates pre-PB13 cached results)
+      const parserVersion = 'v1.4-pb14'; // Increment for cache keys (invalidates pre-PB14 cached results)
       
       const rawText = email.rawBody || email.snippet || '';
       const normText = rawText.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
       const crypto = await import('crypto');
       const textHash = crypto.createHash('sha256').update(normText.substring(0, 5000)).digest('hex');
-      const cacheKey = userId ? crypto.createHash('sha256').update(`${userId}-${textHash}-${parserVersion}`).digest('hex') : null;
+      const cacheKey = userId ? crypto.createHash('sha256').update(`${userId}-${textHash}-${parserVersion}-${expectedType || 'auto'}`).digest('hex') : null;
 
       const unoptimizedTokenEstimate = Math.ceil((2500 + (email.rawBody?.length || 0)) / 4);
       const contentsInput = `Subj:${email.subject}\nFrom:${email.sender}\nDate:${email.date || ''}\nBody:${normText}`;
@@ -2592,8 +2593,8 @@ const jobResults = new Map<string, any[]>();
                   degraded_analysis: false,
                   memoryUsed: usedMemoryInfo,
                   _diagnostic: {
-                     buildVersion: "PILOT-BLOCKER-13",
-                     releaseLabel: "pilot-blocker-13",
+                     buildVersion: "PILOT-BLOCKER-14",
+                     releaseLabel: "pilot-blocker-14",
                      parserVersion: "multi-cargo-v2",
                      endpoint: "parseEmail",
                      expectedType: expectedType || "auto",
@@ -2722,17 +2723,6 @@ const jobResults = new Map<string, any[]>();
           finalCargoes = base;
       }
 
-      // Safe diagnostics: counts only. Never logs raw user text, AI response,
-      // provider payload, or secrets.
-      console.log('[parseEmail][PB13]', JSON.stringify({
-          expectedType: expectedType || 'auto',
-          manualIntake: operationName === 'manual_text_intake',
-          deterministicCargoes: detAll.length,
-          finalCargoes: finalCargoes.length,
-          multiCargoDetected: finalCargoes.length > 1,
-          incompleteFallbackTriggered: detAll.length === 0 && finalCargoes.length === 0
-      }));
-
       if (data.vessels && Array.isArray(data.vessels)) {
           finalVessels = data.vessels.map(normalizeEntity);
       } else if (data.vessel) {
@@ -2740,6 +2730,43 @@ const jobResults = new Map<string, any[]>();
       } else if (data.extractedData && (data.type === 'VESSEL' || data.type === 'VESSEL_LIST')) {
            finalVessels = Array.isArray(data.extractedData) ? data.extractedData.map(normalizeEntity) : [normalizeEntity(data.extractedData)];
       }
+
+      // DETERMINISTIC AUTHORITY ENFORCER — VESSEL (PILOT-BLOCKER-14)
+      // For vessel paste text, run the model-free vessel parser. When it
+      // extracts >= 1 vessel, that result is authoritative; AI may only
+      // enrich empty fields and can never erase deterministic data.
+      const detVessels = (expectedType === 'VESSEL') ? parseDeterministicVessels(rawText) : [];
+      if (detVessels.length >= 1) {
+          const vBase = detVessels.map(normalizeEntity);
+          for (let i = 0; i < vBase.length; i++) {
+              const dv = vBase[i];
+              const fv = finalVessels[i];
+              if (!fv) continue;
+              if (!dv.name && fv.name) dv.name = fv.name;
+              if (!dv.dwt && fv.dwt) dv.dwt = fv.dwt;
+              if (!dv.openPort && fv.openPort) dv.openPort = fv.openPort;
+              if (!dv.openDate && fv.openDate) dv.openDate = fv.openDate;
+              if (!dv.type && fv.type) dv.type = fv.type;
+              if (!dv.gear && fv.gear) dv.gear = fv.gear;
+              if (!dv.built && fv.built) dv.built = fv.built;
+              if (!dv.flag && fv.flag) dv.flag = fv.flag;
+          }
+          for (let i = vBase.length; i < finalVessels.length; i++) vBase.push(finalVessels[i]);
+          finalVessels = vBase;
+      }
+
+      // Safe diagnostics: counts only. Never logs raw user text, AI response,
+      // provider payload, or secrets.
+      console.log('[parseEmail][PB14]', JSON.stringify({
+          expectedType: expectedType || 'auto',
+          manualIntake: operationName === 'manual_text_intake',
+          deterministicCargoes: detAll.length,
+          deterministicVessels: detVessels.length,
+          finalCargoes: finalCargoes.length,
+          finalVessels: finalVessels.length,
+          multiCargoDetected: finalCargoes.length > 1,
+          incompleteFallbackTriggered: detAll.length === 0 && finalCargoes.length === 0 && detVessels.length === 0 && finalVessels.length === 0
+      }));
 
       const out: any = {
         type: data.type || (finalCargoes.length > 1 ? "CARGO_LIST" : finalCargoes.length === 1 ? "CARGO" : finalVessels.length > 1 ? "VESSEL_LIST" : finalVessels.length === 1 ? "VESSEL" : "OTHER"),
@@ -2754,12 +2781,14 @@ const jobResults = new Map<string, any[]>();
         degraded_analysis: response.degraded || false,
         memoryUsed: usedMemoryInfo,
         _diagnostic: {
-           buildVersion: "PILOT-BLOCKER-13",
-           releaseLabel: "pilot-blocker-13",
-           parserVersion: "multi-cargo-v2",
+           buildVersion: "PILOT-BLOCKER-14",
+           releaseLabel: "pilot-blocker-14",
+           parserVersion,
            endpoint: "parseEmail",
            expectedType: expectedType || "auto",
            parserMode: operationName,
+           deterministicCargoes: detAll.length,
+           deterministicVessels: detVessels.length,
            multiCargoDetected: finalCargoes.length > 1,
            fallbackUsed: response.actualModel === "fallback"
         },

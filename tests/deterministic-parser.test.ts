@@ -1,4 +1,4 @@
-// Offline deterministic-parser test harness for PILOT-BLOCKER-11B.
+// Offline deterministic-parser test harness for PILOT-BLOCKER-11B / PB14.
 //
 // Runs without a live server or Gemini key. Exercises the model-free parsing
 // layer that guarantees broker circulars are split and structured correctly
@@ -10,6 +10,10 @@ import {
   parseDeterministicCargoes,
   CargoCandidate,
 } from '../src/lib/deterministicCargoParser';
+import {
+  parseDeterministicVessels,
+  VesselCandidate,
+} from '../src/lib/deterministicVesselParser';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -200,6 +204,50 @@ for (const s of samples) {
 }
 check('F: parser never throws / no garbage ports across samples', fThrew === 0, `${fThrew} failures`);
 console.log(`  (samples=${samples.length}, produced candidates=${fRouteTotal}, single-cargo=${fSingleRoute})`);
+
+// ---------------------------------------------------------------------------
+// PILOT-BLOCKER-14: Deterministic vessel parser tests
+// ---------------------------------------------------------------------------
+const MV_SAADET = `MV SAADET
+GENERAL CARGO SHIP / SINGLE DECKER / GEARLESS BOX LIKE
+BUILT 2009 MALTA FLAG
+DWT/DRFT: 12.200 MTS / 7.98 M
+GRT/NRT: 7988 / 4126
+LOA/BEAM/DM: 140.30 M / 20 M / 10.50 M
+CARGO CAPACITY GRAIN/BALE: 522,188 CBFT
+3 HOLDS / 3 HATCHES
+PANDI LONDON PANDI, CLASS BV`;
+
+console.log('\nTest G — MV SAADET vessel spec (PILOT-BLOCKER-14)');
+const g = parseDeterministicVessels(MV_SAADET);
+check('G: 1 vessel candidate', g.length === 1, `got ${g.length}`);
+if (g.length === 1) {
+  const vsl = g[0];
+  check('G: name = MV SAADET', has(vsl.name, 'saadet'), vsl.name);
+  check('G: built = 2009', vsl.built === '2009', vsl.built);
+  check('G: flag = MALTA', has(vsl.flag, 'malta'), vsl.flag);
+  check('G: dwt has 12,200', has(vsl.dwt, '12,200'), vsl.dwt);
+  check('G: draft = 7.98 M', has(vsl.draft, '7.98'), vsl.draft);
+  check('G: grt = 7988', has(vsl.grt, '7988'), vsl.grt);
+  check('G: nrt = 4126', has(vsl.nrt, '4126'), vsl.nrt);
+  check('G: loa has 140.30', has(vsl.loa, '140.30'), vsl.loa);
+  check('G: beam has 20', has(vsl.beam, '20'), vsl.beam);
+  check('G: capacity has 522,188', has(vsl.capacity, '522'), vsl.capacity);
+  check('G: holds = 3', vsl.holds === '3', vsl.holds);
+  check('G: hatches = 3', vsl.hatches === '3', vsl.hatches);
+  check('G: gear = GEARLESS', has(vsl.gear, 'gearless'), vsl.gear);
+  check('G: class = BV', has(vsl.class_society, 'bv'), vsl.class_society);
+  check('G: pandi has LONDON', has(vsl.pandi, 'london'), vsl.pandi);
+  check('G: type includes CARGO SHIP', has(vsl.type, 'cargo'), vsl.type);
+  check('G: missing_fields has openPort', (vsl.missing_fields || []).includes('openPort'), JSON.stringify(vsl.missing_fields));
+  check('G: missing_fields has openDate', (vsl.missing_fields || []).includes('openDate'), JSON.stringify(vsl.missing_fields));
+  check('G: missing_fields does NOT have name', !(vsl.missing_fields || []).includes('name'), JSON.stringify(vsl.missing_fields));
+  check('G: missing_fields does NOT have dwt', !(vsl.missing_fields || []).includes('dwt'), JSON.stringify(vsl.missing_fields));
+}
+
+console.log('\nTest G2 — incomplete vessel text returns empty array');
+const g2 = parseDeterministicVessels('25 pct addcom\nfreight ideas welcome');
+check('G2: no vessel candidate for non-vessel text', g2.length === 0, `got ${g2.length}`);
 
 // ---------------------------------------------------------------------------
 console.log(`\n=== RESULT: ${passed} passed, ${failed} failed ===`);
