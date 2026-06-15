@@ -2458,8 +2458,10 @@ const jobResults = new Map<string, any[]>();
         return res.status(403).json({ error: "Forbidden: userId mismatch" });
       }
 
-      const parserVersion = 'v1.4-pb14'; // Increment for cache keys (invalidates pre-PB14 cached results)
-      
+      const parserVersion = 'v1.5-pb15'; // Increment for cache keys (invalidates pre-PB15 cached results)
+      const isManualIntake = email.sender === 'Manual Entry';
+      const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
+
       const rawText = email.rawBody || email.snippet || '';
       const normText = rawText.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
       const crypto = await import('crypto');
@@ -2474,12 +2476,16 @@ const jobResults = new Map<string, any[]>();
       let usedMemoryInfo: any = {};
       let senderProfile = null;
 
-      if (cacheKey) {
+      // PILOT-BLOCKER-15: manual paste must NEVER serve a stale cached result.
+      // The deterministic parser is fast and authoritative, so we bypass the
+      // cache entirely for manual_text_intake. This guarantees a bad
+      // PB12/PB13/PB14 cache entry can never resurface as an "Incomplete Result".
+      if (cacheKey && !isManualIntake) {
           cachedResult = await AICache.get(`ai:parseEmail:${cacheKey}`);
       }
 
       if (userId && firestore) {
-          if (cacheKey && !cachedResult) {
+          if (cacheKey && !isManualIntake && !cachedResult) {
              try {
                  const cacheDoc = await firestore.collection('users').doc(userId).collection('memory_parseCache').doc(cacheKey).get();
                  if (cacheDoc.exists) {
@@ -2562,6 +2568,119 @@ const jobResults = new Map<string, any[]>();
         return res.status(creditCheck.statusCode || 402).json(creditCheck);
       }
 
+      // PILOT-BLOCKER-15 — safe observability. Counts / flags / field-names only.
+      // NEVER includes raw cargo/vessel text, AI responses, provider payloads, or
+      // secrets. Surfaced to the manual-intake UI so the real device path is
+      // observable end-to-end.
+      const lengthBucket = (n: number) => (n === 0 ? '0' : n <= 100 ? '1-100' : n <= 1000 ? '100-1000' : '1000+');
+      const buildDebug = (o: {
+          cacheHit: boolean;
+          deterministicCargoes: number; finalCargoes: number;
+          deterministicVessels: number; finalVessels: number;
+          incompleteFallbackTriggered: boolean; source: string;
+      }) => ({
+          requestId: reqId,
+          buildMarker: 'PILOT-BLOCKER-15',
+          parserVersion,
+          expectedType: expectedType || 'auto',
+          manualIntake: isManualIntake,
+          rawTextPresent: !!rawText && rawText.trim().length > 0,
+          rawTextLengthBucket: lengthBucket(rawText.trim().length),
+          cacheHit: o.cacheHit,
+          cacheKeyIncludesExpectedType: true,
+          cacheKeyIncludesParserVersion: true,
+          deterministicCargoes: o.deterministicCargoes,
+          finalCargoes: o.finalCargoes,
+          deterministicVessels: o.deterministicVessels,
+          finalVessels: o.finalVessels,
+          multiCargoDetected: o.finalCargoes > 1,
+          responseHasCargoes: o.finalCargoes > 0,
+          responseCargoesLength: o.finalCargoes,
+          responseHasVessels: o.finalVessels > 0,
+          responseVesselsLength: o.finalVessels,
+          responseHasSingleCargo: o.finalCargoes === 1,
+          responseHasSingleVessel: o.finalVessels === 1,
+          incompleteFallbackTriggered: o.incompleteFallbackTriggered,
+          source: o.source,
+      });
+
+      // DETERMINISTIC EARLY RETURN (PILOT-BLOCKER-15)
+      // For manual paste, run the model-free parsers BEFORE any AI call. When
+      // they extract >= 1 cargo or vessel, return that result immediately and
+      // authoritatively — no AI, no synthetic empty fallback, no cache. This
+      // makes manual Cargo/Vessel paste fully immune to Gemini/OpenAI quota or
+      // schema failures and to stale cache. AI enrichment is intentionally not
+      // required to create a draft.
+      if (operationName === 'manual_text_intake') {
+          const earlyCargoes = (expectedType !== 'VESSEL') ? parseDeterministicCargoes(rawText) : [];
+          const earlyVessels = (expectedType === 'VESSEL') ? parseDeterministicVessels(rawText) : [];
+          if (earlyCargoes.length >= 1 || earlyVessels.length >= 1) {
+              // Inline risk-flag tagging (applyRiskRules is defined later in this
+              // handler; keep the early path self-contained).
+              for (const item of [...earlyCargoes, ...earlyVessels] as any[]) {
+                  if (item && item.terms) {
+                      const t = String(item.terms).toUpperCase();
+                      item.risk_flags = item.risk_flags || [];
+                      if (t.includes('CQD')) item.risk_flags.push('CQD Risk: Demurrage ambiguity');
+                      if (t.includes('FIOS')) item.risk_flags.push('FIOS Check: Cargo handling responsibility');
+                      if (t.includes('W/O GUARANTEE') || t.includes('WOG')) item.risk_flags.push('WOG Risk: Details without guarantee');
+                  }
+              }
+              const _debug = buildDebug({
+                  cacheHit: false,
+                  deterministicCargoes: earlyCargoes.length,
+                  finalCargoes: earlyCargoes.length,
+                  deterministicVessels: earlyVessels.length,
+                  finalVessels: earlyVessels.length,
+                  incompleteFallbackTriggered: false,
+                  source: 'deterministic',
+              });
+              console.log('[parseEmail][PB15]', JSON.stringify(_debug));
+              return res.json({
+                  type: earlyCargoes.length > 1 ? 'CARGO_LIST'
+                      : earlyCargoes.length === 1 ? 'CARGO'
+                      : earlyVessels.length > 1 ? 'VESSEL_LIST'
+                      : earlyVessels.length === 1 ? 'VESSEL' : 'OTHER',
+                  decision: 'Check',
+                  multiCargoDetected: earlyCargoes.length > 1,
+                  multiVesselDetected: earlyVessels.length > 1,
+                  cargoes: earlyCargoes,
+                  vessels: earlyVessels,
+                  summary: earlyVessels.length >= 1
+                      ? `Structured ${earlyVessels.length} vessel candidate(s) deterministically.`
+                      : `Structured ${earlyCargoes.length} cargo candidate(s) deterministically.`,
+                  actualModel: 'deterministic',
+                  actualProvider: 'local',
+                  degraded_analysis: false,
+                  memoryUsed: usedMemoryInfo,
+                  _debug,
+                  _diagnostic: {
+                      buildVersion: 'PILOT-BLOCKER-15',
+                      releaseLabel: 'pilot-blocker-15',
+                      parserVersion,
+                      endpoint: 'parseEmail',
+                      expectedType: expectedType || 'auto',
+                      parserMode: operationName,
+                      deterministicCargoes: earlyCargoes.length,
+                      deterministicVessels: earlyVessels.length,
+                      multiCargoDetected: earlyCargoes.length > 1,
+                      fallbackUsed: false,
+                  },
+                  metrics: {
+                      routeName: 'parseEmail',
+                      cacheHit: false,
+                      fallbackUsed: false,
+                      repairUsed: false,
+                      retries: 0,
+                      failoverCount: 0,
+                      timeoutCount: 0,
+                      unoptimizedTokenEstimate,
+                      optimizedTokenEstimate,
+                  },
+              });
+          }
+      }
+
       let explicitHint = '';
       if (expectedType === 'CARGO') {
           explicitHint = `\nCRITICAL CONTEXT: The user explicitly pasted text for a CARGO. Focus entirely on extracting Cargo details. Do not treat this as a vessel. Do not require vessel fields. Return type CARGO or CARGO_LIST. EVEN IF the text is extremely short or fragmented, YOU MUST output a CARGO object containing whatever is present, and list the remaining core fields in missing_fields. DO NOT return an empty list or OTHER unless it is complete spam.`;
@@ -2571,8 +2690,7 @@ const jobResults = new Map<string, any[]>();
 
       const ai = getGoogleGenAI();
       let response;
-      const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
-      
+
       // Deterministic fallback for exceptionally short user inputs that reliably break Gemini schema parsing
       if (operationName === 'manual_text_intake') {
           const lowerBody = (email.rawBody || '').toLowerCase().trim();
@@ -2593,9 +2711,9 @@ const jobResults = new Map<string, any[]>();
                   degraded_analysis: false,
                   memoryUsed: usedMemoryInfo,
                   _diagnostic: {
-                     buildVersion: "PILOT-BLOCKER-14",
-                     releaseLabel: "pilot-blocker-14",
-                     parserVersion: "multi-cargo-v2",
+                     buildVersion: "PILOT-BLOCKER-15",
+                     releaseLabel: "pilot-blocker-15",
+                     parserVersion,
                      endpoint: "parseEmail",
                      expectedType: expectedType || "auto",
                      parserMode: operationName,
@@ -2757,7 +2875,8 @@ const jobResults = new Map<string, any[]>();
 
       // Safe diagnostics: counts only. Never logs raw user text, AI response,
       // provider payload, or secrets.
-      console.log('[parseEmail][PB14]', JSON.stringify({
+      const incompleteFallbackTriggered = detAll.length === 0 && finalCargoes.length === 0 && detVessels.length === 0 && finalVessels.length === 0;
+      console.log('[parseEmail][PB15]', JSON.stringify({
           expectedType: expectedType || 'auto',
           manualIntake: operationName === 'manual_text_intake',
           deterministicCargoes: detAll.length,
@@ -2765,7 +2884,7 @@ const jobResults = new Map<string, any[]>();
           finalCargoes: finalCargoes.length,
           finalVessels: finalVessels.length,
           multiCargoDetected: finalCargoes.length > 1,
-          incompleteFallbackTriggered: detAll.length === 0 && finalCargoes.length === 0 && detVessels.length === 0 && finalVessels.length === 0
+          incompleteFallbackTriggered
       }));
 
       const out: any = {
@@ -2781,8 +2900,8 @@ const jobResults = new Map<string, any[]>();
         degraded_analysis: response.degraded || false,
         memoryUsed: usedMemoryInfo,
         _diagnostic: {
-           buildVersion: "PILOT-BLOCKER-14",
-           releaseLabel: "pilot-blocker-14",
+           buildVersion: "PILOT-BLOCKER-15",
+           releaseLabel: "pilot-blocker-15",
            parserVersion,
            endpoint: "parseEmail",
            expectedType: expectedType || "auto",
@@ -2804,6 +2923,23 @@ const jobResults = new Map<string, any[]>();
           optimizedTokenEstimate
         }
       };
+
+      // PILOT-BLOCKER-15: attach safe debug for manual paste (this path is only
+      // reached when the deterministic early return found nothing and the AI was
+      // consulted). Lets the UI show why the result is what it is.
+      if (isManualIntake) {
+          out._debug = buildDebug({
+              cacheHit: false,
+              deterministicCargoes: detAll.length,
+              finalCargoes: finalCargoes.length,
+              deterministicVessels: detVessels.length,
+              finalVessels: finalVessels.length,
+              incompleteFallbackTriggered,
+              source: response.actualModel === 'fallback'
+                  ? 'synthetic'
+                  : (detAll.length > 0 || detVessels.length > 0) ? 'mixed' : 'ai',
+          });
+      }
 
       const applyRiskRules = (item: any) => {
          if (!item) return;
@@ -2830,7 +2966,7 @@ const jobResults = new Map<string, any[]>();
       if (out.cargoes) out.cargoes.forEach(applyRiskRules);
       if (out.vessels) out.vessels.forEach(applyRiskRules);
 
-      if (cacheKey && !out.degraded_analysis) {
+      if (cacheKey && !isManualIntake && !out.degraded_analysis) {
          const cachePayload = {
              resultType: out.type,
              decision: out.decision,

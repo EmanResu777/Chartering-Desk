@@ -250,6 +250,39 @@ const g2 = parseDeterministicVessels('25 pct addcom\nfreight ideas welcome');
 check('G2: no vessel candidate for non-vessel text', g2.length === 0, `got ${g2.length}`);
 
 // ---------------------------------------------------------------------------
+// PILOT-BLOCKER-15: response-shape / "meaningful candidate" gate.
+// Mirrors the frontend rule that decides render-cards vs global-Incomplete-wall.
+// A candidate is meaningful when it carries >= 1 real extracted field; only a
+// total absence of meaningful candidates may show the global Incomplete wall.
+// ---------------------------------------------------------------------------
+const meaningfulCargo = (c: any) =>
+  !!c && !!(c.commodity || c.raw_commodity || c.loadPort || c.dischargePort || c.quantity || c.laycan);
+const meaningfulVessel = (v: any) =>
+  !!v && !!(v.name || v.dwt || v.openPort || v.openDate || v.type || v.built || v.flag || v.grt || v.loa);
+
+console.log('\nTest H — PB15 manual CARGO response shape (3-cargo early return)');
+const h = parseDeterministicCargoes(THREE_CARGO);
+check('H: deterministicCargoes = 3', h.length === 3, `got ${h.length}`);
+check('H: every cargo is meaningful (renders, no wall)', h.every(meaningfulCargo), JSON.stringify(h.map(meaningfulCargo)));
+check('H: at least one meaningful cargo (renderedCargoCandidates=true)', h.some(meaningfulCargo), 'none meaningful');
+
+console.log('\nTest H2 — PB15 manual CARGO response shape (mobile, no blank lines)');
+const h2 = parseDeterministicCargoes(THREE_CARGO_NOBLANK);
+check('H2: deterministicCargoes = 3', h2.length === 3, `got ${h2.length}`);
+check('H2: every cargo is meaningful', h2.every(meaningfulCargo), JSON.stringify(h2.map(meaningfulCargo)));
+
+console.log('\nTest I — PB15 manual VESSEL response shape (MV SAADET early return)');
+const i = parseDeterministicVessels(MV_SAADET);
+check('I: deterministicVessels = 1', i.length === 1, `got ${i.length}`);
+check('I: vessel is meaningful (renders, no wall)', i.length === 1 && meaningfulVessel(i[0]), JSON.stringify(i[0]));
+check('I: renderedVesselCandidates would be true', i.some(meaningfulVessel), 'none meaningful');
+
+console.log('\nTest J — PB15 truly-incomplete CARGO shows wall, never fake card');
+const j = parseDeterministicCargoes(INCOMPLETE);
+check('J: deterministicCargoes = 0', j.length === 0, `got ${j.length}`);
+check('J: no meaningful cargo (global Incomplete wall is correct here)', !j.some(meaningfulCargo), 'unexpected meaningful');
+
+// ---------------------------------------------------------------------------
 console.log(`\n=== RESULT: ${passed} passed, ${failed} failed ===`);
 if (failures.length) {
   console.log('Failures:');
