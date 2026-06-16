@@ -1365,7 +1365,7 @@ const CargoDraftModal = ({ onClose, onSubmit }: { onClose: () => void, onSubmit:
       <motion.div 
         initial={{ scale: 0.95, opacity: 0, y: 20 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
-        className="w-full max-w-3xl bg-surface border border-outline/30 shadow-2xl flex flex-col max-h-[90vh] rounded-md overflow-hidden relative"
+        className="w-full max-w-3xl bg-surface border border-outline/30 shadow-2xl flex flex-col max-h-[90dvh] rounded-md overflow-hidden relative"
       >
         <div className="absolute inset-0 bg-surface-container-low opacity-50 z-[-1]"></div>
         
@@ -1491,7 +1491,7 @@ const CargoDraftModal = ({ onClose, onSubmit }: { onClose: () => void, onSubmit:
         </div>
         </form>
         ) : (
-           <div className="flex-1 overflow-hidden">
+           <div className="flex-1 min-h-0 overflow-hidden">
                <ManualIntakeMode onClose={onClose} defaultType="CARGO" />
            </div>
         )}

@@ -393,7 +393,7 @@ export const ManualIntakeMode = ({
             <div className="p-6 flex flex-col h-full space-y-4">
                 <div className="flex justify-between items-center">
                     <div className="text-sm font-bold text-on-surface uppercase tracking-wider">Paste Broker Text</div>
-                    <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-16]</div>
+                    <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-17]</div>
                 </div>
 
                 <DebugPanel />
@@ -431,8 +431,8 @@ export const ManualIntakeMode = ({
                 </button>
             </div>
         ) : (
-            <div className="flex flex-col h-full relative overflow-hidden">
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-24">
+            <div className="flex flex-col h-full">
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-4">
                      <DebugPanel />
                      <div className="flex items-center justify-between pb-4 border-b border-outline">
                         <div>
@@ -560,7 +560,10 @@ export const ManualIntakeMode = ({
                     )}
                 </div>
 
-                <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 bg-gradient-to-t from-surface-container via-surface-container to-transparent pt-12">
+                <div
+                    className="shrink-0 px-4 sm:px-6 pt-8 bg-gradient-to-t from-surface-container via-surface-container to-transparent"
+                    style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}
+                >
                      <button
                         onClick={handlePublish}
                         disabled={isPublishing || (selectedCargos.size === 0 && selectedVessels.size === 0)}
