@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Check, Loader2, Sparkles } from 'lucide-react';
 import { parseEmail } from '../lib/geminiService';
+import { decideManualIntakeRenderState } from '../lib/manualIntakeDecision';
 import { cn, Cargo, Vessel } from '../lib/utils';
 import { doc, setDoc, serverTimestamp, getDocs, collection, query, where } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
@@ -32,7 +33,7 @@ export const ManualIntakeMode = ({
   const [isPublishing, setIsPublishing] = useState(false);
   const [extractionResult, setExtractionResult] = useState<any>(null);
   const [warning, setWarning] = useState<string | null>(null);
-  // PILOT-BLOCKER-15: observable parser status. { backend: _debug|null, branch: {...} }
+  // PILOT-BLOCKER-16: observable parser status. { backend: _debug|null, decision: {...} }
   const [debugInfo, setDebugInfo] = useState<any>(null);
   
   const [selectedCargos, setSelectedCargos] = useState<Set<number>>(new Set());
@@ -55,151 +56,91 @@ export const ManualIntakeMode = ({
         labels: []
       };
 
-      // Deterministic frontend fallback to bypass Gemini API completely for exceptionally short inputs
-      const lowerText = text.toLowerCase().trim().replace(/\r\n/g, '\n');
-      let result;
-      if (defaultType === 'CARGO' && (lowerText === 'loading sequence 3 days prior to actual direct loading.\n5 pct' || 
-         (lowerText.includes('loading sequence 3 days prior') && lowerText.includes('5 pct') && lowerText.length < 100))) {
-          result = {
-              type: "CARGO",
-              cargoes: [{
-                  special_requirements: "loading sequence 3 days prior to actual direct loading",
-                  comm: "5 pct",
-                  missing_fields: ["commodity", "quantity", "load port / area", "discharge port / area", "laycan", "freight / rate"]
-              }],
-              vessels: [],
-              _diagnostic: { buildVersion: "pilot-blocker-13", endpoint: "parseEmail (frontend intercept)", fallbackUsed: true }
-          };
-      } else {
-          result = await parseEmail(fakeEmail, auth.currentUser?.uid, defaultType);
+      // PILOT-BLOCKER-16: the backend is best-effort ENRICHMENT only. In the
+      // AI Studio preview the API round-trip is unreliable (cargo returns an
+      // empty body, vessel fails the fetch entirely with "Load failed"), so we
+      // must never let it block the user. We try it, capture success OR error,
+      // and hand both to the pure client-side decision function which runs the
+      // deterministic parsers in the browser and is authoritative.
+      let backendResult: any = null;
+      let backendError: any = null;
+      try {
+        backendResult = await parseEmail(fakeEmail, auth.currentUser?.uid, defaultType);
+      } catch (e: any) {
+        backendError = e;
+        console.warn('Manual paste backend unavailable; using client-side deterministic parser.');
       }
 
-      const cList = (result.cargoes && result.cargoes.length > 0) ? result.cargoes : (result.cargo ? [result.cargo] : []);
-      const vList = (result.vessels && result.vessels.length > 0) ? result.vessels : (result.vessel ? [result.vessel] : []);
+      const decision = decideManualIntakeRenderState({
+        expectedType: defaultType === 'VESSEL' ? 'VESSEL' : 'CARGO',
+        text,
+        backendResult,
+        backendError,
+        backendStarted: true,
+      });
 
-      // PILOT-BLOCKER-15: cargoes[]/vessels[] are AUTHORITATIVE. A candidate is
-      // "meaningful" when it carries at least one real extracted field. We render
-      // candidates whenever meaningful data exists and ONLY fall back to the
-      // global Incomplete wall when there is genuinely nothing to show.
-      const meaningfulCargo = (c: any) => !!c && !!(c.commodity || c.raw_commodity || c.loadPort || c.dischargePort || c.quantity || c.laycan);
-      const meaningfulVessel = (v: any) => !!v && !!(v.name || v.dwt || v.openPort || v.openDate || v.type || v.built || v.flag || v.grt || v.loa);
-      const hasCargo = cList.some(meaningfulCargo);
-      const hasVessel = vList.some(meaningfulVessel);
+      setDebugInfo({ backend: backendResult?._debug || null, decision: decision.debug });
 
-      // Branch diagnostics (visible in the debug panel for screenshotting).
-      const branch = {
-          renderedCargoCandidates: false,
-          renderedVesselCandidates: false,
-          showedIncompleteWall: false,
-          usedSingleCargoFallback: false,
-          usedSingleVesselFallback: false,
-      };
-
-      // HARD RULE: meaningful candidates render — never the global Incomplete wall.
-      if (hasCargo || hasVessel) {
-          branch.renderedCargoCandidates = hasCargo;
-          branch.renderedVesselCandidates = hasVessel;
-          setDebugInfo({ backend: result._debug || null, branch });
-          setExtractionResult(result);
-          setSelectedCargos(new Set(cList.map((_: any, i: number) => i)));
-          setSelectedVessels(new Set(vList.map((_: any, i: number) => i)));
-          notify({
-              title: 'Extraction Complete',
-              message: 'Successfully structured content from text.',
-              type: 'success'
-          });
-          return;
+      // RENDER PATH: any candidate (local or backend) → render cards. Never a
+      // global Incomplete wall and never a red Parse Error in this branch.
+      if (decision.cargoes.length > 0 || decision.vessels.length > 0) {
+        const type = decision.vessels.length > 0
+          ? (decision.vessels.length > 1 ? 'VESSEL_LIST' : 'VESSEL')
+          : (decision.cargoes.length > 1 ? 'CARGO_LIST' : 'CARGO');
+        setExtractionResult({
+          type,
+          cargoes: decision.cargoes,
+          vessels: decision.vessels,
+          multiCargoDetected: decision.multiCargoDetected,
+          multiVesselDetected: decision.multiVesselDetected,
+          summary: backendResult?.summary || decision.enrichmentNote || 'Content structured from text.',
+          cached: backendResult?.cached,
+          memoryUsed: backendResult?.memoryUsed,
+          enrichmentNote: decision.enrichmentNote,
+          renderedFrom: decision.renderedFrom,
+          _debug: backendResult?._debug,
+          _diagnostic: backendResult?._diagnostic,
+        });
+        setSelectedCargos(new Set(decision.cargoes.map((_: any, i: number) => i)));
+        setSelectedVessels(new Set(decision.vessels.map((_: any, i: number) => i)));
+        notify(
+          decision.enrichmentNote
+            ? { title: 'Draft Created', message: decision.enrichmentNote, type: 'info' }
+            : { title: 'Extraction Complete', message: 'Successfully structured content from text.', type: 'success' }
+        );
+        return;
       }
 
-      // No meaningful candidates → genuine Incomplete result. Build the wall and
-      // record which single-empty fallback (if any) we used, for the debug panel.
-      branch.showedIncompleteWall = true;
+      // NOTHING extractable. Build the missing-fields message (text is only
+      // dumped into Useful Notes here, where there is genuinely nothing to show).
       const isVessel = defaultType === 'VESSEL';
-      branch.usedSingleVesselFallback = isVessel && vList.length >= 1;
-      branch.usedSingleCargoFallback = !isVessel && cList.length >= 1;
-
-      const cargoMissingMap: Record<string, string> = {
-          raw_commodity: 'commodity', commodity: 'commodity', quantity: 'quantity',
-          loadPort: 'load port / area', dischargePort: 'discharge port / area',
-          laycan: 'laycan', freight_idea: 'freight / rate'
-      };
-      const vesselMissingMap: Record<string, string> = {
-          name: 'vessel name', dwt: 'dwt', openPort: 'open port / area', openDate: 'open date'
-      };
-      const firstEmpty: any = isVessel ? vList[0] : cList[0];
-      const missingMap = isVessel ? vesselMissingMap : cargoMissingMap;
-      let missingDisplay = ((firstEmpty?.missing_fields) || []).map((f: string) => `* ${missingMap[f] || f}`).join('\n');
-      if (!missingDisplay) {
-          missingDisplay = isVessel
-              ? '* vessel name\n* dwt\n* open port / area\n* open date'
-              : '* commodity\n* quantity\n* load port / area\n* discharge port / area\n* laycan\n* freight / rate';
-      }
+      const missingDisplay = isVessel
+        ? '* vessel name\n* dwt\n* open port / area\n* open date'
+        : '* commodity\n* quantity\n* load port / area\n* discharge port / area\n* laycan\n* freight / rate';
       let msg = isVessel
-          ? `Not enough vessel information to create a vessel draft.\n\nMissing fields:\n${missingDisplay}`
-          : `Not enough cargo information to create a cargo draft.\n\nMissing fields:\n${missingDisplay}`;
-      if (text.trim().length > 0) {
-          const lines = text.trim().split(/\r?\n/).filter(line => line.trim().length > 0).map(line => `* ${line.trim()}`);
-          msg += `\n\nUseful notes:\n${lines.join('\n')}`;
+        ? `Not enough vessel information to create a vessel draft.\n\nMissing fields:\n${missingDisplay}`
+        : `Not enough cargo information to create a cargo draft.\n\nMissing fields:\n${missingDisplay}`;
+      const lines = text.trim().split(/\r?\n/).filter(line => line.trim().length > 0).map(line => `* ${line.trim()}`);
+      if (lines.length) msg += `\n\nUseful notes:\n${lines.join('\n')}`;
+
+      if (decision.showParseError) {
+        // Request failed AND nothing extractable locally.
+        notify({
+          title: 'Parse Error',
+          message: 'Could not reach the parser service and no structured data was found in the pasted text.',
+          type: 'error'
+        });
       }
-      if (result._diagnostic) {
-          msg += `\n\n[DIAGNOSTIC: ${result._diagnostic.buildVersion} | ${result._diagnostic.endpoint} | fallback=${result._diagnostic.fallbackUsed}]`;
-      }
-      setDebugInfo({ backend: result._debug || null, branch });
       setWarning(msg);
       setExtractionResult(null);
-      setIsParsing(false);
       return;
     } catch (e: any) {
-      let errorMsg = e.message || 'Could not extract data from the provided text.';
-      
-      const isIncompleteIntake = typeof errorMsg === 'string' && (
-          errorMsg.includes("Not enough cargo") ||
-          errorMsg.includes("Not enough vessel") ||
-          errorMsg.includes("The string did not match the expected pattern") || 
-          errorMsg.includes("DOMException") || 
-          errorMsg.includes("responseSchema") ||
-          errorMsg.includes("schema validation") ||
-          errorMsg.includes("Google GenAI") ||
-          errorMsg.includes("expected pattern")
-      );
-
-      if (isIncompleteIntake) {
-          console.warn("UI Parse Warning: Incomplete manual intake handled.");
-          const isVessel = defaultType === 'VESSEL';
-          let warningMsg = isVessel
-              ? "Not enough vessel information to create a vessel draft.\n\nMissing fields:\n* vessel name\n* dwt\n* open port / area\n* open date"
-              : "Not enough cargo information to create a cargo draft.\n\nMissing fields:\n* commodity\n* quantity\n* load port / area\n* discharge port / area\n* laycan\n* freight / rate";
-
-          if (text.trim().length > 0) {
-             const lines = text.trim().split(/\r?\n/).filter(line => line.trim().length > 0).map(line => `* ${line.trim()}`);
-             warningMsg += `\n\nUseful notes:\n${lines.join('\n')}`;
-          }
-
-          // PILOT-BLOCKER-15: the request THREW before returning a parsed body
-          // (auth / credit / network / 5xx). There is no backend _debug here —
-          // record that so the debug panel distinguishes a failed request from a
-          // genuinely empty parse.
-          setDebugInfo({
-              backend: null,
-              branch: {
-                  renderedCargoCandidates: false,
-                  renderedVesselCandidates: false,
-                  showedIncompleteWall: true,
-                  usedSingleCargoFallback: false,
-                  usedSingleVesselFallback: false,
-                  requestThrew: true,
-                  errorNote: 'Request failed before a parsed response was returned.',
-              },
-          });
-          setWarning(warningMsg);
-          setExtractionResult(null);
-          // Do not show red toast.
-          return;
-      }
-
+      // Defensive: the decision path above should not throw, but never surface a
+      // raw technical error to the broker.
+      console.error('Manual intake unexpected error:', e);
       notify({
         title: 'Parse Error',
-        message: errorMsg,
+        message: 'Could not extract data from the provided text.',
         type: 'error'
       });
     } finally {
@@ -391,13 +332,13 @@ export const ManualIntakeMode = ({
     }
   };
 
-  // PILOT-BLOCKER-15: collapsible parser-status panel. Rendered whenever the
-  // backend returned a _debug object OR the request threw. Counts / flags only —
+  // PILOT-BLOCKER-16: collapsible parser-status panel. Shows the client-side
+  // decision (authoritative) plus any backend _debug. Counts / flags only —
   // no raw text, no AI response, no secrets.
   const DebugPanel = () => {
       if (!debugInfo) return null;
       const b = debugInfo.backend;
-      const br = debugInfo.branch || {};
+      const d = debugInfo.decision || {};
       const Row = ({ k, v }: { k: string; v: any }) => (
           <div className="flex justify-between gap-3 py-0.5">
               <span className="text-on-surface-variant">{k}</span>
@@ -410,36 +351,37 @@ export const ManualIntakeMode = ({
                   Debug / Parser Status
               </summary>
               <div className="px-3 pb-3 space-y-2">
+                  <div className="space-y-0.5">
+                      <div className="text-[9px] text-tertiary uppercase tracking-widest mb-1">Client-side decision (authoritative)</div>
+                      <Row k="buildMarker" v={d.buildMarker} />
+                      <Row k="renderedFrom" v={d.renderedFrom} />
+                      <Row k="localDeterministicCargoes" v={d.localDeterministicCargoes} />
+                      <Row k="localDeterministicVessels" v={d.localDeterministicVessels} />
+                      <Row k="localFallbackUsed" v={!!d.localFallbackUsed} />
+                      <Row k="backendRequestStarted" v={!!d.backendRequestStarted} />
+                      <Row k="backendRequestSucceeded" v={!!d.backendRequestSucceeded} />
+                      <Row k="backendRequestFailed" v={!!d.backendRequestFailed} />
+                      <Row k="backendErrorType" v={d.backendErrorType ?? '—'} />
+                      <Row k="backendCargoes / backendVessels" v={`${d.backendCargoes ?? 0} / ${d.backendVessels ?? 0}`} />
+                      <Row k="aiEnrichmentSkippedOrFailed" v={!!d.aiEnrichmentSkippedOrFailed} />
+                      <Row k="showedIncompleteWall" v={!!d.showedIncompleteWall} />
+                      <Row k="showedParseError" v={!!d.showedParseError} />
+                  </div>
                   {b ? (
-                      <div className="space-y-0.5">
-                          <div className="text-[9px] text-tertiary uppercase tracking-widest mb-1">Backend</div>
+                      <div className="space-y-0.5 pt-1 border-t border-outline/40">
+                          <div className="text-[9px] text-tertiary uppercase tracking-widest mb-1">Backend _debug (enrichment)</div>
                           <Row k="buildMarker" v={b.buildMarker} />
                           <Row k="parserVersion" v={b.parserVersion} />
-                          <Row k="expectedType" v={b.expectedType} />
-                          <Row k="manualIntake" v={b.manualIntake} />
-                          <Row k="cacheHit" v={b.cacheHit} />
                           <Row k="source" v={b.source} />
                           <Row k="deterministicCargoes / finalCargoes" v={`${b.deterministicCargoes} / ${b.finalCargoes}`} />
                           <Row k="deterministicVessels / finalVessels" v={`${b.deterministicVessels} / ${b.finalVessels}`} />
-                          <Row k="responseCargoesLength" v={b.responseCargoesLength} />
-                          <Row k="responseVesselsLength" v={b.responseVesselsLength} />
-                          <Row k="incompleteFallbackTriggered" v={b.incompleteFallbackTriggered} />
                       </div>
                   ) : (
-                      <div className="text-amber-500">
-                          No backend debug — request threw before a parsed response
-                          (auth / credit / network / 5xx).
+                      <div className="text-amber-500 pt-1 border-t border-outline/40">
+                          Backend enrichment unavailable (request failed or returned
+                          no debug). Rendering is client-side deterministic.
                       </div>
                   )}
-                  <div className="space-y-0.5 pt-1 border-t border-outline/40">
-                      <div className="text-[9px] text-tertiary uppercase tracking-widest mb-1">Frontend branch</div>
-                      <Row k="renderedCargoCandidates" v={!!br.renderedCargoCandidates} />
-                      <Row k="renderedVesselCandidates" v={!!br.renderedVesselCandidates} />
-                      <Row k="showedIncompleteWall" v={!!br.showedIncompleteWall} />
-                      <Row k="usedSingleCargoFallback" v={!!br.usedSingleCargoFallback} />
-                      <Row k="usedSingleVesselFallback" v={!!br.usedSingleVesselFallback} />
-                      {br.requestThrew && <Row k="requestThrew" v={true} />}
-                  </div>
               </div>
           </details>
       );
@@ -451,7 +393,7 @@ export const ManualIntakeMode = ({
             <div className="p-6 flex flex-col h-full space-y-4">
                 <div className="flex justify-between items-center">
                     <div className="text-sm font-bold text-on-surface uppercase tracking-wider">Paste Broker Text</div>
-                    <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-15]</div>
+                    <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-16]</div>
                 </div>
 
                 <DebugPanel />
@@ -518,6 +460,12 @@ export const ManualIntakeMode = ({
                             Edit Text
                         </button>
                      </div>
+
+                     {extractionResult.enrichmentNote && (
+                        <div className="bg-tertiary/10 border border-tertiary/30 px-3 py-2 text-[11px] text-tertiary rounded-sm">
+                            {extractionResult.enrichmentNote}
+                        </div>
+                     )}
 
                      {extractionResult.cargoes && extractionResult.cargoes.length > 0 && (
                         <div className="space-y-2">

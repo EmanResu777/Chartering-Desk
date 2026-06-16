@@ -2458,7 +2458,7 @@ const jobResults = new Map<string, any[]>();
         return res.status(403).json({ error: "Forbidden: userId mismatch" });
       }
 
-      const parserVersion = 'v1.5-pb15'; // Increment for cache keys (invalidates pre-PB15 cached results)
+      const parserVersion = 'v1.6-pb16'; // Increment for cache keys (invalidates pre-PB16 cached results)
       const isManualIntake = email.sender === 'Manual Entry';
       const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
 
@@ -2580,7 +2580,7 @@ const jobResults = new Map<string, any[]>();
           incompleteFallbackTriggered: boolean; source: string;
       }) => ({
           requestId: reqId,
-          buildMarker: 'PILOT-BLOCKER-15',
+          buildMarker: 'PILOT-BLOCKER-16',
           parserVersion,
           expectedType: expectedType || 'auto',
           manualIntake: isManualIntake,
@@ -2635,7 +2635,7 @@ const jobResults = new Map<string, any[]>();
                   incompleteFallbackTriggered: false,
                   source: 'deterministic',
               });
-              console.log('[parseEmail][PB15]', JSON.stringify(_debug));
+              console.log('[parseEmail][PB16]', JSON.stringify(_debug));
               return res.json({
                   type: earlyCargoes.length > 1 ? 'CARGO_LIST'
                       : earlyCargoes.length === 1 ? 'CARGO'
@@ -2655,8 +2655,8 @@ const jobResults = new Map<string, any[]>();
                   memoryUsed: usedMemoryInfo,
                   _debug,
                   _diagnostic: {
-                      buildVersion: 'PILOT-BLOCKER-15',
-                      releaseLabel: 'pilot-blocker-15',
+                      buildVersion: 'PILOT-BLOCKER-16',
+                      releaseLabel: 'pilot-blocker-16',
                       parserVersion,
                       endpoint: 'parseEmail',
                       expectedType: expectedType || 'auto',
@@ -2711,8 +2711,8 @@ const jobResults = new Map<string, any[]>();
                   degraded_analysis: false,
                   memoryUsed: usedMemoryInfo,
                   _diagnostic: {
-                     buildVersion: "PILOT-BLOCKER-15",
-                     releaseLabel: "pilot-blocker-15",
+                     buildVersion: "PILOT-BLOCKER-16",
+                     releaseLabel: "pilot-blocker-16",
                      parserVersion,
                      endpoint: "parseEmail",
                      expectedType: expectedType || "auto",
@@ -2876,7 +2876,7 @@ const jobResults = new Map<string, any[]>();
       // Safe diagnostics: counts only. Never logs raw user text, AI response,
       // provider payload, or secrets.
       const incompleteFallbackTriggered = detAll.length === 0 && finalCargoes.length === 0 && detVessels.length === 0 && finalVessels.length === 0;
-      console.log('[parseEmail][PB15]', JSON.stringify({
+      console.log('[parseEmail][PB16]', JSON.stringify({
           expectedType: expectedType || 'auto',
           manualIntake: operationName === 'manual_text_intake',
           deterministicCargoes: detAll.length,
@@ -2900,8 +2900,8 @@ const jobResults = new Map<string, any[]>();
         degraded_analysis: response.degraded || false,
         memoryUsed: usedMemoryInfo,
         _diagnostic: {
-           buildVersion: "PILOT-BLOCKER-15",
-           releaseLabel: "pilot-blocker-15",
+           buildVersion: "PILOT-BLOCKER-16",
+           releaseLabel: "pilot-blocker-16",
            parserVersion,
            endpoint: "parseEmail",
            expectedType: expectedType || "auto",
