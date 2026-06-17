@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Check, Loader2, Sparkles } from 'lucide-react';
 import { parseEmail } from '../lib/geminiService';
-import { decideManualIntakeRenderState } from '../lib/manualIntakeDecision';
+import { decideManualIntakeRenderState, computeManualIntakeActionState } from '../lib/manualIntakeDecision';
 import { cn, Cargo, Vessel } from '../lib/utils';
 import { doc, setDoc, serverTimestamp, getDocs, collection, query, where } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
@@ -332,6 +332,42 @@ export const ManualIntakeMode = ({
     }
   };
 
+  // PILOT-BLOCKER-18: publish-action availability (single source of truth).
+  // Drives both the top button and the sticky bottom bar so publishing never
+  // depends on scrolling. Also surfaced read-only in the Debug panel.
+  const actionState = computeManualIntakeActionState({
+    hasResult: !!extractionResult,
+    selectedCargoCount: selectedCargos.size,
+    selectedVesselCount: selectedVessels.size,
+    isPublishing,
+  });
+
+  // PILOT-BLOCKER-18: one publish control, rendered in two places (top of the
+  // result and the sticky bottom bar). Both call the same handlePublish handler.
+  const PublishButton = () => {
+      const cLen = selectedCargos.size;
+      const vLen = selectedVessels.size;
+      const disabled = isPublishing || (cLen === 0 && vLen === 0);
+      return (
+          <button
+              onClick={handlePublish}
+              disabled={disabled}
+              className={cn("w-full h-14 flex items-center justify-center bg-primary text-on-primary font-bold uppercase tracking-widest text-[12px] shadow-[0_4px_20px_rgba(29,155,240,0.2)] hover:opacity-90 transition-all", disabled && "opacity-50 cursor-not-allowed")}
+          >
+              {(() => {
+                  if (isPublishing) return <><Loader2 className="w-4 h-4 mr-2 animate-spin"/> PUBLISHING...</>;
+                  if (cLen > 0 || vLen > 0) {
+                      const selections = [];
+                      if (cLen > 0) selections.push(`${cLen} CARGOES`);
+                      if (vLen > 0) selections.push(`${vLen} VESSELS`);
+                      return `PUBLISH SELECTED (${selections.join(' & ')})`;
+                  }
+                  return 'PUBLISH SELECTED';
+              })()}
+          </button>
+      );
+  };
+
   // PILOT-BLOCKER-16: collapsible parser-status panel. Shows the client-side
   // decision (authoritative) plus any backend _debug. Counts / flags only —
   // no raw text, no AI response, no secrets.
@@ -367,6 +403,14 @@ export const ManualIntakeMode = ({
                       <Row k="showedIncompleteWall" v={!!d.showedIncompleteWall} />
                       <Row k="showedParseError" v={!!d.showedParseError} />
                   </div>
+                  <div className="space-y-0.5 pt-1 border-t border-outline/40">
+                      <div className="text-[9px] text-tertiary uppercase tracking-widest mb-1">Action bar (PB18)</div>
+                      <Row k="mobileActionBarVisible" v={actionState.mobileActionBarVisible} />
+                      <Row k="topPublishButtonVisible" v={actionState.topPublishButtonVisible} />
+                      <Row k="publishButtonFixedOrSticky" v={actionState.publishButtonFixedOrSticky} />
+                      <Row k="selectedCount" v={actionState.selectedCount} />
+                      <Row k="canPublish" v={actionState.canPublish} />
+                  </div>
                   {b ? (
                       <div className="space-y-0.5 pt-1 border-t border-outline/40">
                           <div className="text-[9px] text-tertiary uppercase tracking-widest mb-1">Backend _debug (enrichment)</div>
@@ -393,7 +437,7 @@ export const ManualIntakeMode = ({
             <div className="p-6 flex flex-col h-full space-y-4">
                 <div className="flex justify-between items-center">
                     <div className="text-sm font-bold text-on-surface uppercase tracking-wider">Paste Broker Text</div>
-                    <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-17]</div>
+                    <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-18]</div>
                 </div>
 
                 <DebugPanel />
@@ -456,9 +500,22 @@ export const ManualIntakeMode = ({
                                {extractionResult.summary || 'Content identified successfully.'}
                            </div>
                         </div>
-                        <button onClick={() => setExtractionResult(null)} className="text-[10px] text-tertiary uppercase tracking-widest hover:text-on-surface transition-colors whitespace-nowrap">
-                            Edit Text
-                        </button>
+                        <div className="flex flex-col items-end gap-1">
+                            <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-18]</div>
+                            <button onClick={() => setExtractionResult(null)} className="text-[10px] text-tertiary uppercase tracking-widest hover:text-on-surface transition-colors whitespace-nowrap">
+                                Edit Text
+                            </button>
+                        </div>
+                     </div>
+
+                     {/* PILOT-BLOCKER-18: top publish control — reachable with zero scroll. */}
+                     <div className="space-y-1.5">
+                        <PublishButton />
+                        <p className="text-[10px] text-on-surface-variant text-center tracking-wide">
+                            {actionState.selectedCount > 0
+                                ? `${actionState.selectedCount} selected — publish now or review below`
+                                : 'Select at least one item below to publish'}
+                        </p>
                      </div>
 
                      {extractionResult.enrichmentNote && (
@@ -560,31 +617,14 @@ export const ManualIntakeMode = ({
                     )}
                 </div>
 
+                {/* PILOT-BLOCKER-18: sticky bottom bar — second always-reachable publish
+                    control. shrink-0 + sticky bottom-0 keep it pinned even if the
+                    result list above does not scroll on iOS. */}
                 <div
-                    className="shrink-0 px-4 sm:px-6 pt-8 bg-gradient-to-t from-surface-container via-surface-container to-transparent"
-                    style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}
+                    className="shrink-0 sticky bottom-0 z-20 px-4 sm:px-6 pt-6 bg-gradient-to-t from-surface-container via-surface-container to-transparent"
+                    style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}
                 >
-                     <button
-                        onClick={handlePublish}
-                        disabled={isPublishing || (selectedCargos.size === 0 && selectedVessels.size === 0)}
-                        className={cn("w-full h-14 flex items-center justify-center bg-primary text-on-primary font-bold uppercase tracking-widest text-[12px] shadow-[0_4px_20px_rgba(29,155,240,0.2)] hover:opacity-90 transition-all", (isPublishing || (selectedCargos.size === 0 && selectedVessels.size === 0)) && "opacity-50 cursor-not-allowed")}
-                        >
-                        {(() => {
-                            if (isPublishing) return <><Loader2 className="w-4 h-4 mr-2 animate-spin"/> PUBLISHING...</>;
-
-                            const cLen = selectedCargos.size;
-                            const vLen = selectedVessels.size;
-                            
-                            if (cLen > 0 || vLen > 0) {
-                            const selections = [];
-                            if (cLen > 0) selections.push(`${cLen} CARGOES`);
-                            if (vLen > 0) selections.push(`${vLen} VESSELS`);
-                            return `PUBLISH SELECTED (${selections.join(' & ')})`;
-                            }
-                            
-                            return 'PUBLISH SELECTED';
-                        })()}
-                     </button>
+                     <PublishButton />
                 </div>
             </div>
         )}

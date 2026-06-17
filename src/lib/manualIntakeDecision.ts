@@ -17,7 +17,7 @@
 import { parseDeterministicCargoes } from './deterministicCargoParser';
 import { parseDeterministicVessels } from './deterministicVesselParser';
 
-export const PB16_BUILD_MARKER = 'PILOT-BLOCKER-17';
+export const PB16_BUILD_MARKER = 'PILOT-BLOCKER-18';
 
 export type RenderedFrom = 'local-deterministic' | 'backend' | 'merged' | 'none';
 
@@ -116,6 +116,54 @@ function backendVesselList(backendResult: any): any[] {
   if (Array.isArray(backendResult.vessels) && backendResult.vessels.length) return backendResult.vessels;
   if (backendResult.vessel) return [backendResult.vessel];
   return [];
+}
+
+// ---------------------------------------------------------------------------
+// PILOT-BLOCKER-18: publish-action availability.
+//
+// PB17 tried to make the result list scroll on iOS so Roman could reach the
+// bottom "Publish Selected" button. On the real iPhone / AI Studio preview the
+// nested scroll still failed, so the button stayed below the viewport and the
+// broker could not publish parsed items at all.
+//
+// The fix is to stop depending on scroll: a top "Publish Selected" button is
+// rendered at the very top of the result (reachable with zero scroll) in
+// addition to the sticky bottom bar. This pure function is the single source of
+// truth for whether those controls are shown and whether publishing is allowed,
+// so the behaviour is unit-testable without a browser. It emits counts/flags
+// only — never raw pasted text or secrets.
+export interface ManualIntakeActionInput {
+  hasResult: boolean;
+  selectedCargoCount: number;
+  selectedVesselCount: number;
+  isPublishing: boolean;
+}
+
+export interface ManualIntakeActionState {
+  selectedCount: number;
+  canPublish: boolean;
+  mobileActionBarVisible: boolean;
+  topPublishButtonVisible: boolean;
+  publishButtonFixedOrSticky: boolean;
+}
+
+/**
+ * Compute publish-action availability for the manual-intake result view.
+ * Both the top button and the sticky bottom bar are shown whenever a result
+ * exists, so publishing never depends on scrolling. canPublish is gated on a
+ * non-empty selection and not-currently-publishing.
+ */
+export function computeManualIntakeActionState(input: ManualIntakeActionInput): ManualIntakeActionState {
+  const hasResult = !!input.hasResult;
+  const selectedCount = Math.max(0, (input.selectedCargoCount || 0) + (input.selectedVesselCount || 0));
+  const canPublish = hasResult && selectedCount > 0 && !input.isPublishing;
+  return {
+    selectedCount,
+    canPublish,
+    mobileActionBarVisible: hasResult,
+    topPublishButtonVisible: hasResult,
+    publishButtonFixedOrSticky: hasResult,
+  };
 }
 
 /**

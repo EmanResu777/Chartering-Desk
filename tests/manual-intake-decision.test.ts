@@ -7,7 +7,7 @@
 //
 //   npx tsx tests/manual-intake-decision.test.ts
 
-import { decideManualIntakeRenderState } from '../src/lib/manualIntakeDecision';
+import { decideManualIntakeRenderState, computeManualIntakeActionState } from '../src/lib/manualIntakeDecision';
 
 let passed = 0;
 let failed = 0;
@@ -138,6 +138,56 @@ console.log('\n8. Security — debug carries no raw pasted text');
   check('8: debug has no "Houston" raw text', !dbg.includes('Houston'));
   check('8: debug has no "Pasir" raw text', !dbg.includes('Pasir'));
   check('8: debug fields are counts/flags only', typeof d.debug.localDeterministicCargoes === 'number');
+}
+
+// ---------------------------------------------------------------------------
+// PILOT-BLOCKER-18: publish-action availability (scroll-independent).
+console.log('\n9. Action state — result with all items selected: publish without scroll');
+{
+  const a = computeManualIntakeActionState({ hasResult: true, selectedCargoCount: 3, selectedVesselCount: 0, isPublishing: false });
+  check('9: selectedCount === 3', a.selectedCount === 3, String(a.selectedCount));
+  check('9: canPublish === true', a.canPublish === true);
+  check('9: mobileActionBarVisible === true', a.mobileActionBarVisible === true);
+  check('9: topPublishButtonVisible === true', a.topPublishButtonVisible === true);
+  check('9: publishButtonFixedOrSticky === true', a.publishButtonFixedOrSticky === true);
+}
+
+console.log('\n10. Action state — vessel result, one selected');
+{
+  const a = computeManualIntakeActionState({ hasResult: true, selectedCargoCount: 0, selectedVesselCount: 1, isPublishing: false });
+  check('10: selectedCount === 1', a.selectedCount === 1, String(a.selectedCount));
+  check('10: canPublish === true', a.canPublish === true);
+  check('10: topPublishButtonVisible === true', a.topPublishButtonVisible === true);
+}
+
+console.log('\n11. Action state — nothing selected: buttons visible but disabled');
+{
+  const a = computeManualIntakeActionState({ hasResult: true, selectedCargoCount: 0, selectedVesselCount: 0, isPublishing: false });
+  check('11: selectedCount === 0', a.selectedCount === 0);
+  check('11: canPublish === false', a.canPublish === false);
+  check('11: mobileActionBarVisible still true', a.mobileActionBarVisible === true);
+  check('11: topPublishButtonVisible still true', a.topPublishButtonVisible === true);
+}
+
+console.log('\n12. Action state — publishing in progress: cannot re-publish');
+{
+  const a = computeManualIntakeActionState({ hasResult: true, selectedCargoCount: 3, selectedVesselCount: 0, isPublishing: true });
+  check('12: canPublish === false while publishing', a.canPublish === false);
+}
+
+console.log('\n13. Action state — no result yet: no action controls');
+{
+  const a = computeManualIntakeActionState({ hasResult: false, selectedCargoCount: 0, selectedVesselCount: 0, isPublishing: false });
+  check('13: mobileActionBarVisible === false', a.mobileActionBarVisible === false);
+  check('13: topPublishButtonVisible === false', a.topPublishButtonVisible === false);
+  check('13: canPublish === false', a.canPublish === false);
+}
+
+console.log('\n14. Action state — mixed cargo + vessel selection counts add up');
+{
+  const a = computeManualIntakeActionState({ hasResult: true, selectedCargoCount: 2, selectedVesselCount: 1, isPublishing: false });
+  check('14: selectedCount === 3', a.selectedCount === 3, String(a.selectedCount));
+  check('14: canPublish === true', a.canPublish === true);
 }
 
 // ---------------------------------------------------------------------------
