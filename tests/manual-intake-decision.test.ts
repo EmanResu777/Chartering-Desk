@@ -7,7 +7,7 @@
 //
 //   npx tsx tests/manual-intake-decision.test.ts
 
-import { decideManualIntakeRenderState, computeManualIntakeActionState } from '../src/lib/manualIntakeDecision';
+import { decideManualIntakeRenderState, computeManualIntakeActionState, coerceDwtToNumber } from '../src/lib/manualIntakeDecision';
 
 let passed = 0;
 let failed = 0;
@@ -188,6 +188,22 @@ console.log('\n14. Action state — mixed cargo + vessel selection counts add up
   const a = computeManualIntakeActionState({ hasResult: true, selectedCargoCount: 2, selectedVesselCount: 1, isPublishing: false });
   check('14: selectedCount === 3', a.selectedCount === 3, String(a.selectedCount));
   check('14: canPublish === true', a.canPublish === true);
+}
+
+// ---------------------------------------------------------------------------
+// PILOT-BLOCKER-19: vessel dwt must be coerced to a NUMBER for firestore.rules.
+console.log('\n15. coerceDwtToNumber — MV SAADET readable string → integer');
+{
+  check('15: "12,200 MTS" -> 12200', coerceDwtToNumber('12,200 MTS') === 12200, String(coerceDwtToNumber('12,200 MTS')));
+  check('15: result is number', typeof coerceDwtToNumber('12,200 MTS') === 'number');
+  check('15: "50000" -> 50000', coerceDwtToNumber('50000') === 50000);
+  check('15: numeric passthrough 82000', coerceDwtToNumber(82000) === 82000);
+  check('15: empty string -> 0', coerceDwtToNumber('') === 0);
+  check('15: undefined -> 0', coerceDwtToNumber(undefined) === 0);
+  check('15: null -> 0', coerceDwtToNumber(null) === 0);
+  check('15: garbage "abc" -> 0', coerceDwtToNumber('abc') === 0);
+  check('15: NaN -> 0', coerceDwtToNumber(NaN) === 0);
+  check('15: "7,988 mt" -> 7988', coerceDwtToNumber('7,988 mt') === 7988);
 }
 
 // ---------------------------------------------------------------------------

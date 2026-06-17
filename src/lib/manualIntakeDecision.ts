@@ -17,7 +17,7 @@
 import { parseDeterministicCargoes } from './deterministicCargoParser';
 import { parseDeterministicVessels } from './deterministicVesselParser';
 
-export const PB16_BUILD_MARKER = 'PILOT-BLOCKER-18';
+export const PB16_BUILD_MARKER = 'PILOT-BLOCKER-19';
 
 export type RenderedFrom = 'local-deterministic' | 'backend' | 'merged' | 'none';
 
@@ -164,6 +164,24 @@ export function computeManualIntakeActionState(input: ManualIntakeActionInput): 
     topPublishButtonVisible: hasResult,
     publishButtonFixedOrSticky: hasResult,
   };
+}
+
+// ---------------------------------------------------------------------------
+// PILOT-BLOCKER-19: vessel dwt must be persisted as a NUMBER.
+//
+// firestore.rules isValidVessel() requires `data.dwt is number`, and the app's
+// Vessel type declares dwt:number. The deterministic vessel parser keeps a
+// human-readable string ("12,200 MTS") for the card UI, so manual-intake writes
+// were sending a string and Firestore rejected every vessel save with
+// "Missing or insufficient permissions". This coerces the readable string to a
+// plain integer at publish time (digits only); non-numeric input yields 0.
+export function coerceDwtToNumber(value: any): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (value == null) return 0;
+  const digits = String(value).replace(/[^0-9]/g, '');
+  if (!digits) return 0;
+  const n = parseInt(digits, 10);
+  return Number.isFinite(n) ? n : 0;
 }
 
 /**
