@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Check, Loader2, Sparkles } from 'lucide-react';
 import { parseEmail } from '../lib/geminiService';
+import { decideManualIntakeRenderState, computeManualIntakeActionState, buildCargoPublishPayload, buildVesselPublishPayload } from '../lib/manualIntakeDecision';
 import { cn, Cargo, Vessel } from '../lib/utils';
 import { doc, setDoc, serverTimestamp, getDocs, collection, query, where } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
@@ -32,6 +33,10 @@ export const ManualIntakeMode = ({
   const [isPublishing, setIsPublishing] = useState(false);
   const [extractionResult, setExtractionResult] = useState<any>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  // PILOT-BLOCKER-16: observable parser status. { backend: _debug|null, decision: {...} }
+  const [debugInfo, setDebugInfo] = useState<any>(null);
+  // PILOT-BLOCKER-19: observable publish/save status (counts/flags/error-codes only — no payload).
+  const [publishDebug, setPublishDebug] = useState<any>(null);
   
   const [selectedCargos, setSelectedCargos] = useState<Set<number>>(new Set());
   const [selectedVessels, setSelectedVessels] = useState<Set<number>>(new Set());
@@ -53,138 +58,91 @@ export const ManualIntakeMode = ({
         labels: []
       };
 
-      // Deterministic frontend fallback to bypass Gemini API completely for exceptionally short inputs
-      const lowerText = text.toLowerCase().trim().replace(/\r\n/g, '\n');
-      let result;
-      if (defaultType === 'CARGO' && (lowerText === 'loading sequence 3 days prior to actual direct loading.\n5 pct' || 
-         (lowerText.includes('loading sequence 3 days prior') && lowerText.includes('5 pct') && lowerText.length < 100))) {
-          result = {
-              type: "CARGO",
-              cargoes: [{
-                  special_requirements: "loading sequence 3 days prior to actual direct loading",
-                  comm: "5 pct",
-                  missing_fields: ["commodity", "quantity", "load port / area", "discharge port / area", "laycan", "freight / rate"]
-              }],
-              vessels: [],
-              _diagnostic: { buildVersion: "pilot-blocker-12-fix", endpoint: "parseEmail (frontend intercept)", fallbackUsed: true }
-          };
-      } else {
-          result = await parseEmail(fakeEmail, auth.currentUser?.uid, defaultType);
+      // PILOT-BLOCKER-16: the backend is best-effort ENRICHMENT only. In the
+      // AI Studio preview the API round-trip is unreliable (cargo returns an
+      // empty body, vessel fails the fetch entirely with "Load failed"), so we
+      // must never let it block the user. We try it, capture success OR error,
+      // and hand both to the pure client-side decision function which runs the
+      // deterministic parsers in the browser and is authoritative.
+      let backendResult: any = null;
+      let backendError: any = null;
+      try {
+        backendResult = await parseEmail(fakeEmail, auth.currentUser?.uid, defaultType);
+      } catch (e: any) {
+        backendError = e;
+        console.warn('Manual paste backend unavailable; using client-side deterministic parser.');
       }
 
-      const cList = (result.cargoes && result.cargoes.length > 0) ? result.cargoes : (result.cargo ? [result.cargo] : []);
-      const vList = (result.vessels && result.vessels.length > 0) ? result.vessels : (result.vessel ? [result.vessel] : []);
+      const decision = decideManualIntakeRenderState({
+        expectedType: defaultType === 'VESSEL' ? 'VESSEL' : 'CARGO',
+        text,
+        backendResult,
+        backendError,
+        backendStarted: true,
+      });
 
-      // If user intended CARGO but we got basically an empty cargo with missing fields
-      if (defaultType === 'CARGO' && cList.length === 1 && vList.length === 0) {
-          const c = cList[0] as any;
-          if (!c.commodity && !c.raw_commodity && !c.loadPort && !c.dischargePort) {
-              const missingMap: Record<string, string> = {
-                  raw_commodity: 'commodity',
-                  quantity: 'quantity',
-                  loadPort: 'load port / area',
-                  dischargePort: 'discharge port / area',
-                  laycan: 'laycan',
-                  freight_idea: 'freight / rate'
-              };
-              let missingDisplay = (c.missing_fields || []).map((f: string) => `* ${missingMap[f] || f}`).join('\n');
-              if (!missingDisplay) missingDisplay = '* commodity\n* quantity\n* load port / area\n* discharge port / area\n* laycan\n* freight / rate';
-              
-              let msg = `Not enough cargo information to create a cargo draft.\n\nMissing fields:\n${missingDisplay}`;
-              if (text.trim().length > 0) {
-                  const lines = text.trim().split(/\r?\n/).filter(line => line.trim().length > 0).map(line => `* ${line.trim()}`);
-                  msg += `\n\nUseful notes:\n${lines.join('\n')}`;
-              }
-              if (result._diagnostic) {
-                  msg += `\n\n[DIAGNOSTIC: ${result._diagnostic.buildVersion} | ${result._diagnostic.endpoint} | fallback=${result._diagnostic.fallbackUsed}]`;
-              }
-              setWarning(msg);
-              setExtractionResult(null);
-              setIsParsing(false);
-              return;
-          }
-      }
+      setDebugInfo({ backend: backendResult?._debug || null, decision: decision.debug });
 
-      // If user intended VESSEL but got empty vessel
-      if (defaultType === 'VESSEL' && vList.length === 1 && cList.length === 0) {
-          const v = vList[0] as any;
-          if (!v.name && !v.dwt && !v.openPort && !v.openDate) {
-              const missingMap: Record<string, string> = {
-                  name: 'vessel name',
-                  dwt: 'dwt',
-                  openPort: 'open port / area',
-                  openDate: 'open date'
-              };
-              let missingDisplay = (v.missing_fields || []).map((f: string) => `* ${missingMap[f] || f}`).join('\n');
-              if (!missingDisplay) missingDisplay = '* vessel name\n* dwt\n* open port / area\n* open date';
-              
-              let msg = `Not enough vessel information to create a vessel draft.\n\nMissing fields:\n${missingDisplay}`;
-              if (text.trim().length > 0) {
-                  const lines = text.trim().split(/\r?\n/).filter(line => line.trim().length > 0).map(line => `* ${line.trim()}`);
-                  msg += `\n\nUseful notes:\n${lines.join('\n')}`;
-              }
-              if (result._diagnostic) {
-                  msg += `\n\n[DIAGNOSTIC: ${result._diagnostic.buildVersion} | ${result._diagnostic.endpoint} | fallback=${result._diagnostic.fallbackUsed}]`;
-              }
-              setWarning(msg);
-              setExtractionResult(null);
-              setIsParsing(false);
-              return;
-          }
-      }
-
-      setExtractionResult(result);
-      setSelectedCargos(new Set(cList.map((_: any, i: number) => i)));
-      setSelectedVessels(new Set(vList.map((_: any, i: number) => i)));
-
-      if (cList.length === 0 && vList.length === 0) {
-        const fallbackMsg = defaultType === 'CARGO' ? 'No cargo details found in text.' : defaultType === 'VESSEL' ? 'No vessel details found in text.' : 'No data found.';
-        setWarning(fallbackMsg);
-        setExtractionResult(null);
-        setIsParsing(false);
+      // RENDER PATH: any candidate (local or backend) → render cards. Never a
+      // global Incomplete wall and never a red Parse Error in this branch.
+      if (decision.cargoes.length > 0 || decision.vessels.length > 0) {
+        const type = decision.vessels.length > 0
+          ? (decision.vessels.length > 1 ? 'VESSEL_LIST' : 'VESSEL')
+          : (decision.cargoes.length > 1 ? 'CARGO_LIST' : 'CARGO');
+        setExtractionResult({
+          type,
+          cargoes: decision.cargoes,
+          vessels: decision.vessels,
+          multiCargoDetected: decision.multiCargoDetected,
+          multiVesselDetected: decision.multiVesselDetected,
+          summary: backendResult?.summary || decision.enrichmentNote || 'Content structured from text.',
+          cached: backendResult?.cached,
+          memoryUsed: backendResult?.memoryUsed,
+          enrichmentNote: decision.enrichmentNote,
+          renderedFrom: decision.renderedFrom,
+          _debug: backendResult?._debug,
+          _diagnostic: backendResult?._diagnostic,
+        });
+        setSelectedCargos(new Set(decision.cargoes.map((_: any, i: number) => i)));
+        setSelectedVessels(new Set(decision.vessels.map((_: any, i: number) => i)));
+        notify(
+          decision.enrichmentNote
+            ? { title: 'Draft Created', message: decision.enrichmentNote, type: 'info' }
+            : { title: 'Extraction Complete', message: 'Successfully structured content from text.', type: 'success' }
+        );
         return;
       }
 
-      notify({
-        title: 'Extraction Complete',
-        message: 'Successfully structured content from text.',
-        type: 'success'
-      });
-    } catch (e: any) {
-      let errorMsg = e.message || 'Could not extract data from the provided text.';
-      
-      const isIncompleteIntake = typeof errorMsg === 'string' && (
-          errorMsg.includes("Not enough cargo") ||
-          errorMsg.includes("Not enough vessel") ||
-          errorMsg.includes("The string did not match the expected pattern") || 
-          errorMsg.includes("DOMException") || 
-          errorMsg.includes("responseSchema") ||
-          errorMsg.includes("schema validation") ||
-          errorMsg.includes("Google GenAI") ||
-          errorMsg.includes("expected pattern")
-      );
+      // NOTHING extractable. Build the missing-fields message (text is only
+      // dumped into Useful Notes here, where there is genuinely nothing to show).
+      const isVessel = defaultType === 'VESSEL';
+      const missingDisplay = isVessel
+        ? '* vessel name\n* dwt\n* open port / area\n* open date'
+        : '* commodity\n* quantity\n* load port / area\n* discharge port / area\n* laycan\n* freight / rate';
+      let msg = isVessel
+        ? `Not enough vessel information to create a vessel draft.\n\nMissing fields:\n${missingDisplay}`
+        : `Not enough cargo information to create a cargo draft.\n\nMissing fields:\n${missingDisplay}`;
+      const lines = text.trim().split(/\r?\n/).filter(line => line.trim().length > 0).map(line => `* ${line.trim()}`);
+      if (lines.length) msg += `\n\nUseful notes:\n${lines.join('\n')}`;
 
-      if (isIncompleteIntake) {
-          console.warn("UI Parse Warning: Incomplete manual intake handled.");
-          const isVessel = defaultType === 'VESSEL';
-          let warningMsg = isVessel
-              ? "Not enough vessel information to create a vessel draft.\n\nMissing fields:\n* vessel name\n* dwt\n* open port / area\n* open date"
-              : "Not enough cargo information to create a cargo draft.\n\nMissing fields:\n* commodity\n* quantity\n* load port / area\n* discharge port / area\n* laycan\n* freight / rate";
-              
-          if (text.trim().length > 0) {
-             const lines = text.trim().split(/\r?\n/).filter(line => line.trim().length > 0).map(line => `* ${line.trim()}`);
-             warningMsg += `\n\nUseful notes:\n${lines.join('\n')}`;
-          }
-          
-          setWarning(warningMsg);
-          setExtractionResult(null);
-          // Do not show red toast.
-          return;
+      if (decision.showParseError) {
+        // Request failed AND nothing extractable locally.
+        notify({
+          title: 'Parse Error',
+          message: 'Could not reach the parser service and no structured data was found in the pasted text.',
+          type: 'error'
+        });
       }
-
+      setWarning(msg);
+      setExtractionResult(null);
+      return;
+    } catch (e: any) {
+      // Defensive: the decision path above should not throw, but never surface a
+      // raw technical error to the broker.
+      console.error('Manual intake unexpected error:', e);
       notify({
         title: 'Parse Error',
-        message: errorMsg,
+        message: 'Could not extract data from the provided text.',
         type: 'error'
       });
     } finally {
@@ -198,30 +156,57 @@ export const ManualIntakeMode = ({
         notify({ title: 'Auth Error', message: 'You must be logged in.', type: 'error' });
         return;
     }
+    // PILOT-BLOCKER-19: writes go to the user's active workspace, exactly like the
+    // proven handleCargoCreate/handleVesselCreate paths. Without a workspace the old
+    // code fell back to `workspaceId: userId`, which fails isWorkspaceWriter() in
+    // firestore.rules ("Missing or insufficient permissions") AND would not appear in
+    // the desk (queried by workspaceId). Fail safe instead of writing an invalid doc.
+    const workspaceId = currentWorkspace?.id;
+    if (!workspaceId) {
+        notify({ title: 'No Active Workspace', message: 'Could not determine your workspace. Reopen the desk and try again.', type: 'error' });
+        return;
+    }
+
+    const isVesselPublish = extractionResult.type === 'VESSEL' || extractionResult.type === 'VESSEL_LIST';
+    const userId = auth.currentUser.uid;
+    setPublishDebug({
+        publishTargetPath: isVesselPublish ? 'vessels' : 'cargos',
+        itemType: isVesselPublish ? 'vessel' : 'cargo',
+        publishAttempted: true,
+        publishSucceeded: false,
+        publishErrorCode: null,
+        publishErrorMessageSafe: null,
+        authUidPresent: !!auth.currentUser?.uid,
+        currentWorkspaceIdPresent: !!workspaceId,
+        workspaceIdUsed: workspaceId,
+        userIdUsed: userId,
+        ownerFieldPresent: !!userId,
+        deskIdPresent: !!workspaceId,
+        // PILOT-BLOCKER-20: the actual write now matches the proven handleCargoCreate/
+        // handleVesselCreate shape exactly (collection cargos/vessels, workspaceId +
+        // userId, canonical fields). The dedupe pre-read is workspace-scoped so it
+        // satisfies the `allow list` rule instead of being rejected before the write.
+        writeMode: 'workspaceScopedDirect',
+        dedupeQueryScoped: true,
+        payloadFieldCount: null,
+        payloadFieldNames: null,
+        selectedCount: selectedCargos.size + selectedVessels.size,
+    });
 
     setIsPublishing(true);
     try {
-      const userId = auth.currentUser.uid;
       let created = 0;
       let skipped = 0;
       let failed = 0;
+      let firstPayloadKeys: string[] | null = null;
 
       const rawTextHash = hashString(text.substring(0, 1000));
-
-      const removeUndefined = (obj: any) => {
-        Object.keys(obj).forEach(key => {
-          if (obj[key] === undefined) {
-            delete obj[key];
-          }
-        });
-        return obj;
-      };
 
       // Handle CARGO
       if (extractionResult.type === 'CARGO' || extractionResult.type === 'CARGO_LIST' || extractionResult.type === 'MIXED_LIST') {
         const cargosToPublish = (extractionResult.cargoes || (extractionResult.cargo ? [extractionResult.cargo] : []))
           .filter((_: any, i: number) => selectedCargos.has(i));
-        
+
         for (let i = 0; i < cargosToPublish.length; i++) {
           const item = cargosToPublish[i];
           if (!item.commodity && !item.raw_commodity && !item.loadPort && !item.dischargePort) {
@@ -232,43 +217,37 @@ export const ManualIntakeMode = ({
           const entryNo = item.entry_no || (i + 1);
           const dedupeKey = `user-${userId}-text-${rawTextHash}-cargo-${entryNo}`;
 
-          const existingQuery = query(collection(db, 'cargos'), where('sourceId', '==', dedupeKey));
+          // PILOT-BLOCKER-20: scope the dedupe read by workspaceId. The `allow list`
+          // rule for /cargos requires every matched doc to satisfy
+          // userId == auth.uid || isWorkspaceMember(workspaceId); a query filtered
+          // only by sourceId can't prove that, so Firestore rejected the getDocs with
+          // permission-denied BEFORE the write — surfaced as "Write rejected by
+          // security rules". Pinning workspaceId mirrors the working App subscription.
+          const existingQuery = query(
+            collection(db, 'cargos'),
+            where('workspaceId', '==', workspaceId),
+            where('sourceId', '==', dedupeKey)
+          );
           const existingDocs = await getDocs(existingQuery);
-          
+
           if (!existingDocs.empty) {
             skipped++;
             continue;
           }
 
           const id = `CRG-${Math.floor(1000 + Math.random() * 9000)}-TXT`;
-          
-          const cleanItem = { ...item };
-          delete cleanItem.missing_fields;
-          delete cleanItem.entry_no;
-          delete cleanItem.raw_commodity;
-          
-          removeUndefined(cleanItem);
 
-          await setDoc(doc(db, 'cargos', id), {
-            commodity: '',
-            loadPort: '',
-            dischargePort: '',
-            laycan: '',
-            quantity: '',
-            terms: '',
-            ...cleanItem,
-            id,
-            userId,
-            ownerId: userId,
-            workspaceId: currentWorkspace?.id || userId,
-            source: 'manual_text',
-            sourceId: dedupeKey,
-            rawText: text.substring(0, 5000),
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            status: 'ACTIVE',
-            confidence: item.missing_fields ? Math.max(10, 100 - (item.missing_fields.length * 15)) : 100
+          // PILOT-BLOCKER-20: canonical payload identical in shape/types to the
+          // working manual-form create path (handleCargoCreate). Only known Cargo
+          // fields are persisted — no raw parser blob, no rawText — keeping the
+          // field count well under the rules cap and every type rules-valid.
+          const cargoPayload = buildCargoPublishPayload(item, {
+            id, workspaceId, userId, sourceId: dedupeKey, timestamp: serverTimestamp(),
           });
+
+          if (!firstPayloadKeys) firstPayloadKeys = Object.keys(cargoPayload);
+
+          await setDoc(doc(db, 'cargos', id), cargoPayload);
           created++;
 
           // Check for risk terms
@@ -288,12 +267,12 @@ export const ManualIntakeMode = ({
           }
         }
       }
-      
+
       // Handle VESSEL
       if (extractionResult.type === 'VESSEL' || extractionResult.type === 'VESSEL_LIST' || extractionResult.type === 'MIXED_LIST') {
         const vesselsToPublish = (extractionResult.vessels || (extractionResult.vessel ? [extractionResult.vessel] : []))
           .filter((_: any, i: number) => selectedVessels.has(i));
-        
+
         for (let i = 0; i < vesselsToPublish.length; i++) {
           const item = vesselsToPublish[i];
           if (!item.name && !item.dwt && !item.openPort) {
@@ -304,44 +283,40 @@ export const ManualIntakeMode = ({
           const entryNo = item.entry_no || (i + 1);
           const dedupeKey = `user-${userId}-text-${rawTextHash}-vessel-${entryNo}`;
 
-          const existingQuery = query(collection(db, 'vessels'), where('sourceId', '==', dedupeKey));
+          // PILOT-BLOCKER-20: workspace-scoped dedupe read (see cargo note above).
+          const existingQuery = query(
+            collection(db, 'vessels'),
+            where('workspaceId', '==', workspaceId),
+            where('sourceId', '==', dedupeKey)
+          );
           const existingDocs = await getDocs(existingQuery);
-          
+
           if (!existingDocs.empty) {
             skipped++;
             continue;
           }
 
           const id = `VSL-${Math.floor(1000 + Math.random() * 9000)}-TXT`;
-          
-          const cleanItem = { ...item };
-          delete cleanItem.missing_fields;
-          delete cleanItem.entry_no;
-          
-          removeUndefined(cleanItem);
 
-          await setDoc(doc(db, 'vessels', id), {
-            name: '',
-            type: '',
-            openPort: '',
-            openDate: '',
-            dwt: '',
-            gear: '',
-            ...cleanItem,
-            id,
-            userId,
-            ownerId: userId,
-            workspaceId: currentWorkspace?.id || userId,
-            source: 'manual_text',
-            sourceId: dedupeKey,
-            rawText: text.substring(0, 5000),
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            status: 'OPEN',
-            confidence: item.missing_fields ? Math.max(10, 100 - (item.missing_fields.length * 15)) : 100
+          // PILOT-BLOCKER-20: canonical payload matching handleVesselCreate. dwt is
+          // coerced to a number because firestore.rules isValidVessel() requires it.
+          const vesselPayload = buildVesselPublishPayload(item, {
+            id, workspaceId, userId, sourceId: dedupeKey, timestamp: serverTimestamp(),
           });
+
+          if (!firstPayloadKeys) firstPayloadKeys = Object.keys(vesselPayload);
+
+          await setDoc(doc(db, 'vessels', id), vesselPayload);
           created++;
         }
+      }
+
+      // PILOT-BLOCKER-20: surface the exact persisted shape (field NAMES + count
+      // only — never values, raw text, or secrets) so a failed publish is diagnosable
+      // from the device against isValidCargo/isValidVessel.
+      if (firstPayloadKeys) {
+        const keys = firstPayloadKeys;
+        setPublishDebug((prev: any) => ({ ...(prev || {}), payloadFieldCount: keys.length, payloadFieldNames: keys.join(', ') }));
       }
 
       if (skipped > 0) {
@@ -357,6 +332,8 @@ export const ManualIntakeMode = ({
         });
       }
 
+      setPublishDebug((prev: any) => ({ ...(prev || {}), publishSucceeded: true, publishErrorCode: null, publishErrorMessageSafe: null }));
+
       notify({
         title: 'Publish Complete',
         message: `Created: ${created} | Skipped (Dedupe): ${skipped} | Failed: ${failed}`,
@@ -365,15 +342,144 @@ export const ManualIntakeMode = ({
       onClose();
 
     } catch (e: any) {
-      console.error(e);
+      // PILOT-BLOCKER-19: capture a SAFE error category for the debug panel —
+      // the Firebase error code only (e.g. "permission-denied"), never the raw
+      // payload, pasted text, or any PII.
+      const code = (e && (e.code || e.name)) ? String(e.code || e.name) : 'unknown';
+      const safeMessage = /permission|insufficient/i.test(String(e?.message || e?.code || ''))
+        ? 'Write rejected by security rules (permission denied).'
+        : 'Could not save to your workspace.';
+      console.error('Manual intake publish failed:', code);
+      setPublishDebug((prev: any) => ({ ...(prev || {}), publishSucceeded: false, publishErrorCode: code, publishErrorMessageSafe: safeMessage }));
       notify({
         title: 'Error Publishing',
-        message: e?.message || 'An error occurred while saving the data.',
+        message: safeMessage,
         type: 'error'
       });
     } finally {
       setIsPublishing(false);
     }
+  };
+
+  // PILOT-BLOCKER-18: publish-action availability (single source of truth).
+  // Drives both the top button and the sticky bottom bar so publishing never
+  // depends on scrolling. Also surfaced read-only in the Debug panel.
+  const actionState = computeManualIntakeActionState({
+    hasResult: !!extractionResult,
+    selectedCargoCount: selectedCargos.size,
+    selectedVesselCount: selectedVessels.size,
+    isPublishing,
+  });
+
+  // PILOT-BLOCKER-18: one publish control, rendered in two places (top of the
+  // result and the sticky bottom bar). Both call the same handlePublish handler.
+  const PublishButton = () => {
+      const cLen = selectedCargos.size;
+      const vLen = selectedVessels.size;
+      const disabled = isPublishing || (cLen === 0 && vLen === 0);
+      return (
+          <button
+              onClick={handlePublish}
+              disabled={disabled}
+              className={cn("w-full h-14 flex items-center justify-center bg-primary text-on-primary font-bold uppercase tracking-widest text-[12px] shadow-[0_4px_20px_rgba(29,155,240,0.2)] hover:opacity-90 transition-all", disabled && "opacity-50 cursor-not-allowed")}
+          >
+              {(() => {
+                  if (isPublishing) return <><Loader2 className="w-4 h-4 mr-2 animate-spin"/> PUBLISHING...</>;
+                  if (cLen > 0 || vLen > 0) {
+                      const selections = [];
+                      if (cLen > 0) selections.push(`${cLen} CARGOES`);
+                      if (vLen > 0) selections.push(`${vLen} VESSELS`);
+                      return `PUBLISH SELECTED (${selections.join(' & ')})`;
+                  }
+                  return 'PUBLISH SELECTED';
+              })()}
+          </button>
+      );
+  };
+
+  // PILOT-BLOCKER-16: collapsible parser-status panel. Shows the client-side
+  // decision (authoritative) plus any backend _debug. Counts / flags only —
+  // no raw text, no AI response, no secrets.
+  const DebugPanel = () => {
+      if (!debugInfo) return null;
+      const b = debugInfo.backend;
+      const d = debugInfo.decision || {};
+      const Row = ({ k, v }: { k: string; v: any }) => (
+          <div className="flex justify-between gap-3 py-0.5">
+              <span className="text-on-surface-variant">{k}</span>
+              <span className="font-bold text-on-surface">{String(v)}</span>
+          </div>
+      );
+      return (
+          <details className="bg-surface-container border border-outline/60 rounded-sm text-[10px] font-mono">
+              <summary className="cursor-pointer px-3 py-2 text-tertiary uppercase tracking-widest select-none">
+                  Debug / Parser Status
+              </summary>
+              <div className="px-3 pb-3 space-y-2">
+                  <div className="space-y-0.5">
+                      <div className="text-[9px] text-tertiary uppercase tracking-widest mb-1">Client-side decision (authoritative)</div>
+                      <Row k="buildMarker" v={d.buildMarker} />
+                      <Row k="renderedFrom" v={d.renderedFrom} />
+                      <Row k="localDeterministicCargoes" v={d.localDeterministicCargoes} />
+                      <Row k="localDeterministicVessels" v={d.localDeterministicVessels} />
+                      <Row k="localFallbackUsed" v={!!d.localFallbackUsed} />
+                      <Row k="backendRequestStarted" v={!!d.backendRequestStarted} />
+                      <Row k="backendRequestSucceeded" v={!!d.backendRequestSucceeded} />
+                      <Row k="backendRequestFailed" v={!!d.backendRequestFailed} />
+                      <Row k="backendErrorType" v={d.backendErrorType ?? '—'} />
+                      <Row k="backendCargoes / backendVessels" v={`${d.backendCargoes ?? 0} / ${d.backendVessels ?? 0}`} />
+                      <Row k="aiEnrichmentSkippedOrFailed" v={!!d.aiEnrichmentSkippedOrFailed} />
+                      <Row k="showedIncompleteWall" v={!!d.showedIncompleteWall} />
+                      <Row k="showedParseError" v={!!d.showedParseError} />
+                  </div>
+                  <div className="space-y-0.5 pt-1 border-t border-outline/40">
+                      <div className="text-[9px] text-tertiary uppercase tracking-widest mb-1">Action bar (PB18)</div>
+                      <Row k="mobileActionBarVisible" v={actionState.mobileActionBarVisible} />
+                      <Row k="topPublishButtonVisible" v={actionState.topPublishButtonVisible} />
+                      <Row k="publishButtonFixedOrSticky" v={actionState.publishButtonFixedOrSticky} />
+                      <Row k="selectedCount" v={actionState.selectedCount} />
+                      <Row k="canPublish" v={actionState.canPublish} />
+                  </div>
+                  {publishDebug && (
+                      <div className="space-y-0.5 pt-1 border-t border-outline/40">
+                          <div className="text-[9px] text-tertiary uppercase tracking-widest mb-1">Publish / Save (PB20)</div>
+                          <Row k="publishTargetPath" v={publishDebug.publishTargetPath} />
+                          <Row k="itemType" v={publishDebug.itemType} />
+                          <Row k="writeMode" v={publishDebug.writeMode} />
+                          <Row k="dedupeQueryScoped" v={!!publishDebug.dedupeQueryScoped} />
+                          <Row k="publishAttempted" v={!!publishDebug.publishAttempted} />
+                          <Row k="publishSucceeded" v={!!publishDebug.publishSucceeded} />
+                          <Row k="publishErrorCode" v={publishDebug.publishErrorCode ?? '—'} />
+                          <Row k="publishErrorMessageSafe" v={publishDebug.publishErrorMessageSafe ?? '—'} />
+                          <Row k="authUidPresent" v={!!publishDebug.authUidPresent} />
+                          <Row k="currentWorkspaceIdPresent" v={!!publishDebug.currentWorkspaceIdPresent} />
+                          <Row k="workspaceIdUsed" v={publishDebug.workspaceIdUsed ?? '—'} />
+                          <Row k="userIdUsed" v={publishDebug.userIdUsed ?? '—'} />
+                          <Row k="ownerFieldPresent" v={!!publishDebug.ownerFieldPresent} />
+                          <Row k="deskIdPresent" v={!!publishDebug.deskIdPresent} />
+                          <Row k="payloadFieldCount" v={publishDebug.payloadFieldCount ?? '—'} />
+                          <Row k="payloadFieldNames" v={publishDebug.payloadFieldNames ?? '—'} />
+                          <Row k="selectedCount" v={publishDebug.selectedCount} />
+                      </div>
+                  )}
+                  {b ? (
+                      <div className="space-y-0.5 pt-1 border-t border-outline/40">
+                          <div className="text-[9px] text-tertiary uppercase tracking-widest mb-1">Backend _debug (enrichment)</div>
+                          <Row k="buildMarker" v={b.buildMarker} />
+                          <Row k="parserVersion" v={b.parserVersion} />
+                          <Row k="source" v={b.source} />
+                          <Row k="deterministicCargoes / finalCargoes" v={`${b.deterministicCargoes} / ${b.finalCargoes}`} />
+                          <Row k="deterministicVessels / finalVessels" v={`${b.deterministicVessels} / ${b.finalVessels}`} />
+                      </div>
+                  ) : (
+                      <div className="text-amber-500 pt-1 border-t border-outline/40">
+                          Backend enrichment unavailable (request failed or returned
+                          no debug). Rendering is client-side deterministic.
+                      </div>
+                  )}
+              </div>
+          </details>
+      );
   };
 
   return (
@@ -382,8 +488,10 @@ export const ManualIntakeMode = ({
             <div className="p-6 flex flex-col h-full space-y-4">
                 <div className="flex justify-between items-center">
                     <div className="text-sm font-bold text-on-surface uppercase tracking-wider">Paste Broker Text</div>
-                    <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-12-FIX]</div>
+                    <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-20]</div>
                 </div>
+
+                <DebugPanel />
 
                 {warning && (
                     <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-sm relative">
@@ -418,8 +526,9 @@ export const ManualIntakeMode = ({
                 </button>
             </div>
         ) : (
-            <div className="flex flex-col h-full relative overflow-hidden">
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-24">
+            <div className="flex flex-col h-full">
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-4">
+                     <DebugPanel />
                      <div className="flex items-center justify-between pb-4 border-b border-outline">
                         <div>
                            <div className="text-sm font-bold text-on-surface uppercase tracking-wider flex items-center gap-2">
@@ -442,10 +551,94 @@ export const ManualIntakeMode = ({
                                {extractionResult.summary || 'Content identified successfully.'}
                            </div>
                         </div>
-                        <button onClick={() => setExtractionResult(null)} className="text-[10px] text-tertiary uppercase tracking-widest hover:text-on-surface transition-colors whitespace-nowrap">
-                            Edit Text
-                        </button>
+                        <div className="flex flex-col items-end gap-1">
+                            <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-20]</div>
+                            <button onClick={() => setExtractionResult(null)} className="text-[10px] text-tertiary uppercase tracking-widest hover:text-on-surface transition-colors whitespace-nowrap">
+                                Edit Text
+                            </button>
+                        </div>
                      </div>
+
+                     {/* PILOT-BLOCKER-18: top publish control — reachable with zero scroll. */}
+                     <div className="space-y-1.5">
+                        <PublishButton />
+                        <p className="text-[10px] text-on-surface-variant text-center tracking-wide">
+                            {actionState.selectedCount > 0
+                                ? `${actionState.selectedCount} selected — publish now or review below`
+                                : 'Select at least one item below to publish'}
+                        </p>
+                     </div>
+
+                     {/* PILOT-BLOCKER-19: compact selection list — choose items WITHOUT
+                         scrolling to the full cards. Toggles the same selection state. */}
+                     {extractionResult.cargoes && extractionResult.cargoes.length > 0 && (
+                        <div className="border border-outline rounded-sm bg-surface-container/40">
+                            <div className="flex items-center justify-between px-3 py-2 border-b border-outline/60">
+                                <div className="text-[10px] font-bold text-primary tracking-widest uppercase">Select Cargoes ({selectedCargos.size}/{extractionResult.cargoes.length})</div>
+                                <div className="flex gap-3">
+                                    <button onClick={() => setSelectedCargos(new Set(extractionResult.cargoes.map((_:any,i:number)=>i)))} className="text-[9px] text-primary hover:underline uppercase tracking-wider">All</button>
+                                    <button onClick={() => setSelectedCargos(new Set())} className="text-[9px] text-primary hover:underline uppercase tracking-wider">None</button>
+                                </div>
+                            </div>
+                            <div className="divide-y divide-outline/40">
+                                {extractionResult.cargoes.map((cargo: any, idx: number) => {
+                                    const on = selectedCargos.has(idx);
+                                    const route = [cargo.loadPort, cargo.dischargePort].filter(Boolean).join(' → ') || 'route n/a';
+                                    const detail = [cargo.commodity || cargo.raw_commodity, cargo.quantity].filter(Boolean).join(' · ');
+                                    return (
+                                        <button key={`csel-${idx}`} type="button"
+                                            onClick={() => { const s = new Set(selectedCargos); on ? s.delete(idx) : s.add(idx); setSelectedCargos(s); }}
+                                            className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-surface-container transition-colors">
+                                            <div className={cn("w-4 h-4 shrink-0 border flex items-center justify-center transition-colors", on ? "bg-primary border-primary text-black" : "border-outline bg-transparent")}>
+                                                {on && <Check className="w-3 h-3" />}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <div className="text-[11px] font-bold text-on-surface truncate">Cargo {idx + 1}: {route}</div>
+                                                {detail && <div className="text-[10px] text-on-surface-variant truncate">{detail}</div>}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                     )}
+
+                     {extractionResult.vessels && extractionResult.vessels.length > 0 && (
+                        <div className="border border-outline rounded-sm bg-surface-container/40">
+                            <div className="flex items-center justify-between px-3 py-2 border-b border-outline/60">
+                                <div className="text-[10px] font-bold text-secondary tracking-widest uppercase">Select Vessels ({selectedVessels.size}/{extractionResult.vessels.length})</div>
+                                <div className="flex gap-3">
+                                    <button onClick={() => setSelectedVessels(new Set(extractionResult.vessels.map((_:any,i:number)=>i)))} className="text-[9px] text-secondary hover:underline uppercase tracking-wider">All</button>
+                                    <button onClick={() => setSelectedVessels(new Set())} className="text-[9px] text-secondary hover:underline uppercase tracking-wider">None</button>
+                                </div>
+                            </div>
+                            <div className="divide-y divide-outline/40">
+                                {extractionResult.vessels.map((vessel: any, idx: number) => {
+                                    const on = selectedVessels.has(idx);
+                                    const detail = [vessel.dwt, vessel.built, vessel.flag].filter(Boolean).join(' · ');
+                                    return (
+                                        <button key={`vsel-${idx}`} type="button"
+                                            onClick={() => { const s = new Set(selectedVessels); on ? s.delete(idx) : s.add(idx); setSelectedVessels(s); }}
+                                            className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-surface-container transition-colors">
+                                            <div className={cn("w-4 h-4 shrink-0 border flex items-center justify-center transition-colors", on ? "bg-secondary border-secondary text-black" : "border-outline bg-transparent")}>
+                                                {on && <Check className="w-3 h-3" />}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <div className="text-[11px] font-bold text-on-surface truncate">{vessel.name || `Vessel ${idx + 1}`}</div>
+                                                {detail && <div className="text-[10px] text-on-surface-variant truncate">{detail}</div>}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                     )}
+
+                     {extractionResult.enrichmentNote && (
+                        <div className="bg-tertiary/10 border border-tertiary/30 px-3 py-2 text-[11px] text-tertiary rounded-sm">
+                            {extractionResult.enrichmentNote}
+                        </div>
+                     )}
 
                      {extractionResult.cargoes && extractionResult.cargoes.length > 0 && (
                         <div className="space-y-2">
@@ -540,28 +733,14 @@ export const ManualIntakeMode = ({
                     )}
                 </div>
 
-                <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 bg-gradient-to-t from-surface-container via-surface-container to-transparent pt-12">
-                     <button
-                        onClick={handlePublish}
-                        disabled={isPublishing || (selectedCargos.size === 0 && selectedVessels.size === 0)}
-                        className={cn("w-full h-14 flex items-center justify-center bg-primary text-on-primary font-bold uppercase tracking-widest text-[12px] shadow-[0_4px_20px_rgba(29,155,240,0.2)] hover:opacity-90 transition-all", (isPublishing || (selectedCargos.size === 0 && selectedVessels.size === 0)) && "opacity-50 cursor-not-allowed")}
-                        >
-                        {(() => {
-                            if (isPublishing) return <><Loader2 className="w-4 h-4 mr-2 animate-spin"/> PUBLISHING...</>;
-
-                            const cLen = selectedCargos.size;
-                            const vLen = selectedVessels.size;
-                            
-                            if (cLen > 0 || vLen > 0) {
-                            const selections = [];
-                            if (cLen > 0) selections.push(`${cLen} CARGOES`);
-                            if (vLen > 0) selections.push(`${vLen} VESSELS`);
-                            return `PUBLISH SELECTED (${selections.join(' & ')})`;
-                            }
-                            
-                            return 'PUBLISH SELECTED';
-                        })()}
-                     </button>
+                {/* PILOT-BLOCKER-18: sticky bottom bar — second always-reachable publish
+                    control. shrink-0 + sticky bottom-0 keep it pinned even if the
+                    result list above does not scroll on iOS. */}
+                <div
+                    className="shrink-0 sticky bottom-0 z-20 px-4 sm:px-6 pt-6 bg-gradient-to-t from-surface-container via-surface-container to-transparent"
+                    style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}
+                >
+                     <PublishButton />
                 </div>
             </div>
         )}

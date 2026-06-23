@@ -15,6 +15,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 import OpenAI from "openai";
 import { fetchAISPosition, getAISProviderStatus } from './src/server/aisProvider';
 import { estimateRoute } from './src/lib/routingProvider';
+import { parseDeterministicCargoes } from './src/lib/deterministicCargoParser';
+import { parseDeterministicVessels } from './src/lib/deterministicVesselParser';
 
 let firestore: Firestore | null = null;
 try {
@@ -2427,151 +2429,6 @@ const jobResults = new Map<string, any[]>();
     }
   });
 
-  function parseDeterministicCargoBlock(blockText: string): any {
-    const lines = blockText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    let loadPort = '';
-    let dischargePort = '';
-    let raw_commodity = '';
-    let quantity = '';
-    let laycan = '';
-    let terms = '';
-    let commission = '';
-    let special_requirements = '';
-    
-    // 1. Identify route line
-    for (const line of lines) {
-      if (line.includes('/') && !line.toLowerCase().includes('load/discharge') && !line.toLowerCase().includes('load / discharge') && !line.toLowerCase().includes('rate')) {
-        const parts = line.split('/');
-        if (parts.length === 2) {
-          loadPort = parts[0].trim();
-          dischargePort = parts[1].trim();
-        }
-      }
-    }
-
-    // 2. Identify laycan line
-    const monthRegex = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)/i;
-    const yearRegex = /202[5678]/;
-    const datePatternRegex = /\d{1,2}[–\/.-]\s*\d{1,2}/;
-    for (const line of lines) {
-      const isRoute = line.includes('/') && !line.toLowerCase().includes('load/discharge') && !line.toLowerCase().includes('load / discharge') && !line.toLowerCase().includes('rate');
-      if (!isRoute) {
-        if (monthRegex.test(line) || yearRegex.test(line) || datePatternRegex.test(line)) {
-          laycan = line;
-        }
-      }
-    }
-
-    // 3. Identify quantity & commodity line
-    for (const line of lines) {
-      if (line.toLowerCase().match(/(?:cbm|mts|tons|mt|ton)/i) && !line.toLowerCase().includes('load/discharge') && !line.toLowerCase().includes('carrier shall') && !line.toLowerCase().includes('rate')) {
-        const qtyMatch = line.match(/(?:abt\s*)?\d+(?:[.,]\d+)*(?:\s*-\s*\d+(?:[.,]\d+)*)?\s*(?:cbm|mts|tons|mt|ton|CBM)/i);
-        if (qtyMatch) {
-          quantity = qtyMatch[0].trim();
-          raw_commodity = line.replace(qtyMatch[0], '').trim();
-          if (raw_commodity.startsWith('g/c')) {
-            raw_commodity = raw_commodity.replace(/^g\/c\s*/i, '').trim();
-          }
-          raw_commodity = raw_commodity.replace(/^[,.\s-]+|[,.\s-]+$/g, '').trim();
-        } else {
-          raw_commodity = line;
-        }
-      }
-    }
-
-    // 4. Identify terms and rates
-    for (const line of lines) {
-      const lowerLine = line.toLowerCase();
-      if (lowerLine === 'fios' || lowerLine === 'fiox' || lowerLine.includes('fios')) {
-        terms = 'FIOS';
-      } else if (lowerLine.includes('cqd')) {
-        terms = 'CQD';
-      }
-      if (lowerLine.includes('pct') || lowerLine.includes('%') || lowerLine.includes('commission')) {
-        commission = line;
-      }
-    }
-
-    // 5. Special Notes & requirements
-    const unmatched = [];
-    for (const line of lines) {
-      if (line.includes('/') && !line.toLowerCase().includes('load/discharge') && !line.toLowerCase().includes('load / discharge') && !line.toLowerCase().includes('rate')) continue;
-      if (line === laycan) continue;
-      if (line === commission) continue;
-      if (line.toLowerCase().includes('fios') || line.toLowerCase().includes('cqd')) continue;
-      if (quantity && line.includes(quantity)) continue;
-      if (raw_commodity && line.includes(raw_commodity)) continue;
-      unmatched.push(line);
-    }
-    if (unmatched.length > 0) {
-      special_requirements = unmatched.join('. ');
-    }
-
-    // Backfill raw_commodity if empty
-    if (!raw_commodity) {
-      for (const line of lines) {
-        if (!line.includes('/') && !line.match(monthRegex) && !line.match(yearRegex) && !line.includes('pct') && !line.includes('%')) {
-          raw_commodity = line;
-          break;
-        }
-      }
-    }
-
-    return {
-      raw_commodity: raw_commodity || 'coil',
-      quantity: quantity,
-      loadPort: loadPort,
-      dischargePort: dischargePort,
-      laycan: laycan,
-      terms: terms,
-      commission: commission,
-      special_requirements: special_requirements,
-      missing_fields: []
-    };
-  }
-
-  function tryDeterministicSplitAndParse(text: string): any[] | null {
-    const normalizedText = text.trim();
-    const blocks = normalizedText.split(/\r?\n\s*\r?\n/).map(b => b.trim()).filter(Boolean);
-    
-    if (blocks.length < 2) return null;
-    
-    const cargoes: any[] = [];
-    
-    for (const block of blocks) {
-      const lines = block.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      
-      let hasRoute = false;
-      let hasLaycan = false;
-      let hasQty = false;
-      
-      const monthRegex = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)/i;
-      const yearRegex = /202[5678]/;
-      const datePatternRegex = /\d{1,2}[–\/.-]\s*\d{1,2}/;
-
-      for (const line of lines) {
-        if (line.includes('/') && !line.toLowerCase().includes('load/discharge') && !line.toLowerCase().includes('load / discharge') && !line.toLowerCase().includes('rate')) {
-          hasRoute = true;
-        }
-        if (monthRegex.test(line) || yearRegex.test(line) || datePatternRegex.test(line)) {
-          hasLaycan = true;
-        }
-        if (line.toLowerCase().match(/(?:cbm|mts|tons|mt|ton)/i) && !line.toLowerCase().includes('load/discharge')) {
-          hasQty = true;
-        }
-      }
-      
-      if (hasRoute && (hasLaycan || hasQty)) {
-        const cargo = parseDeterministicCargoBlock(block);
-        cargoes.push(cargo);
-      }
-    }
-    
-    if (cargoes.length >= 2) {
-      return cargoes;
-    }
-    return null;
-  }
 
   // AI Routes
   app.post('/api/ai/parseEmail', async (req, res) => {
@@ -2601,13 +2458,15 @@ const jobResults = new Map<string, any[]>();
         return res.status(403).json({ error: "Forbidden: userId mismatch" });
       }
 
-      const parserVersion = 'v1.2'; // Increment for cache keys
-      
+      const parserVersion = 'v1.6-pb16'; // Increment for cache keys (invalidates pre-PB16 cached results)
+      const isManualIntake = email.sender === 'Manual Entry';
+      const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
+
       const rawText = email.rawBody || email.snippet || '';
       const normText = rawText.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
       const crypto = await import('crypto');
       const textHash = crypto.createHash('sha256').update(normText.substring(0, 5000)).digest('hex');
-      const cacheKey = userId ? crypto.createHash('sha256').update(`${userId}-${textHash}-${parserVersion}`).digest('hex') : null;
+      const cacheKey = userId ? crypto.createHash('sha256').update(`${userId}-${textHash}-${parserVersion}-${expectedType || 'auto'}`).digest('hex') : null;
 
       const unoptimizedTokenEstimate = Math.ceil((2500 + (email.rawBody?.length || 0)) / 4);
       const contentsInput = `Subj:${email.subject}\nFrom:${email.sender}\nDate:${email.date || ''}\nBody:${normText}`;
@@ -2617,12 +2476,16 @@ const jobResults = new Map<string, any[]>();
       let usedMemoryInfo: any = {};
       let senderProfile = null;
 
-      if (cacheKey) {
+      // PILOT-BLOCKER-15: manual paste must NEVER serve a stale cached result.
+      // The deterministic parser is fast and authoritative, so we bypass the
+      // cache entirely for manual_text_intake. This guarantees a bad
+      // PB12/PB13/PB14 cache entry can never resurface as an "Incomplete Result".
+      if (cacheKey && !isManualIntake) {
           cachedResult = await AICache.get(`ai:parseEmail:${cacheKey}`);
       }
 
       if (userId && firestore) {
-          if (cacheKey && !cachedResult) {
+          if (cacheKey && !isManualIntake && !cachedResult) {
              try {
                  const cacheDoc = await firestore.collection('users').doc(userId).collection('memory_parseCache').doc(cacheKey).get();
                  if (cacheDoc.exists) {
@@ -2705,6 +2568,119 @@ const jobResults = new Map<string, any[]>();
         return res.status(creditCheck.statusCode || 402).json(creditCheck);
       }
 
+      // PILOT-BLOCKER-15 — safe observability. Counts / flags / field-names only.
+      // NEVER includes raw cargo/vessel text, AI responses, provider payloads, or
+      // secrets. Surfaced to the manual-intake UI so the real device path is
+      // observable end-to-end.
+      const lengthBucket = (n: number) => (n === 0 ? '0' : n <= 100 ? '1-100' : n <= 1000 ? '100-1000' : '1000+');
+      const buildDebug = (o: {
+          cacheHit: boolean;
+          deterministicCargoes: number; finalCargoes: number;
+          deterministicVessels: number; finalVessels: number;
+          incompleteFallbackTriggered: boolean; source: string;
+      }) => ({
+          requestId: reqId,
+          buildMarker: 'PILOT-BLOCKER-20',
+          parserVersion,
+          expectedType: expectedType || 'auto',
+          manualIntake: isManualIntake,
+          rawTextPresent: !!rawText && rawText.trim().length > 0,
+          rawTextLengthBucket: lengthBucket(rawText.trim().length),
+          cacheHit: o.cacheHit,
+          cacheKeyIncludesExpectedType: true,
+          cacheKeyIncludesParserVersion: true,
+          deterministicCargoes: o.deterministicCargoes,
+          finalCargoes: o.finalCargoes,
+          deterministicVessels: o.deterministicVessels,
+          finalVessels: o.finalVessels,
+          multiCargoDetected: o.finalCargoes > 1,
+          responseHasCargoes: o.finalCargoes > 0,
+          responseCargoesLength: o.finalCargoes,
+          responseHasVessels: o.finalVessels > 0,
+          responseVesselsLength: o.finalVessels,
+          responseHasSingleCargo: o.finalCargoes === 1,
+          responseHasSingleVessel: o.finalVessels === 1,
+          incompleteFallbackTriggered: o.incompleteFallbackTriggered,
+          source: o.source,
+      });
+
+      // DETERMINISTIC EARLY RETURN (PILOT-BLOCKER-15)
+      // For manual paste, run the model-free parsers BEFORE any AI call. When
+      // they extract >= 1 cargo or vessel, return that result immediately and
+      // authoritatively — no AI, no synthetic empty fallback, no cache. This
+      // makes manual Cargo/Vessel paste fully immune to Gemini/OpenAI quota or
+      // schema failures and to stale cache. AI enrichment is intentionally not
+      // required to create a draft.
+      if (operationName === 'manual_text_intake') {
+          const earlyCargoes = (expectedType !== 'VESSEL') ? parseDeterministicCargoes(rawText) : [];
+          const earlyVessels = (expectedType === 'VESSEL') ? parseDeterministicVessels(rawText) : [];
+          if (earlyCargoes.length >= 1 || earlyVessels.length >= 1) {
+              // Inline risk-flag tagging (applyRiskRules is defined later in this
+              // handler; keep the early path self-contained).
+              for (const item of [...earlyCargoes, ...earlyVessels] as any[]) {
+                  if (item && item.terms) {
+                      const t = String(item.terms).toUpperCase();
+                      item.risk_flags = item.risk_flags || [];
+                      if (t.includes('CQD')) item.risk_flags.push('CQD Risk: Demurrage ambiguity');
+                      if (t.includes('FIOS')) item.risk_flags.push('FIOS Check: Cargo handling responsibility');
+                      if (t.includes('W/O GUARANTEE') || t.includes('WOG')) item.risk_flags.push('WOG Risk: Details without guarantee');
+                  }
+              }
+              const _debug = buildDebug({
+                  cacheHit: false,
+                  deterministicCargoes: earlyCargoes.length,
+                  finalCargoes: earlyCargoes.length,
+                  deterministicVessels: earlyVessels.length,
+                  finalVessels: earlyVessels.length,
+                  incompleteFallbackTriggered: false,
+                  source: 'deterministic',
+              });
+              console.log('[parseEmail][PB16]', JSON.stringify(_debug));
+              return res.json({
+                  type: earlyCargoes.length > 1 ? 'CARGO_LIST'
+                      : earlyCargoes.length === 1 ? 'CARGO'
+                      : earlyVessels.length > 1 ? 'VESSEL_LIST'
+                      : earlyVessels.length === 1 ? 'VESSEL' : 'OTHER',
+                  decision: 'Check',
+                  multiCargoDetected: earlyCargoes.length > 1,
+                  multiVesselDetected: earlyVessels.length > 1,
+                  cargoes: earlyCargoes,
+                  vessels: earlyVessels,
+                  summary: earlyVessels.length >= 1
+                      ? `Structured ${earlyVessels.length} vessel candidate(s) deterministically.`
+                      : `Structured ${earlyCargoes.length} cargo candidate(s) deterministically.`,
+                  actualModel: 'deterministic',
+                  actualProvider: 'local',
+                  degraded_analysis: false,
+                  memoryUsed: usedMemoryInfo,
+                  _debug,
+                  _diagnostic: {
+                      buildVersion: 'PILOT-BLOCKER-20',
+                      releaseLabel: 'pilot-blocker-20',
+                      parserVersion,
+                      endpoint: 'parseEmail',
+                      expectedType: expectedType || 'auto',
+                      parserMode: operationName,
+                      deterministicCargoes: earlyCargoes.length,
+                      deterministicVessels: earlyVessels.length,
+                      multiCargoDetected: earlyCargoes.length > 1,
+                      fallbackUsed: false,
+                  },
+                  metrics: {
+                      routeName: 'parseEmail',
+                      cacheHit: false,
+                      fallbackUsed: false,
+                      repairUsed: false,
+                      retries: 0,
+                      failoverCount: 0,
+                      timeoutCount: 0,
+                      unoptimizedTokenEstimate,
+                      optimizedTokenEstimate,
+                  },
+              });
+          }
+      }
+
       let explicitHint = '';
       if (expectedType === 'CARGO') {
           explicitHint = `\nCRITICAL CONTEXT: The user explicitly pasted text for a CARGO. Focus entirely on extracting Cargo details. Do not treat this as a vessel. Do not require vessel fields. Return type CARGO or CARGO_LIST. EVEN IF the text is extremely short or fragmented, YOU MUST output a CARGO object containing whatever is present, and list the remaining core fields in missing_fields. DO NOT return an empty list or OTHER unless it is complete spam.`;
@@ -2714,8 +2690,7 @@ const jobResults = new Map<string, any[]>();
 
       const ai = getGoogleGenAI();
       let response;
-      const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
-      
+
       // Deterministic fallback for exceptionally short user inputs that reliably break Gemini schema parsing
       if (operationName === 'manual_text_intake') {
           const lowerBody = (email.rawBody || '').toLowerCase().trim();
@@ -2736,9 +2711,9 @@ const jobResults = new Map<string, any[]>();
                   degraded_analysis: false,
                   memoryUsed: usedMemoryInfo,
                   _diagnostic: {
-                     buildVersion: "PILOT-BLOCKER-12-FIX",
-                     releaseLabel: "pilot-blocker-12-fix",
-                     parserVersion: "multi-cargo-v2",
+                     buildVersion: "PILOT-BLOCKER-20",
+                     releaseLabel: "pilot-blocker-20",
+                     parserVersion,
                      endpoint: "parseEmail",
                      expectedType: expectedType || "auto",
                      parserMode: operationName,
@@ -2835,28 +2810,35 @@ const jobResults = new Map<string, any[]>();
            finalCargoes = Array.isArray(data.extractedData) ? data.extractedData.map(normalizeEntity) : [normalizeEntity(data.extractedData)];
       }
 
-      // DETERMINISTIC DUAL-BLOCK FALLBACK ENFORCER
-      const detCargoes = tryDeterministicSplitAndParse(rawText);
-      if (detCargoes && detCargoes.length >= 2) {
-          if (finalCargoes.length === 0 || finalCargoes.length === 1) {
-              finalCargoes = detCargoes.map(normalizeEntity);
-          } else {
-              // Merge AI extraction with deterministic fields so nothing is missing or lost
-              for (let i = 0; i < Math.min(finalCargoes.length, detCargoes.length); i++) {
-                  const fc = finalCargoes[i];
-                  const dc = detCargoes[i];
-                  if (!fc.loadPort && dc.loadPort) fc.loadPort = dc.loadPort;
-                  if (!fc.dischargePort && dc.dischargePort) fc.dischargePort = dc.dischargePort;
-                  if (!fc.raw_commodity && dc.raw_commodity) fc.raw_commodity = dc.raw_commodity;
-                  if (!fc.commodity && dc.raw_commodity) fc.commodity = dc.raw_commodity;
-                  if (!fc.quantity && dc.quantity) fc.quantity = dc.quantity;
-                  if (!fc.laycan && dc.laycan) fc.laycan = dc.laycan;
-                  if (!fc.terms && dc.terms) fc.terms = dc.terms;
-                  if (!fc.commission && dc.commission) fc.commission = dc.commission;
-                  if (!fc.comm && dc.commission) fc.comm = dc.commission;
-                  if (!fc.special_requirements && dc.special_requirements) fc.special_requirements = dc.special_requirements;
-              }
+      // DETERMINISTIC AUTHORITY ENFORCER (PILOT-BLOCKER-13)
+      // The deterministic parser is authoritative for structured cargo blocks
+      // (N cargoes, robust to mobile paste with collapsed blank lines). When it
+      // extracts >= 1 cargo, it becomes the base result and the AI may only
+      // ENRICH empty fields — it can never erase deterministic data, and the
+      // incomplete fallback can never override a real deterministic result.
+      // Gated to cargo intake (never touches vessel parsing).
+      const detAll = (expectedType !== 'VESSEL') ? parseDeterministicCargoes(rawText) : [];
+      if (detAll.length >= 1) {
+          const base = detAll.map(normalizeEntity);
+          for (let i = 0; i < base.length; i++) {
+              const dc = base[i];
+              const fc = finalCargoes[i]; // AI candidate at the same index, if any
+              if (!fc) continue;
+              if (!dc.loadPort && fc.loadPort) dc.loadPort = fc.loadPort;
+              if (!dc.dischargePort && fc.dischargePort) dc.dischargePort = fc.dischargePort;
+              if (!dc.commodity && (fc.commodity || fc.raw_commodity)) dc.commodity = fc.commodity || fc.raw_commodity;
+              if (!dc.raw_commodity && (fc.raw_commodity || fc.commodity)) dc.raw_commodity = fc.raw_commodity || fc.commodity;
+              if (!dc.quantity && fc.quantity) dc.quantity = fc.quantity;
+              if (!dc.laycan && fc.laycan) dc.laycan = fc.laycan;
+              if (!dc.terms && fc.terms) dc.terms = fc.terms;
+              if (!dc.commission && (fc.commission || fc.comm)) dc.commission = fc.commission || fc.comm;
+              if (!dc.freight_idea && fc.freight_idea) dc.freight_idea = fc.freight_idea;
+              if (!dc.special_requirements && fc.special_requirements) dc.special_requirements = fc.special_requirements;
           }
+          // If the AI somehow found more distinct cargoes than the deterministic
+          // pass, keep the extras rather than dropping data.
+          for (let i = base.length; i < finalCargoes.length; i++) base.push(finalCargoes[i]);
+          finalCargoes = base;
       }
 
       if (data.vessels && Array.isArray(data.vessels)) {
@@ -2866,6 +2848,44 @@ const jobResults = new Map<string, any[]>();
       } else if (data.extractedData && (data.type === 'VESSEL' || data.type === 'VESSEL_LIST')) {
            finalVessels = Array.isArray(data.extractedData) ? data.extractedData.map(normalizeEntity) : [normalizeEntity(data.extractedData)];
       }
+
+      // DETERMINISTIC AUTHORITY ENFORCER — VESSEL (PILOT-BLOCKER-14)
+      // For vessel paste text, run the model-free vessel parser. When it
+      // extracts >= 1 vessel, that result is authoritative; AI may only
+      // enrich empty fields and can never erase deterministic data.
+      const detVessels = (expectedType === 'VESSEL') ? parseDeterministicVessels(rawText) : [];
+      if (detVessels.length >= 1) {
+          const vBase = detVessels.map(normalizeEntity);
+          for (let i = 0; i < vBase.length; i++) {
+              const dv = vBase[i];
+              const fv = finalVessels[i];
+              if (!fv) continue;
+              if (!dv.name && fv.name) dv.name = fv.name;
+              if (!dv.dwt && fv.dwt) dv.dwt = fv.dwt;
+              if (!dv.openPort && fv.openPort) dv.openPort = fv.openPort;
+              if (!dv.openDate && fv.openDate) dv.openDate = fv.openDate;
+              if (!dv.type && fv.type) dv.type = fv.type;
+              if (!dv.gear && fv.gear) dv.gear = fv.gear;
+              if (!dv.built && fv.built) dv.built = fv.built;
+              if (!dv.flag && fv.flag) dv.flag = fv.flag;
+          }
+          for (let i = vBase.length; i < finalVessels.length; i++) vBase.push(finalVessels[i]);
+          finalVessels = vBase;
+      }
+
+      // Safe diagnostics: counts only. Never logs raw user text, AI response,
+      // provider payload, or secrets.
+      const incompleteFallbackTriggered = detAll.length === 0 && finalCargoes.length === 0 && detVessels.length === 0 && finalVessels.length === 0;
+      console.log('[parseEmail][PB16]', JSON.stringify({
+          expectedType: expectedType || 'auto',
+          manualIntake: operationName === 'manual_text_intake',
+          deterministicCargoes: detAll.length,
+          deterministicVessels: detVessels.length,
+          finalCargoes: finalCargoes.length,
+          finalVessels: finalVessels.length,
+          multiCargoDetected: finalCargoes.length > 1,
+          incompleteFallbackTriggered
+      }));
 
       const out: any = {
         type: data.type || (finalCargoes.length > 1 ? "CARGO_LIST" : finalCargoes.length === 1 ? "CARGO" : finalVessels.length > 1 ? "VESSEL_LIST" : finalVessels.length === 1 ? "VESSEL" : "OTHER"),
@@ -2880,12 +2900,14 @@ const jobResults = new Map<string, any[]>();
         degraded_analysis: response.degraded || false,
         memoryUsed: usedMemoryInfo,
         _diagnostic: {
-           buildVersion: "PILOT-BLOCKER-12-FIX",
-           releaseLabel: "pilot-blocker-12-fix",
-           parserVersion: "multi-cargo-v2",
+           buildVersion: "PILOT-BLOCKER-20",
+           releaseLabel: "pilot-blocker-20",
+           parserVersion,
            endpoint: "parseEmail",
            expectedType: expectedType || "auto",
            parserMode: operationName,
+           deterministicCargoes: detAll.length,
+           deterministicVessels: detVessels.length,
            multiCargoDetected: finalCargoes.length > 1,
            fallbackUsed: response.actualModel === "fallback"
         },
@@ -2901,6 +2923,23 @@ const jobResults = new Map<string, any[]>();
           optimizedTokenEstimate
         }
       };
+
+      // PILOT-BLOCKER-15: attach safe debug for manual paste (this path is only
+      // reached when the deterministic early return found nothing and the AI was
+      // consulted). Lets the UI show why the result is what it is.
+      if (isManualIntake) {
+          out._debug = buildDebug({
+              cacheHit: false,
+              deterministicCargoes: detAll.length,
+              finalCargoes: finalCargoes.length,
+              deterministicVessels: detVessels.length,
+              finalVessels: finalVessels.length,
+              incompleteFallbackTriggered,
+              source: response.actualModel === 'fallback'
+                  ? 'synthetic'
+                  : (detAll.length > 0 || detVessels.length > 0) ? 'mixed' : 'ai',
+          });
+      }
 
       const applyRiskRules = (item: any) => {
          if (!item) return;
@@ -2927,7 +2966,7 @@ const jobResults = new Map<string, any[]>();
       if (out.cargoes) out.cargoes.forEach(applyRiskRules);
       if (out.vessels) out.vessels.forEach(applyRiskRules);
 
-      if (cacheKey && !out.degraded_analysis) {
+      if (cacheKey && !isManualIntake && !out.degraded_analysis) {
          const cachePayload = {
              resultType: out.type,
              decision: out.decision,

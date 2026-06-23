@@ -1,0 +1,371 @@
+// Manual-paste render decision — the single source of truth for what the
+// Cargo/Vessel "Paste Text" modal renders.
+//
+// PILOT-BLOCKER-16. Roman's real iPhone UI kept failing because the modal
+// depended on the backend /api/ai/parseEmail round-trip. In the AI Studio
+// preview that request is unreliable: cargo returned a stale/empty body
+// (global "Incomplete Result") and vessel failed at the network layer
+// ("Load failed" = iOS Safari fetch TypeError). The parsers themselves are
+// model-free and run fine in the browser, so this module runs them CLIENT-SIDE
+// and treats the backend strictly as best-effort enrichment that can never
+// erase a local result.
+//
+// This is a pure function (no React, no network, no I/O) so the render decision
+// is unit-testable without a browser. It emits counts/flags only — never raw
+// pasted text, AI responses, provider payloads, or secrets.
+
+import { parseDeterministicCargoes } from './deterministicCargoParser';
+import { parseDeterministicVessels } from './deterministicVesselParser';
+
+export const PB16_BUILD_MARKER = 'PILOT-BLOCKER-20';
+
+export type RenderedFrom = 'local-deterministic' | 'backend' | 'merged' | 'none';
+
+export interface ManualIntakeDebug {
+  buildMarker: string;
+  localDeterministicCargoes: number;
+  localDeterministicVessels: number;
+  localFallbackUsed: boolean;
+  backendRequestStarted: boolean;
+  backendRequestSucceeded: boolean;
+  backendRequestFailed: boolean;
+  backendErrorType: string | null;
+  backendCargoes: number;
+  backendVessels: number;
+  renderedFrom: RenderedFrom;
+  aiEnrichmentSkippedOrFailed: boolean;
+  showedIncompleteWall: boolean;
+  showedParseError: boolean;
+}
+
+export interface ManualIntakeDecision {
+  expectedType: 'CARGO' | 'VESSEL';
+  cargoes: any[];
+  vessels: any[];
+  renderedFrom: RenderedFrom;
+  multiCargoDetected: boolean;
+  multiVesselDetected: boolean;
+  showIncompleteWall: boolean;
+  showParseError: boolean;
+  enrichmentNote: string | null;
+  debug: ManualIntakeDebug;
+}
+
+export interface ManualIntakeInput {
+  expectedType?: 'CARGO' | 'VESSEL' | string;
+  text: string;
+  backendResult?: any | null;
+  backendError?: any | null;
+  backendStarted?: boolean;
+}
+
+/** A cargo candidate is meaningful when it carries >= 1 real extracted field. */
+export function meaningfulCargo(c: any): boolean {
+  return !!c && !!(c.commodity || c.raw_commodity || c.loadPort || c.dischargePort || c.quantity || c.laycan);
+}
+
+/** A vessel candidate is meaningful when it carries >= 1 real extracted field. */
+export function meaningfulVessel(v: any): boolean {
+  return !!v && !!(v.name || v.dwt || v.openPort || v.openDate || v.type || v.built || v.flag || v.grt || v.loa);
+}
+
+/** Map an error to a safe category string (no raw message, no secrets). */
+function classifyError(err: any): string {
+  const msg = (err && (err.message || String(err))) || '';
+  const m = msg.toLowerCase();
+  if (m.includes('load failed') || m.includes('failed to fetch') || m.includes('networkerror')) return 'network';
+  if (m.includes('credit') || m.includes('402')) return 'credit';
+  if (m.includes('401') || m.includes('auth') || m.includes('token')) return 'auth';
+  if (m.includes('429') || m.includes('quota') || m.includes('rate')) return 'rate-limit';
+  if (m.includes('not enough')) return 'incomplete';
+  if (m.includes('500') || m.includes('server')) return 'server';
+  return 'unknown';
+}
+
+function enrichCargo(dst: any, src: any): void {
+  if (!src) return;
+  if (!dst.loadPort && src.loadPort) dst.loadPort = src.loadPort;
+  if (!dst.dischargePort && src.dischargePort) dst.dischargePort = src.dischargePort;
+  if (!dst.commodity && (src.commodity || src.raw_commodity)) dst.commodity = src.commodity || src.raw_commodity;
+  if (!dst.raw_commodity && (src.raw_commodity || src.commodity)) dst.raw_commodity = src.raw_commodity || src.commodity;
+  if (!dst.quantity && src.quantity) dst.quantity = src.quantity;
+  if (!dst.laycan && src.laycan) dst.laycan = src.laycan;
+  if (!dst.terms && src.terms) dst.terms = src.terms;
+  if (!dst.commission && (src.commission || src.comm)) dst.commission = src.commission || src.comm;
+  if (!dst.freight_idea && src.freight_idea) dst.freight_idea = src.freight_idea;
+  if (!dst.special_requirements && src.special_requirements) dst.special_requirements = src.special_requirements;
+}
+
+function enrichVessel(dst: any, src: any): void {
+  if (!src) return;
+  for (const k of ['name', 'dwt', 'draft', 'built', 'flag', 'grt', 'nrt', 'loa', 'beam', 'depth',
+    'capacity', 'holds', 'hatches', 'gear', 'class_society', 'pandi', 'type', 'openPort', 'openDate']) {
+    if (!dst[k] && src[k]) dst[k] = src[k];
+  }
+}
+
+function backendCargoList(backendResult: any): any[] {
+  if (!backendResult) return [];
+  if (Array.isArray(backendResult.cargoes) && backendResult.cargoes.length) return backendResult.cargoes;
+  if (backendResult.cargo) return [backendResult.cargo];
+  return [];
+}
+
+function backendVesselList(backendResult: any): any[] {
+  if (!backendResult) return [];
+  if (Array.isArray(backendResult.vessels) && backendResult.vessels.length) return backendResult.vessels;
+  if (backendResult.vessel) return [backendResult.vessel];
+  return [];
+}
+
+// ---------------------------------------------------------------------------
+// PILOT-BLOCKER-18: publish-action availability.
+//
+// PB17 tried to make the result list scroll on iOS so Roman could reach the
+// bottom "Publish Selected" button. On the real iPhone / AI Studio preview the
+// nested scroll still failed, so the button stayed below the viewport and the
+// broker could not publish parsed items at all.
+//
+// The fix is to stop depending on scroll: a top "Publish Selected" button is
+// rendered at the very top of the result (reachable with zero scroll) in
+// addition to the sticky bottom bar. This pure function is the single source of
+// truth for whether those controls are shown and whether publishing is allowed,
+// so the behaviour is unit-testable without a browser. It emits counts/flags
+// only — never raw pasted text or secrets.
+export interface ManualIntakeActionInput {
+  hasResult: boolean;
+  selectedCargoCount: number;
+  selectedVesselCount: number;
+  isPublishing: boolean;
+}
+
+export interface ManualIntakeActionState {
+  selectedCount: number;
+  canPublish: boolean;
+  mobileActionBarVisible: boolean;
+  topPublishButtonVisible: boolean;
+  publishButtonFixedOrSticky: boolean;
+}
+
+/**
+ * Compute publish-action availability for the manual-intake result view.
+ * Both the top button and the sticky bottom bar are shown whenever a result
+ * exists, so publishing never depends on scrolling. canPublish is gated on a
+ * non-empty selection and not-currently-publishing.
+ */
+export function computeManualIntakeActionState(input: ManualIntakeActionInput): ManualIntakeActionState {
+  const hasResult = !!input.hasResult;
+  const selectedCount = Math.max(0, (input.selectedCargoCount || 0) + (input.selectedVesselCount || 0));
+  const canPublish = hasResult && selectedCount > 0 && !input.isPublishing;
+  return {
+    selectedCount,
+    canPublish,
+    mobileActionBarVisible: hasResult,
+    topPublishButtonVisible: hasResult,
+    publishButtonFixedOrSticky: hasResult,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// PILOT-BLOCKER-19: vessel dwt must be persisted as a NUMBER.
+//
+// firestore.rules isValidVessel() requires `data.dwt is number`, and the app's
+// Vessel type declares dwt:number. The deterministic vessel parser keeps a
+// human-readable string ("12,200 MTS") for the card UI, so manual-intake writes
+// were sending a string and Firestore rejected every vessel save with
+// "Missing or insufficient permissions". This coerces the readable string to a
+// plain integer at publish time (digits only); non-numeric input yields 0.
+export function coerceDwtToNumber(value: any): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (value == null) return 0;
+  const digits = String(value).replace(/[^0-9]/g, '');
+  if (!digits) return 0;
+  const n = parseInt(digits, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+// ---------------------------------------------------------------------------
+// PILOT-BLOCKER-20: canonical publish payload builders.
+//
+// Root cause of the persistent "Write rejected by security rules (permission
+// denied)": ManualIntakeMode's pre-write dedupe getDocs() filtered only by
+// `sourceId`, so the /cargos `allow list` rule (which requires every matched doc
+// to satisfy userId == auth.uid || isWorkspaceMember(workspaceId)) rejected the
+// READ before the write was ever attempted. That fix lives in the component
+// (the dedupe query is now scoped by workspaceId, mirroring the working App
+// subscription). These builders harden the second half: they emit exactly the
+// canonical Cargo/Vessel shape the proven handleCargoCreate/handleVesselCreate
+// path writes — only known fields, correct types (dwt is a number), no raw
+// parser blob and no rawText — so the doc always satisfies isValidCargo /
+// isValidVessel and stays well under the 30-field rules cap. Kept pure and
+// exported so the payload/rules contract is unit-testable offline.
+export interface PublishPayloadCtx {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  sourceId: string;
+  // Firestore serverTimestamp() sentinel in the app; any placeholder in tests.
+  timestamp?: any;
+}
+
+const _pubStr = (v: any): string => (v == null ? '' : String(v));
+const _pubOptStr = (v: any): string | undefined => {
+  if (v == null) return undefined;
+  const s = String(v).trim();
+  return s.length ? s : undefined;
+};
+const _pubRemoveUndefined = <T extends Record<string, any>>(obj: T): T => {
+  Object.keys(obj).forEach(k => { if (obj[k] === undefined) delete obj[k]; });
+  return obj;
+};
+const _pubConfidence = (item: any): number =>
+  item && item.missing_fields ? Math.max(10, 100 - (item.missing_fields.length * 15)) : 100;
+
+export function buildCargoPublishPayload(item: any, ctx: PublishPayloadCtx): Record<string, any> {
+  const it = item || {};
+  return _pubRemoveUndefined({
+    id: ctx.id,
+    commodity: _pubStr(it.commodity || it.raw_commodity),
+    quantity: _pubStr(it.quantity),
+    loadPort: _pubStr(it.loadPort),
+    dischargePort: _pubStr(it.dischargePort),
+    laycan: _pubStr(it.laycan),
+    charterer: _pubStr(it.charterer),
+    terms: _pubOptStr(it.terms),
+    freightIdea: _pubOptStr(it.freightIdea || it.rate || it.freightRate),
+    stowageFactor: _pubOptStr(it.stowageFactor),
+    category: it.category || 'DRY BULK',
+    priority: 'NORMAL',
+    status: 'ACTIVE',
+    source: 'manual_text',
+    sourceId: ctx.sourceId,
+    confidence: _pubConfidence(it),
+    workspaceId: ctx.workspaceId,
+    userId: ctx.userId,
+    createdAt: ctx.timestamp,
+    updatedAt: ctx.timestamp,
+  });
+}
+
+export function buildVesselPublishPayload(item: any, ctx: PublishPayloadCtx): Record<string, any> {
+  const it = item || {};
+  return _pubRemoveUndefined({
+    id: ctx.id,
+    name: _pubStr(it.name),
+    type: _pubStr(it.type || it.vessel_type),
+    dwt: coerceDwtToNumber(it.dwt),
+    openPort: _pubStr(it.openPort),
+    openDate: _pubStr(it.openDate),
+    gear: _pubOptStr(it.gear || it.cranes),
+    flag: _pubOptStr(it.flag),
+    imo: _pubOptStr(it.imo),
+    status: 'OPEN',
+    source: 'manual_text',
+    sourceId: ctx.sourceId,
+    confidence: _pubConfidence(it),
+    workspaceId: ctx.workspaceId,
+    userId: ctx.userId,
+    createdAt: ctx.timestamp,
+    updatedAt: ctx.timestamp,
+  });
+}
+
+/**
+ * Decide what the manual-paste modal renders. Local deterministic parsing is
+ * authoritative; the backend can only enrich, never erase. The global Incomplete
+ * wall is shown only when BOTH local and backend find nothing; the red Parse
+ * Error is shown only when the request failed AND local found nothing.
+ */
+export function decideManualIntakeRenderState(input: ManualIntakeInput): ManualIntakeDecision {
+  const expectedType: 'CARGO' | 'VESSEL' = input.expectedType === 'VESSEL' ? 'VESSEL' : 'CARGO';
+  const text = input.text || '';
+  const backendResult = input.backendResult || null;
+  const backendError = input.backendError || null;
+  const backendStarted = input.backendStarted ?? (backendResult !== null || backendError !== null);
+
+  // 1. Client-side deterministic parse (no network — always available).
+  const localCargoes = expectedType === 'CARGO' ? parseDeterministicCargoes(text) : [];
+  const localVessels = expectedType === 'VESSEL' ? parseDeterministicVessels(text) : [];
+
+  // 2. Backend candidates (best-effort enrichment), filtered to meaningful only.
+  const beCargoes = backendCargoList(backendResult).filter(meaningfulCargo);
+  const beVessels = backendVesselList(backendResult).filter(meaningfulVessel);
+
+  const backendRequestSucceeded = !!backendResult && !backendError;
+  const backendRequestFailed = !!backendError;
+
+  let cargoes: any[] = [];
+  let vessels: any[] = [];
+  let renderedFrom: RenderedFrom = 'none';
+
+  if (expectedType === 'CARGO') {
+    if (localCargoes.length > 0) {
+      cargoes = localCargoes.map((c) => ({ ...c }));
+      if (beCargoes.length > 0) {
+        for (let i = 0; i < cargoes.length; i++) enrichCargo(cargoes[i], beCargoes[i]);
+        for (let i = cargoes.length; i < beCargoes.length; i++) cargoes.push(beCargoes[i]);
+        renderedFrom = 'merged';
+      } else {
+        renderedFrom = 'local-deterministic';
+      }
+    } else if (beCargoes.length > 0) {
+      cargoes = beCargoes;
+      renderedFrom = 'backend';
+    }
+  } else {
+    if (localVessels.length > 0) {
+      vessels = localVessels.map((v) => ({ ...v }));
+      if (beVessels.length > 0) {
+        for (let i = 0; i < vessels.length; i++) enrichVessel(vessels[i], beVessels[i]);
+        for (let i = vessels.length; i < beVessels.length; i++) vessels.push(beVessels[i]);
+        renderedFrom = 'merged';
+      } else {
+        renderedFrom = 'local-deterministic';
+      }
+    } else if (beVessels.length > 0) {
+      vessels = beVessels;
+      renderedFrom = 'backend';
+    }
+  }
+
+  const totalCandidates = cargoes.length + vessels.length;
+  const showParseError = totalCandidates === 0 && backendRequestFailed;
+  const showIncompleteWall = totalCandidates === 0 && !backendRequestFailed;
+
+  const localFallbackUsed = renderedFrom === 'local-deterministic' || renderedFrom === 'merged';
+  const aiEnrichmentSkippedOrFailed =
+    backendRequestFailed || (backendRequestSucceeded && beCargoes.length === 0 && beVessels.length === 0);
+
+  const enrichmentNote =
+    totalCandidates > 0 && renderedFrom !== 'backend' && aiEnrichmentSkippedOrFailed
+      ? 'AI enrichment unavailable; deterministic draft created.'
+      : null;
+
+  return {
+    expectedType,
+    cargoes,
+    vessels,
+    renderedFrom,
+    multiCargoDetected: cargoes.length > 1,
+    multiVesselDetected: vessels.length > 1,
+    showIncompleteWall,
+    showParseError,
+    enrichmentNote,
+    debug: {
+      buildMarker: PB16_BUILD_MARKER,
+      localDeterministicCargoes: localCargoes.length,
+      localDeterministicVessels: localVessels.length,
+      localFallbackUsed,
+      backendRequestStarted: backendStarted,
+      backendRequestSucceeded,
+      backendRequestFailed,
+      backendErrorType: backendError ? classifyError(backendError) : null,
+      backendCargoes: beCargoes.length,
+      backendVessels: beVessels.length,
+      renderedFrom,
+      aiEnrichmentSkippedOrFailed,
+      showedIncompleteWall: showIncompleteWall,
+      showedParseError: showParseError,
+    },
+  };
+}

@@ -1694,7 +1694,7 @@ const VesselDraftModal = ({ onClose, onSubmit }: { onClose: () => void, onSubmit
       <motion.div 
         initial={{ opacity: 0, scale: 0.95, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="w-full max-w-3xl bg-surface-container-lowest border border-outline/30 rounded-sm shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex flex-col max-h-[90vh] overflow-hidden"
+        className="w-full max-w-3xl bg-surface-container-lowest border border-outline/30 rounded-sm shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex flex-col max-h-[90dvh] overflow-hidden"
       >
         <div className="px-6 py-4 border-b border-outline/20 flex justify-between items-center bg-surface-container/30 flex-none">
           <div className="flex items-center gap-4">
@@ -1827,7 +1827,7 @@ const VesselDraftModal = ({ onClose, onSubmit }: { onClose: () => void, onSubmit
           </div>
         </form>
         ) : (
-           <div className="flex-1 overflow-hidden">
+           <div className="flex-1 min-h-0 overflow-hidden">
                <ManualIntakeMode onClose={onClose} defaultType="VESSEL" />
            </div>
         )}
