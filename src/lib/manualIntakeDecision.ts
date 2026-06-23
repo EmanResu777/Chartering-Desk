@@ -17,7 +17,7 @@
 import { parseDeterministicCargoes } from './deterministicCargoParser';
 import { parseDeterministicVessels } from './deterministicVesselParser';
 
-export const PB16_BUILD_MARKER = 'PILOT-BLOCKER-19';
+export const PB16_BUILD_MARKER = 'PILOT-BLOCKER-20';
 
 export type RenderedFrom = 'local-deterministic' | 'backend' | 'merged' | 'none';
 
@@ -182,6 +182,92 @@ export function coerceDwtToNumber(value: any): number {
   if (!digits) return 0;
   const n = parseInt(digits, 10);
   return Number.isFinite(n) ? n : 0;
+}
+
+// ---------------------------------------------------------------------------
+// PILOT-BLOCKER-20: canonical publish payload builders.
+//
+// Root cause of the persistent "Write rejected by security rules (permission
+// denied)": ManualIntakeMode's pre-write dedupe getDocs() filtered only by
+// `sourceId`, so the /cargos `allow list` rule (which requires every matched doc
+// to satisfy userId == auth.uid || isWorkspaceMember(workspaceId)) rejected the
+// READ before the write was ever attempted. That fix lives in the component
+// (the dedupe query is now scoped by workspaceId, mirroring the working App
+// subscription). These builders harden the second half: they emit exactly the
+// canonical Cargo/Vessel shape the proven handleCargoCreate/handleVesselCreate
+// path writes — only known fields, correct types (dwt is a number), no raw
+// parser blob and no rawText — so the doc always satisfies isValidCargo /
+// isValidVessel and stays well under the 30-field rules cap. Kept pure and
+// exported so the payload/rules contract is unit-testable offline.
+export interface PublishPayloadCtx {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  sourceId: string;
+  // Firestore serverTimestamp() sentinel in the app; any placeholder in tests.
+  timestamp?: any;
+}
+
+const _pubStr = (v: any): string => (v == null ? '' : String(v));
+const _pubOptStr = (v: any): string | undefined => {
+  if (v == null) return undefined;
+  const s = String(v).trim();
+  return s.length ? s : undefined;
+};
+const _pubRemoveUndefined = <T extends Record<string, any>>(obj: T): T => {
+  Object.keys(obj).forEach(k => { if (obj[k] === undefined) delete obj[k]; });
+  return obj;
+};
+const _pubConfidence = (item: any): number =>
+  item && item.missing_fields ? Math.max(10, 100 - (item.missing_fields.length * 15)) : 100;
+
+export function buildCargoPublishPayload(item: any, ctx: PublishPayloadCtx): Record<string, any> {
+  const it = item || {};
+  return _pubRemoveUndefined({
+    id: ctx.id,
+    commodity: _pubStr(it.commodity || it.raw_commodity),
+    quantity: _pubStr(it.quantity),
+    loadPort: _pubStr(it.loadPort),
+    dischargePort: _pubStr(it.dischargePort),
+    laycan: _pubStr(it.laycan),
+    charterer: _pubStr(it.charterer),
+    terms: _pubOptStr(it.terms),
+    freightIdea: _pubOptStr(it.freightIdea || it.rate || it.freightRate),
+    stowageFactor: _pubOptStr(it.stowageFactor),
+    category: it.category || 'DRY BULK',
+    priority: 'NORMAL',
+    status: 'ACTIVE',
+    source: 'manual_text',
+    sourceId: ctx.sourceId,
+    confidence: _pubConfidence(it),
+    workspaceId: ctx.workspaceId,
+    userId: ctx.userId,
+    createdAt: ctx.timestamp,
+    updatedAt: ctx.timestamp,
+  });
+}
+
+export function buildVesselPublishPayload(item: any, ctx: PublishPayloadCtx): Record<string, any> {
+  const it = item || {};
+  return _pubRemoveUndefined({
+    id: ctx.id,
+    name: _pubStr(it.name),
+    type: _pubStr(it.type || it.vessel_type),
+    dwt: coerceDwtToNumber(it.dwt),
+    openPort: _pubStr(it.openPort),
+    openDate: _pubStr(it.openDate),
+    gear: _pubOptStr(it.gear || it.cranes),
+    flag: _pubOptStr(it.flag),
+    imo: _pubOptStr(it.imo),
+    status: 'OPEN',
+    source: 'manual_text',
+    sourceId: ctx.sourceId,
+    confidence: _pubConfidence(it),
+    workspaceId: ctx.workspaceId,
+    userId: ctx.userId,
+    createdAt: ctx.timestamp,
+    updatedAt: ctx.timestamp,
+  });
 }
 
 /**

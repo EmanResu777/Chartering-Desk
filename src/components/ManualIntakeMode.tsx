@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Check, Loader2, Sparkles } from 'lucide-react';
 import { parseEmail } from '../lib/geminiService';
-import { decideManualIntakeRenderState, computeManualIntakeActionState, coerceDwtToNumber } from '../lib/manualIntakeDecision';
+import { decideManualIntakeRenderState, computeManualIntakeActionState, buildCargoPublishPayload, buildVesselPublishPayload } from '../lib/manualIntakeDecision';
 import { cn, Cargo, Vessel } from '../lib/utils';
 import { doc, setDoc, serverTimestamp, getDocs, collection, query, where } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
@@ -168,6 +168,7 @@ export const ManualIntakeMode = ({
     }
 
     const isVesselPublish = extractionResult.type === 'VESSEL' || extractionResult.type === 'VESSEL_LIST';
+    const userId = auth.currentUser.uid;
     setPublishDebug({
         publishTargetPath: isVesselPublish ? 'vessels' : 'cargos',
         itemType: isVesselPublish ? 'vessel' : 'cargo',
@@ -176,35 +177,36 @@ export const ManualIntakeMode = ({
         publishErrorCode: null,
         publishErrorMessageSafe: null,
         authUidPresent: !!auth.currentUser?.uid,
-        ownerFieldPresent: true,
+        currentWorkspaceIdPresent: !!workspaceId,
+        workspaceIdUsed: workspaceId,
+        userIdUsed: userId,
+        ownerFieldPresent: !!userId,
         deskIdPresent: !!workspaceId,
-        writeMode: 'privateWorkspace',
+        // PILOT-BLOCKER-20: the actual write now matches the proven handleCargoCreate/
+        // handleVesselCreate shape exactly (collection cargos/vessels, workspaceId +
+        // userId, canonical fields). The dedupe pre-read is workspace-scoped so it
+        // satisfies the `allow list` rule instead of being rejected before the write.
+        writeMode: 'workspaceScopedDirect',
+        dedupeQueryScoped: true,
+        payloadFieldCount: null,
+        payloadFieldNames: null,
         selectedCount: selectedCargos.size + selectedVessels.size,
     });
 
     setIsPublishing(true);
     try {
-      const userId = auth.currentUser.uid;
       let created = 0;
       let skipped = 0;
       let failed = 0;
+      let firstPayloadKeys: string[] | null = null;
 
       const rawTextHash = hashString(text.substring(0, 1000));
-
-      const removeUndefined = (obj: any) => {
-        Object.keys(obj).forEach(key => {
-          if (obj[key] === undefined) {
-            delete obj[key];
-          }
-        });
-        return obj;
-      };
 
       // Handle CARGO
       if (extractionResult.type === 'CARGO' || extractionResult.type === 'CARGO_LIST' || extractionResult.type === 'MIXED_LIST') {
         const cargosToPublish = (extractionResult.cargoes || (extractionResult.cargo ? [extractionResult.cargo] : []))
           .filter((_: any, i: number) => selectedCargos.has(i));
-        
+
         for (let i = 0; i < cargosToPublish.length; i++) {
           const item = cargosToPublish[i];
           if (!item.commodity && !item.raw_commodity && !item.loadPort && !item.dischargePort) {
@@ -215,42 +217,37 @@ export const ManualIntakeMode = ({
           const entryNo = item.entry_no || (i + 1);
           const dedupeKey = `user-${userId}-text-${rawTextHash}-cargo-${entryNo}`;
 
-          const existingQuery = query(collection(db, 'cargos'), where('sourceId', '==', dedupeKey));
+          // PILOT-BLOCKER-20: scope the dedupe read by workspaceId. The `allow list`
+          // rule for /cargos requires every matched doc to satisfy
+          // userId == auth.uid || isWorkspaceMember(workspaceId); a query filtered
+          // only by sourceId can't prove that, so Firestore rejected the getDocs with
+          // permission-denied BEFORE the write — surfaced as "Write rejected by
+          // security rules". Pinning workspaceId mirrors the working App subscription.
+          const existingQuery = query(
+            collection(db, 'cargos'),
+            where('workspaceId', '==', workspaceId),
+            where('sourceId', '==', dedupeKey)
+          );
           const existingDocs = await getDocs(existingQuery);
-          
+
           if (!existingDocs.empty) {
             skipped++;
             continue;
           }
 
           const id = `CRG-${Math.floor(1000 + Math.random() * 9000)}-TXT`;
-          
-          const cleanItem = { ...item };
-          delete cleanItem.missing_fields;
-          delete cleanItem.entry_no;
-          delete cleanItem.raw_commodity;
-          
-          removeUndefined(cleanItem);
 
-          await setDoc(doc(db, 'cargos', id), {
-            commodity: '',
-            loadPort: '',
-            dischargePort: '',
-            laycan: '',
-            quantity: '',
-            terms: '',
-            ...cleanItem,
-            id,
-            userId,
-            workspaceId,
-            source: 'manual_text',
-            sourceId: dedupeKey,
-            rawText: text.substring(0, 5000),
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            status: 'ACTIVE',
-            confidence: item.missing_fields ? Math.max(10, 100 - (item.missing_fields.length * 15)) : 100
+          // PILOT-BLOCKER-20: canonical payload identical in shape/types to the
+          // working manual-form create path (handleCargoCreate). Only known Cargo
+          // fields are persisted — no raw parser blob, no rawText — keeping the
+          // field count well under the rules cap and every type rules-valid.
+          const cargoPayload = buildCargoPublishPayload(item, {
+            id, workspaceId, userId, sourceId: dedupeKey, timestamp: serverTimestamp(),
           });
+
+          if (!firstPayloadKeys) firstPayloadKeys = Object.keys(cargoPayload);
+
+          await setDoc(doc(db, 'cargos', id), cargoPayload);
           created++;
 
           // Check for risk terms
@@ -270,12 +267,12 @@ export const ManualIntakeMode = ({
           }
         }
       }
-      
+
       // Handle VESSEL
       if (extractionResult.type === 'VESSEL' || extractionResult.type === 'VESSEL_LIST' || extractionResult.type === 'MIXED_LIST') {
         const vesselsToPublish = (extractionResult.vessels || (extractionResult.vessel ? [extractionResult.vessel] : []))
           .filter((_: any, i: number) => selectedVessels.has(i));
-        
+
         for (let i = 0; i < vesselsToPublish.length; i++) {
           const item = vesselsToPublish[i];
           if (!item.name && !item.dwt && !item.openPort) {
@@ -286,46 +283,40 @@ export const ManualIntakeMode = ({
           const entryNo = item.entry_no || (i + 1);
           const dedupeKey = `user-${userId}-text-${rawTextHash}-vessel-${entryNo}`;
 
-          const existingQuery = query(collection(db, 'vessels'), where('sourceId', '==', dedupeKey));
+          // PILOT-BLOCKER-20: workspace-scoped dedupe read (see cargo note above).
+          const existingQuery = query(
+            collection(db, 'vessels'),
+            where('workspaceId', '==', workspaceId),
+            where('sourceId', '==', dedupeKey)
+          );
           const existingDocs = await getDocs(existingQuery);
-          
+
           if (!existingDocs.empty) {
             skipped++;
             continue;
           }
 
           const id = `VSL-${Math.floor(1000 + Math.random() * 9000)}-TXT`;
-          
-          const cleanItem = { ...item };
-          delete cleanItem.missing_fields;
-          delete cleanItem.entry_no;
-          
-          removeUndefined(cleanItem);
 
-          await setDoc(doc(db, 'vessels', id), {
-            name: '',
-            type: '',
-            openPort: '',
-            openDate: '',
-            gear: '',
-            ...cleanItem,
-            // PILOT-BLOCKER-19: firestore.rules isValidVessel() requires dwt:number.
-            // The parser keeps a readable string for the card; coerce here. Placed
-            // AFTER the spread so it always wins (number, 0 when absent/unparseable).
-            dwt: coerceDwtToNumber(cleanItem.dwt),
-            id,
-            userId,
-            workspaceId,
-            source: 'manual_text',
-            sourceId: dedupeKey,
-            rawText: text.substring(0, 5000),
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            status: 'OPEN',
-            confidence: item.missing_fields ? Math.max(10, 100 - (item.missing_fields.length * 15)) : 100
+          // PILOT-BLOCKER-20: canonical payload matching handleVesselCreate. dwt is
+          // coerced to a number because firestore.rules isValidVessel() requires it.
+          const vesselPayload = buildVesselPublishPayload(item, {
+            id, workspaceId, userId, sourceId: dedupeKey, timestamp: serverTimestamp(),
           });
+
+          if (!firstPayloadKeys) firstPayloadKeys = Object.keys(vesselPayload);
+
+          await setDoc(doc(db, 'vessels', id), vesselPayload);
           created++;
         }
+      }
+
+      // PILOT-BLOCKER-20: surface the exact persisted shape (field NAMES + count
+      // only — never values, raw text, or secrets) so a failed publish is diagnosable
+      // from the device against isValidCargo/isValidVessel.
+      if (firstPayloadKeys) {
+        const keys = firstPayloadKeys;
+        setPublishDebug((prev: any) => ({ ...(prev || {}), payloadFieldCount: keys.length, payloadFieldNames: keys.join(', ') }));
       }
 
       if (skipped > 0) {
@@ -451,17 +442,23 @@ export const ManualIntakeMode = ({
                   </div>
                   {publishDebug && (
                       <div className="space-y-0.5 pt-1 border-t border-outline/40">
-                          <div className="text-[9px] text-tertiary uppercase tracking-widest mb-1">Publish / Save (PB19)</div>
+                          <div className="text-[9px] text-tertiary uppercase tracking-widest mb-1">Publish / Save (PB20)</div>
                           <Row k="publishTargetPath" v={publishDebug.publishTargetPath} />
                           <Row k="itemType" v={publishDebug.itemType} />
                           <Row k="writeMode" v={publishDebug.writeMode} />
+                          <Row k="dedupeQueryScoped" v={!!publishDebug.dedupeQueryScoped} />
                           <Row k="publishAttempted" v={!!publishDebug.publishAttempted} />
                           <Row k="publishSucceeded" v={!!publishDebug.publishSucceeded} />
                           <Row k="publishErrorCode" v={publishDebug.publishErrorCode ?? '—'} />
                           <Row k="publishErrorMessageSafe" v={publishDebug.publishErrorMessageSafe ?? '—'} />
                           <Row k="authUidPresent" v={!!publishDebug.authUidPresent} />
+                          <Row k="currentWorkspaceIdPresent" v={!!publishDebug.currentWorkspaceIdPresent} />
+                          <Row k="workspaceIdUsed" v={publishDebug.workspaceIdUsed ?? '—'} />
+                          <Row k="userIdUsed" v={publishDebug.userIdUsed ?? '—'} />
                           <Row k="ownerFieldPresent" v={!!publishDebug.ownerFieldPresent} />
                           <Row k="deskIdPresent" v={!!publishDebug.deskIdPresent} />
+                          <Row k="payloadFieldCount" v={publishDebug.payloadFieldCount ?? '—'} />
+                          <Row k="payloadFieldNames" v={publishDebug.payloadFieldNames ?? '—'} />
                           <Row k="selectedCount" v={publishDebug.selectedCount} />
                       </div>
                   )}
@@ -491,7 +488,7 @@ export const ManualIntakeMode = ({
             <div className="p-6 flex flex-col h-full space-y-4">
                 <div className="flex justify-between items-center">
                     <div className="text-sm font-bold text-on-surface uppercase tracking-wider">Paste Broker Text</div>
-                    <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-19]</div>
+                    <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-20]</div>
                 </div>
 
                 <DebugPanel />
@@ -555,7 +552,7 @@ export const ManualIntakeMode = ({
                            </div>
                         </div>
                         <div className="flex flex-col items-end gap-1">
-                            <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-19]</div>
+                            <div className="text-[10px] text-tertiary uppercase tracking-widest">[PILOT-BLOCKER-20]</div>
                             <button onClick={() => setExtractionResult(null)} className="text-[10px] text-tertiary uppercase tracking-widest hover:text-on-surface transition-colors whitespace-nowrap">
                                 Edit Text
                             </button>

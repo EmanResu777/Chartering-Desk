@@ -2580,7 +2580,7 @@ const jobResults = new Map<string, any[]>();
           incompleteFallbackTriggered: boolean; source: string;
       }) => ({
           requestId: reqId,
-          buildMarker: 'PILOT-BLOCKER-19',
+          buildMarker: 'PILOT-BLOCKER-20',
           parserVersion,
           expectedType: expectedType || 'auto',
           manualIntake: isManualIntake,
@@ -2655,8 +2655,8 @@ const jobResults = new Map<string, any[]>();
                   memoryUsed: usedMemoryInfo,
                   _debug,
                   _diagnostic: {
-                      buildVersion: 'PILOT-BLOCKER-19',
-                      releaseLabel: 'pilot-blocker-19',
+                      buildVersion: 'PILOT-BLOCKER-20',
+                      releaseLabel: 'pilot-blocker-20',
                       parserVersion,
                       endpoint: 'parseEmail',
                       expectedType: expectedType || 'auto',
@@ -2711,8 +2711,8 @@ const jobResults = new Map<string, any[]>();
                   degraded_analysis: false,
                   memoryUsed: usedMemoryInfo,
                   _diagnostic: {
-                     buildVersion: "PILOT-BLOCKER-19",
-                     releaseLabel: "pilot-blocker-19",
+                     buildVersion: "PILOT-BLOCKER-20",
+                     releaseLabel: "pilot-blocker-20",
                      parserVersion,
                      endpoint: "parseEmail",
                      expectedType: expectedType || "auto",
@@ -2900,8 +2900,8 @@ const jobResults = new Map<string, any[]>();
         degraded_analysis: response.degraded || false,
         memoryUsed: usedMemoryInfo,
         _diagnostic: {
-           buildVersion: "PILOT-BLOCKER-19",
-           releaseLabel: "pilot-blocker-19",
+           buildVersion: "PILOT-BLOCKER-20",
+           releaseLabel: "pilot-blocker-20",
            parserVersion,
            endpoint: "parseEmail",
            expectedType: expectedType || "auto",

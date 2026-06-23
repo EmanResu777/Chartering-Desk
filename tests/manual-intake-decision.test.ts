@@ -7,7 +7,7 @@
 //
 //   npx tsx tests/manual-intake-decision.test.ts
 
-import { decideManualIntakeRenderState, computeManualIntakeActionState, coerceDwtToNumber } from '../src/lib/manualIntakeDecision';
+import { decideManualIntakeRenderState, computeManualIntakeActionState, coerceDwtToNumber, buildCargoPublishPayload, buildVesselPublishPayload } from '../src/lib/manualIntakeDecision';
 
 let passed = 0;
 let failed = 0;
@@ -204,6 +204,86 @@ console.log('\n15. coerceDwtToNumber — MV SAADET readable string → integer')
   check('15: garbage "abc" -> 0', coerceDwtToNumber('abc') === 0);
   check('15: NaN -> 0', coerceDwtToNumber(NaN) === 0);
   check('15: "7,988 mt" -> 7988', coerceDwtToNumber('7,988 mt') === 7988);
+}
+
+// ---------------------------------------------------------------------------
+// PILOT-BLOCKER-20: publish payload must satisfy firestore.rules. These mirror
+// isValidCargo()/isValidVessel() so the canonical builders are proven compatible
+// offline. (serverTimestamp() is a sentinel in the app; tests pass a placeholder
+// so createdAt/updatedAt are counted like production.)
+const FORBIDDEN = ['rawText', 'missing_fields', 'entry_no', 'raw_commodity', 'rawBody', 'snippet', 'privateNotes', '_debug', '_diagnostic'];
+
+function rulesValidCargo(d: Record<string, any>): boolean {
+  const n = Object.keys(d).length;
+  return n >= 5 && n <= 30
+    && typeof d.userId === 'string' && d.userId.length > 0
+    && typeof d.commodity === 'string' && d.commodity.length <= 100
+    && typeof d.quantity === 'string' && d.quantity.length <= 100
+    && typeof d.loadPort === 'string' && d.loadPort.length <= 100
+    && typeof d.dischargePort === 'string' && d.dischargePort.length <= 100
+    && typeof d.status === 'string' && d.status.length <= 50;
+}
+function rulesValidVessel(d: Record<string, any>): boolean {
+  const n = Object.keys(d).length;
+  return n >= 5 && n <= 30
+    && typeof d.userId === 'string' && d.userId.length > 0
+    && typeof d.name === 'string' && d.name.length <= 100
+    && typeof d.type === 'string' && d.type.length <= 100
+    && typeof d.dwt === 'number'
+    && typeof d.status === 'string' && d.status.length <= 50;
+}
+const CTX = { id: 'CRG-1234-TXT', workspaceId: 'ws-abc', userId: 'uid-xyz', sourceId: 'user-uid-text-h-cargo-1', timestamp: 'TS' };
+
+console.log('\n16. Cargo publish payload — satisfies isValidCargo, no forbidden fields');
+{
+  const item = { commodity: 'Coal', quantity: '50,000 MT', loadPort: 'Newcastle', dischargePort: 'Qingdao', laycan: '1-7 March', terms: 'CQD', missing_fields: ['x'], entry_no: 1, raw_commodity: 'coal raw' };
+  const p = buildCargoPublishPayload(item, CTX);
+  check('16: isValidCargo passes', rulesValidCargo(p));
+  check('16: field count 5..30', Object.keys(p).length >= 5 && Object.keys(p).length <= 30, String(Object.keys(p).length));
+  check('16: workspaceId === ctx', p.workspaceId === 'ws-abc');
+  check('16: userId === ctx', p.userId === 'uid-xyz');
+  check('16: status ACTIVE', p.status === 'ACTIVE');
+  check('16: source manual_text', p.source === 'manual_text');
+  check('16: sourceId preserved (dedupe)', p.sourceId === CTX.sourceId);
+  check('16: createdAt + updatedAt present', !!p.createdAt && !!p.updatedAt);
+  check('16: no forbidden fields', FORBIDDEN.every(f => !(f in p)), FORBIDDEN.filter(f => f in p).join(','));
+  check('16: commodity falls back to raw_commodity when blank', buildCargoPublishPayload({ raw_commodity: 'iron ore' }, CTX).commodity === 'iron ore');
+}
+
+console.log('\n17. Vessel publish payload — dwt is NUMBER, satisfies isValidVessel');
+{
+  const item = { name: 'MV PACIFIC', type: 'GENERAL CARGO', dwt: '12,200 MTS', openPort: 'Singapore', openDate: '20-25 June', missing_fields: ['y'], entry_no: 2 };
+  const p = buildVesselPublishPayload(item, { ...CTX, id: 'VSL-1234-TXT' });
+  check('17: isValidVessel passes', rulesValidVessel(p));
+  check('17: dwt is number', typeof p.dwt === 'number');
+  check('17: dwt === 12200', p.dwt === 12200, String(p.dwt));
+  check('17: field count 5..30', Object.keys(p).length >= 5 && Object.keys(p).length <= 30, String(Object.keys(p).length));
+  check('17: status OPEN', p.status === 'OPEN');
+  check('17: workspaceId/userId set', p.workspaceId === 'ws-abc' && p.userId === 'uid-xyz');
+  check('17: no forbidden fields', FORBIDDEN.every(f => !(f in p)), FORBIDDEN.filter(f => f in p).join(','));
+  check('17: empty/garbage dwt -> 0 (still number)', typeof buildVesselPublishPayload({ name: 'X', dwt: 'TBN' }, CTX).dwt === 'number' && buildVesselPublishPayload({ name: 'X', dwt: 'TBN' }, CTX).dwt === 0);
+}
+
+console.log('\n18. End-to-end — real parsed MV SAADET → rules-valid vessel payload');
+{
+  const d = decideManualIntakeRenderState({ expectedType: 'VESSEL', text: MV_SAADET, backendResult: null, backendError: LOAD_FAILED, backendStarted: true });
+  const p = buildVesselPublishPayload(d.vessels[0], { ...CTX, id: 'VSL-9999-TXT' });
+  check('18: parsed vessel present', d.vessels.length === 1);
+  check('18: isValidVessel passes on real parser output', rulesValidVessel(p));
+  check('18: dwt coerced to 12200 number', p.dwt === 12200, String(p.dwt));
+  check('18: name carried (MV SAADET)', /saadet/i.test(p.name));
+  check('18: no forbidden fields from parser blob', FORBIDDEN.every(f => !(f in p)));
+}
+
+console.log('\n19. End-to-end — real parsed THREE_CARGO[0] → rules-valid cargo payload');
+{
+  const d = decideManualIntakeRenderState({ expectedType: 'CARGO', text: THREE_CARGO, backendResult: null, backendError: LOAD_FAILED, backendStarted: true });
+  const p = buildCargoPublishPayload(d.cargoes[0], CTX);
+  check('19: parsed cargoes === 3', d.cargoes.length === 3, String(d.cargoes.length));
+  check('19: isValidCargo passes on real parser output', rulesValidCargo(p));
+  check('19: field count <= 30', Object.keys(p).length <= 30, String(Object.keys(p).length));
+  check('19: no forbidden fields from parser blob', FORBIDDEN.every(f => !(f in p)), FORBIDDEN.filter(f => f in p).join(','));
+  check('19: payload carries no raw multiline blob', !JSON.stringify(p).includes('\n'));
 }
 
 // ---------------------------------------------------------------------------
