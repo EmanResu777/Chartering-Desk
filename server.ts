@@ -2235,7 +2235,7 @@ async function startServer() {
             body: taskBody,
             oidcToken: {
               serviceAccountEmail: config.serviceAccountEmail,
-              audience: process.env.EMAIL_SYNC_WORKER_AUDIENCE || config.workerUrl
+              audience: process.env.EMAIL_SYNC_WORKER_AUDIENCE || new URL(config.workerUrl).origin
             }
           }
         }
@@ -2259,7 +2259,7 @@ async function startServer() {
       const verifier = new OAuth2Client();
       const ticket = await verifier.verifyIdToken({
         idToken: authHeader.slice(7),
-        audience: process.env.EMAIL_SYNC_WORKER_AUDIENCE || config.workerUrl
+        audience: process.env.EMAIL_SYNC_WORKER_AUDIENCE || new URL(config.workerUrl).origin
       });
       const payload = ticket.getPayload();
       return !!payload &&
