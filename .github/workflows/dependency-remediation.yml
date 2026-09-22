@@ -33,7 +33,7 @@ jobs:
         run: npm ci
 
       - name: Apply non-breaking npm security fixes
-        run: npm audit fix --package-lock-only
+        run: npm audit fix --package-lock-only || true
 
       - name: Reinstall remediated lockfile
         run: npm ci
@@ -44,8 +44,8 @@ jobs:
       - name: Verify production build
         run: npm run build
 
-      - name: Require no critical production advisories
-        run: npm audit --omit=dev --audit-level=critical
+      - name: Require no high or critical production advisories
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Commit remediated lockfile
         shell: bash
