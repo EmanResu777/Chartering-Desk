@@ -7,7 +7,9 @@ import Stripe from 'stripe';
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, Firestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import fs from 'fs';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
@@ -68,6 +70,111 @@ try {
   }
 } catch (e) {
   console.error("Failed to initialize Firebase Admin:", e);
+}
+
+function getCredentialEncryptionKey(): Buffer {
+  const encoded = (process.env.EMAIL_CREDENTIALS_ENCRYPTION_KEY || '').trim();
+  if (!encoded) {
+    throw new Error('EMAIL_CREDENTIALS_ENCRYPTION_KEY is not configured');
+  }
+  const key = Buffer.from(encoded, 'base64');
+  if (key.length !== 32) {
+    throw new Error('EMAIL_CREDENTIALS_ENCRYPTION_KEY must be a base64-encoded 32-byte key');
+  }
+  return key;
+}
+
+function encryptCredential(value: string): string {
+  const key = getCredentialEncryptionKey();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return ['v1', iv.toString('base64'), tag.toString('base64'), ciphertext.toString('base64')].join('.');
+}
+
+function decryptCredential(payload: string): string {
+  const [version, ivB64, tagB64, ciphertextB64] = String(payload || '').split('.');
+  if (version !== 'v1' || !ivB64 || !tagB64 || !ciphertextB64) {
+    throw new Error('Unsupported encrypted credential format');
+  }
+  const key = getCredentialEncryptionKey();
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivB64, 'base64'));
+  decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
+  return Buffer.concat([
+    decipher.update(Buffer.from(ciphertextB64, 'base64')),
+    decipher.final()
+  ]).toString('utf8');
+}
+
+function readStoredCredential(data: any, encryptedField: string, legacyField: string): string | undefined {
+  if (data?.[encryptedField]) {
+    return decryptCredential(data[encryptedField]);
+  }
+  if (data?.[legacyField]) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Legacy plaintext email credentials are blocked in production; reconnect the account.');
+    }
+    return data[legacyField];
+  }
+  return undefined;
+}
+
+function constantTimeSecretEquals(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided || '', 'utf8');
+  const b = Buffer.from(expected || '', 'utf8');
+  return a.length === b.length && a.length > 0 && timingSafeEqual(a, b);
+}
+
+function isBlockedNetworkAddress(address: string): boolean {
+  if (isIP(address) === 4) {
+    const parts = address.split('.').map(Number);
+    const [a, b] = parts;
+    return a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 198 && (b === 18 || b === 19)) ||
+      a >= 224;
+  }
+
+  if (isIP(address) === 6) {
+    const value = address.toLowerCase();
+    if (value === '::' || value === '::1' || value.startsWith('ff')) return true;
+    if (value.startsWith('fc') || value.startsWith('fd')) return true;
+    if (/^fe[89ab]/.test(value)) return true;
+    if (value.startsWith('::ffff:')) {
+      return isBlockedNetworkAddress(value.substring('::ffff:'.length));
+    }
+  }
+
+  return false;
+}
+
+async function resolveSafeImapHost(host: string): Promise<{ connectHost: string; servername: string }> {
+  const normalizedHost = String(host || '').trim().toLowerCase().replace(/\.$/, '');
+  if (!normalizedHost || normalizedHost === 'localhost' || normalizedHost.endsWith('.local')) {
+    throw new Error('Invalid IMAP host');
+  }
+  if (normalizedHost.length > 253 || (!isIP(normalizedHost) && !/^[a-z0-9.-]+$/.test(normalizedHost))) {
+    throw new Error('Invalid IMAP host');
+  }
+
+  const addresses = isIP(normalizedHost)
+    ? [{ address: normalizedHost }]
+    : await lookup(normalizedHost, { all: true, verbatim: true });
+
+  if (!addresses.length || addresses.some(result => isBlockedNetworkAddress(result.address))) {
+    throw new Error('IMAP host resolves to a blocked network address');
+  }
+
+  return {
+    connectHost: addresses[0].address,
+    servername: normalizedHost
+  };
 }
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
@@ -370,6 +477,7 @@ export async function recordUsageEvent(uid: string, operation: string, metadata:
       outputTokens: safeMetadata.outputTokens || null,
       totalTokens: safeMetadata.totalTokens || null,
       estimatedCostUsd: safeMetadata.estimatedCostUsd || null,
+      period: getCurrentUsagePeriod(),
       createdAt: FieldValue.serverTimestamp()
     });
   } catch (error) {
@@ -448,6 +556,7 @@ export async function incrementCreditsUsed(uid: string, operation: string, cost:
         outputTokens: safeMetadata.outputTokens || null,
         totalTokens: safeMetadata.totalTokens || null,
         estimatedCostUsd: safeMetadata.estimatedCostUsd || null,
+        period,
         createdAt: FieldValue.serverTimestamp()
       });
       
@@ -1338,7 +1447,7 @@ async function startServer() {
 
     const verifiedUid = decodedIdToken.uid;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+    if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
        return res.status(429).json({ error: "Too many requests. Please wait a minute." });
     }
 
@@ -1349,7 +1458,8 @@ async function startServer() {
        
        let refreshToken = undefined;
        if (gmailDoc) {
-         refreshToken = gmailDoc.data().refreshToken;
+         const gmailData = gmailDoc.data();
+         refreshToken = readStoredCredential(gmailData, 'refreshTokenEncrypted', 'refreshToken');
        }
        
        if (!refreshToken) {
@@ -1383,7 +1493,7 @@ async function startServer() {
       const verifiedUid = decodedIdToken.uid;
       
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
          return res.status(429).json({ error: "Too many requests" });
       }
       
@@ -1524,7 +1634,7 @@ async function startServer() {
       const verifiedUid = decodedIdToken.uid;
 
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
          return res.status(429).json({ error: "Too many requests" });
       }
 
@@ -1809,8 +1919,9 @@ async function startServer() {
            await firestore.collection('users').doc(userId).collection('emailAccounts').doc(email).set({
              provider: 'gmail',
              username: email,
-             refreshToken: tokens.refresh_token,
-             createdAt: (await import('firebase-admin/firestore')).FieldValue.serverTimestamp()
+             refreshTokenEncrypted: encryptCredential(tokens.refresh_token),
+             refreshToken: FieldValue.delete(),
+             createdAt: FieldValue.serverTimestamp()
            }, { merge: true });
          } catch(e: any) {
            console.warn("Could not save refresh token to firestore:", e.message);
@@ -1818,9 +1929,6 @@ async function startServer() {
       }
 
       const safeTokens = {
-        access_token: tokens.access_token,
-        expiry_date: tokens.expiry_date,
-        expires_in: (tokens as any).expires_in,
         email: email
       };
       
@@ -1911,7 +2019,7 @@ async function startServer() {
     
     const verifiedUid = decodedIdToken.uid;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+    if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
        return res.status(429).json({ error: "Too many requests. Please wait a minute." });
     }
 
@@ -1920,10 +2028,16 @@ async function startServer() {
     }
 
     try {
+      const normalizedPort = Number(port);
+      if (normalizedPort !== 993) {
+        return res.status(400).json({ error: "Only secure IMAPS on port 993 is supported." });
+      }
+      const resolvedHost = await resolveSafeImapHost(host);
       const client = new ImapFlow({
-        host,
-        port: parseInt(port),
-        secure: parseInt(port) === 993,
+        host: resolvedHost.connectHost,
+        port: normalizedPort,
+        secure: true,
+        tls: { servername: resolvedHost.servername },
         auth: { user: username, pass: password },
         logger: false
       });
@@ -1933,10 +2047,11 @@ async function startServer() {
 
       if (firestore) {
         await firestore.collection('users').doc(userId).collection('emailAccounts').doc(username).set({
-          host,
-          port: parseInt(port),
+          host: String(host).trim(),
+          port: 993,
           username,
-          password, // Basic text for demo, use KMS in production
+          passwordEncrypted: encryptCredential(password),
+          password: FieldValue.delete(),
           provider: provider || 'imap',
           active: true,
           email: username,
@@ -2028,7 +2143,7 @@ const jobResults = new Map<string, any[]>();
 
     const verifiedUid = decodedIdToken.uid;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+    if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
        return res.status(429).json({ error: "Too many requests. Please wait a minute." });
     }
 
@@ -2084,20 +2199,24 @@ const jobResults = new Map<string, any[]>();
           
           for (const doc of activeImapAccounts) {
             const data = doc.data();
+            const accountPassword = readStoredCredential(data, 'passwordEncrypted', 'password');
             const acc = {
                host: data.host,
                port: Number(data.port || 993),
                username: data.username,
-               password: data.password,
+               password: accountPassword,
                provider: data.provider || 'imap'
             };
             const docId = doc.id;
             if(!acc.host || !acc.username || !acc.password) continue;
+            if (acc.port !== 993) throw new Error('Only secure IMAPS on port 993 is supported.');
+            const resolvedHost = await resolveSafeImapHost(acc.host);
             
             const client = new ImapFlow({
-              host: acc.host,
-              port: acc.port,
-              secure: acc.port === 993,
+              host: resolvedHost.connectHost,
+              port: 993,
+              secure: true,
+              tls: { servername: resolvedHost.servername },
               auth: { user: acc.username, pass: acc.password },
               logger: false
             });
@@ -2231,9 +2350,18 @@ const jobResults = new Map<string, any[]>();
 
   // Webhook for incoming emails (SendGrid / Mailgun style)
   app.post('/api/email/webhook', async (req, res) => {
-    // Typical webhook payloads have fields like text, subject, from
+    const expectedSecret = process.env.EMAIL_WEBHOOK_SECRET;
+    if (!expectedSecret) {
+      return res.status(503).json({ error: "Email webhook is not configured" });
+    }
+    const providedSecret = req.get('x-email-webhook-secret') || '';
+    if (!constantTimeSecretEquals(providedSecret, expectedSecret)) {
+      return res.status(401).json({ error: "Invalid webhook authentication" });
+    }
+
+    // Typical webhook payloads have fields like text, subject, from.
     const payload = req.body;
-    console.log("Received Email Webhook Request.");
+    console.log("Received authenticated Email Webhook Request.");
 
     if (!firestore) {
       return res.status(500).json({ error: "Firestore not initialized" });
@@ -2416,7 +2544,7 @@ const jobResults = new Map<string, any[]>();
       if (firestore) {
          try {
            const currentPeriod = usageDoc.period || getCurrentUsagePeriod();
-           const eventsSnapshot = await firestore.collection(`users/${verifiedUid}/usage_events`)
+           const eventsSnapshot = await firestore.collection(`users/${verifiedUid}/usageEvents`)
              .where('period', '==', currentPeriod)
              .where('status', '==', 'success')
              .get();
@@ -3235,7 +3363,7 @@ const jobResults = new Map<string, any[]>();
       const verifiedUid = decodedIdToken.uid;
       
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -3307,7 +3435,7 @@ const jobResults = new Map<string, any[]>();
 
       const verifiedUid = decodedIdToken.uid;
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -3323,12 +3451,13 @@ const jobResults = new Map<string, any[]>();
       }
 
       const vesselData = vesselDoc.data()!;
-      // Simple access check: owner or visibility
-      // If it's private and not owner, block.
-      // If it's my_desk, check desk matching (omitted for brevity, assume owner check primarily or basic visibility check)
-      const isOwner = vesselData.createdByUid === verifiedUid;
-      // In a real app we'd also check deskId, etc.
-      if (!isOwner && vesselData.visibility === 'private') {
+      const isOwner = vesselData.userId === verifiedUid;
+      let hasWorkspaceAccess = false;
+      if (!isOwner && vesselData.workspaceId) {
+        const membership = await db.collection('users').doc(verifiedUid).collection('memberships').doc(vesselData.workspaceId).get();
+        hasWorkspaceAccess = membership.exists;
+      }
+      if (!isOwner && !hasWorkspaceAccess) {
         // Log audit for denied
         await db.collection("auditEvents").add({
           action: "AIS_ACCESS_DENIED",
@@ -3345,8 +3474,20 @@ const jobResults = new Map<string, any[]>();
         return res.status(403).json({ error: "Access denied" });
       }
 
+      const storedImo = vesselData.imo || vesselData.IMO;
+      const storedMmsi = vesselData.mmsi || vesselData.MMSI;
+      const effectiveImo = storedImo || (isOwner ? imo : undefined);
+      const effectiveMmsi = storedMmsi || (isOwner ? mmsi : undefined);
+      if (!effectiveImo && !effectiveMmsi) {
+        return res.status(400).json({ error: "Vessel has no trusted IMO/MMSI identifier configured" });
+      }
+
       const aisProviderModule = await import('./src/server/aisProvider.js');
-      const position = await aisProviderModule.fetchAISPosition({ vesselId, imo, mmsi });
+      const position = await aisProviderModule.fetchAISPosition({
+        vesselId,
+        imo: effectiveImo,
+        mmsi: effectiveMmsi
+      });
 
       // Audit
       await db.collection("auditEvents").add({
@@ -3381,7 +3522,7 @@ const jobResults = new Map<string, any[]>();
 
       const verifiedUid = decodedIdToken.uid;
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -3444,7 +3585,7 @@ const jobResults = new Map<string, any[]>();
       const verifiedUid = decodedIdToken.uid;
 
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -3774,10 +3915,26 @@ const jobResults = new Map<string, any[]>();
 
   app.get('/api/ai/models', async (req, res) => {
     try {
-      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models?key=" + process.env.GEMINI_API_KEY);
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith('Bearer ')) {
+        return res.status(401).json({ error: "Missing or invalid authorization header" });
+      }
+      const decoded = await getAuth().verifyIdToken(authHeader.slice(7));
+      if (!(await checkIsAdmin(decoded.uid, decoded.email))) {
+        return res.status(403).json({ error: "Forbidden: Admin only" });
+      }
+      if (!process.env.GEMINI_API_KEY) {
+        return res.status(503).json({ error: "AI provider is not configured" });
+      }
+      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models?key=" + encodeURIComponent(process.env.GEMINI_API_KEY));
+      if (!response.ok) {
+        return res.status(502).json({ error: "AI provider model lookup failed" });
+      }
       const data = await response.json();
       res.json(data);
-    } catch(e:any) { res.status(500).json({error: e.message}); }
+    } catch(e:any) {
+      res.status(500).json({ error: "Failed to list AI models" });
+    }
   });
 
   app.post('/api/ai/negotiateCopilot', async (req, res) => {
@@ -3788,7 +3945,7 @@ const jobResults = new Map<string, any[]>();
       const decodedIdToken = await getAuth().verifyIdToken(idToken);
       const verifiedUid = decodedIdToken.uid;
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -4068,7 +4225,7 @@ Custom Context: {CONTEXT}`;
       const verifiedUid = decodedIdToken.uid;
       
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
