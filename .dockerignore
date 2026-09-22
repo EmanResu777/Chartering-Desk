@@ -1,0 +1,29 @@
+node_modules
+dist
+.git
+.github
+.env
+.env.*
+!.env.example
+coverage
+*.log
+.DS_Store
+
+# Development/test-only material is not needed in the container build context.
+tests
+security-tools
+tmp.txt
+trial_out.json
+final_qa_out.json
+test-*.js
+test-*.css
+testPost.ts
+test_parser.js
+
+# Planning/audit markdown is kept in Git but not required by the runtime image.
+BASELINE-LOCK-*.md
+P3-*.md
+P4-*.md
+P5-*.md
+P6-*.md
+SECURITY-1-Checklist.md
