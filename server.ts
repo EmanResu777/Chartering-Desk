@@ -1255,14 +1255,40 @@ async function startServer() {
   });
 
   app.get('/readyz', (req, res) => {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const billingEnabled = process.env.BILLING_ENABLED !== 'false';
+    const emailSyncEnabled = process.env.EMAIL_SYNC_ENABLED !== 'false';
+    const emailSyncMode = process.env.EMAIL_SYNC_MODE || (isProduction ? 'cloud_tasks' : 'in_process');
+    const cloudTasksConfigured = !!(
+      process.env.CLOUD_TASKS_PROJECT_ID &&
+      process.env.CLOUD_TASKS_LOCATION &&
+      process.env.CLOUD_TASKS_QUEUE &&
+      process.env.EMAIL_SYNC_WORKER_URL &&
+      process.env.CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT
+    );
+
     const checks = {
       firebaseAdmin: !!firestore,
-      firestoreDatabaseId: process.env.UPSTASH_REDIS_REST_URL ? "checked" : "checked", // Optional check
       aiProviderConfig: !!process.env.GEMINI_API_KEY,
+      canonicalAppUrl: !isProduction || !!process.env.APP_BASE_URL,
+      billing: !billingEnabled || !!(
+        process.env.STRIPE_SECRET_KEY &&
+        process.env.STRIPE_WEBHOOK_SECRET &&
+        process.env.STRIPE_PRICE_ID_SOLO &&
+        process.env.STRIPE_PRICE_ID_DESK
+      ),
+      emailCredentialEncryption: !emailSyncEnabled || !!process.env.EMAIL_CREDENTIALS_ENCRYPTION_KEY,
+      emailSync: !emailSyncEnabled || emailSyncMode === 'in_process' || (emailSyncMode === 'cloud_tasks' && cloudTasksConfigured),
+      emailSyncMode,
       uptime: process.uptime(),
       timestamp: new Date().toISOString()
     };
-    const isReady = checks.firebaseAdmin && checks.aiProviderConfig;
+    const isReady = checks.firebaseAdmin &&
+      checks.aiProviderConfig &&
+      checks.canonicalAppUrl &&
+      checks.billing &&
+      checks.emailCredentialEncryption &&
+      checks.emailSync;
     res.status(isReady ? 200 : 503).json(checks);
   });
   const MAX_AI_REQUESTS_PER_MINUTE = parseInt(process.env.MAX_AI_REQUESTS_PER_MINUTE || '60');
@@ -1538,7 +1564,10 @@ async function startServer() {
       }
       
       if (!stripe) {
-        console.log('Stripe API Key not provided, returning demo mode success.');
+        if (process.env.NODE_ENV === 'production' && process.env.BILLING_ENABLED !== 'false') {
+          return res.status(503).json({ error: 'Billing is not configured.' });
+        }
+        console.log('Stripe API Key not provided; development demo mode only.');
         return res.json({ demoMode: true });
       }
 
@@ -1578,9 +1607,10 @@ async function startServer() {
           },
         ];
       } else {
-        // Fallback for development if price IDs aren't real Stripe objects (prevents crashes if Stripe demands real IDs)
-        // But Stripe subscriptions require real price IDs, so we'll throw error if so
-        console.warn('Real Stripe Price ID map is missing, returning demo checkout session.');
+        if (process.env.NODE_ENV === 'production' && process.env.BILLING_ENABLED !== 'false') {
+          return res.status(503).json({ error: 'Billing plan price is not configured.' });
+        }
+        console.warn('Real Stripe Price ID map is missing; development demo mode only.');
         return res.json({ demoMode: true });
       }
 
