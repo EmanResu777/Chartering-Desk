@@ -27,14 +27,23 @@ service cloud.firestore {
 
     match /userEmails/{email} {
       allow get: if isSignedIn();
-      allow write: if isSignedIn();
+      allow create, update: if isSignedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true
+        && email == request.auth.token.email.lower()
+        && incoming().uid == request.auth.uid
+        && incoming().keys().hasOnly(['uid']);
+      allow delete: if isSignedIn()
+        && request.auth.token.email != null
+        && email == request.auth.token.email.lower()
+        && existing().uid == request.auth.uid;
     }
 
     // Workspaces
     match /workspaces/{workspaceId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      allow create: if isSignedIn();
+      allow get: if isSignedIn() && (resource.data.ownerId == request.auth.uid || isWorkspaceMember(workspaceId));
+      allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || isWorkspaceMember(workspaceId));
+      allow create: if isSignedIn() && incoming().ownerId == request.auth.uid;
       allow update: if isSignedIn() && (
         resource.data.ownerId == request.auth.uid ||
         get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
@@ -64,8 +73,14 @@ service cloud.firestore {
     // Users
     match /users/{userId} {
       allow get: if isOwner(userId);
-      allow create: if isOwner(userId) && (!('subscription' in incoming()) && !('grants' in incoming()) && !('connectedTo' in incoming()));
-      allow update: if isOwner(userId) && (!incoming().diff(existing()).affectedKeys().hasAny(['subscription', 'grants', 'stripeCustomerId', 'stripeSubscriptionId', 'connectedTo', 'deskId']));
+      allow create: if isOwner(userId) && !incoming().keys().hasAny([
+        'subscription', 'grants', 'connectedTo', 'stripeCustomerId', 'stripeSubscriptionId',
+        'planId', 'billingStatus', 'admin', 'isAdmin'
+      ]);
+      allow update: if isOwner(userId) && (!incoming().diff(existing()).affectedKeys().hasAny([
+        'subscription', 'grants', 'stripeCustomerId', 'stripeSubscriptionId', 'connectedTo',
+        'planId', 'billingStatus', 'admin', 'isAdmin', 'deskId'
+      ]));
       
       match /networkConnections/{viewerId} {
         allow read: if isOwner(userId) || request.auth.uid == viewerId;
@@ -88,7 +103,7 @@ service cloud.firestore {
       
       match /usage/{usageId} {
         allow read: if isOwner(userId);
-        allow write: if isOwner(userId);
+        allow write: if false; // Billing/usage counters are server-authoritative.
       }
 
       match /emailSyncJobs/{jobId} {
@@ -98,10 +113,24 @@ service cloud.firestore {
 
       match /memberships/{workspaceId} {
         allow read: if isOwner(userId);
-        allow write: if isSignedIn() && (
-          request.auth.uid == userId ||
-          get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid ||
-          get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
+        allow create: if isSignedIn()
+          && incoming().role in ['admin', 'broker', 'viewer']
+          && (
+            (request.auth.uid == userId
+              && getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid)
+            || get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid
+            || get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
+          );
+        allow update: if isSignedIn()
+          && incoming().role in ['admin', 'broker', 'viewer']
+          && (
+            get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid
+            || get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
+          );
+        allow delete: if isSignedIn() && (
+          request.auth.uid == userId
+          || get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid
+          || get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
         );
       }
       
@@ -119,7 +148,7 @@ service cloud.firestore {
       }
 
       match /emailAccounts/{accountId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if false; // Contains OAuth/IMAP secrets; server only.
       }
 
       match /settings/{settingId} {
