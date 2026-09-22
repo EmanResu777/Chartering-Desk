@@ -20,7 +20,7 @@ const rules = read('firestore.rules');
 assert(!vite.includes('process.env.GEMINI_API_KEY'), 'Vite must not inject GEMINI_API_KEY into the browser');
 assert(!assistant.includes('process.env.GEMINI_API_KEY'), 'frontend must not depend on GEMINI_API_KEY');
 assert(server.includes("collection('_oauth_states')"), 'OAuth must use server-side one-time state');
-assert(!server.includes("ADMIN_EMAILS || '"), 'admin access must not have a hard-coded email fallback');
+assert(!/ADMIN_EMAILS\s*\|\|\s*'[^']+'/.test(server), 'admin access must not have a hard-coded email fallback');
 assert(server.includes("APP_BASE_URL must be configured in production"), 'production redirects must use a configured canonical origin');
 assert(authClient.includes('event.origin !== window.location.origin'), 'OAuth popup messages must validate origin');
 assert(authClient.includes('event.source !== authWindow'), 'OAuth popup messages must validate source');
