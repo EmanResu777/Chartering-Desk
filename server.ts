@@ -233,7 +233,8 @@ export const CREDIT_COST: Record<string, number> = {
   recap_generation: 3,
   risk_review: 5,
   vessel_search: 1,
-  cargo_match_review: 3
+  cargo_match_review: 3,
+  routing_estimate: 1
 };
 
 // Usage Helper Functions
@@ -2404,8 +2405,34 @@ const jobResults = new Map<string, any[]>();
   }
 
   // Unified routing logic
+  const ROUTE_TASK_OPERATION: Record<string, string> = {
+    short_rewrite: 'ai_chat',
+    tone_adjustment: 'ai_chat',
+    quick_summary: 'ai_chat',
+    simple_classification: 'ai_chat',
+    local_ui_assist: 'ai_chat',
+    missing_field_hint: 'ai_chat',
+    extract_cargo: 'parse_email',
+    extract_vessel: 'parse_email',
+    summarize_email: 'parse_email',
+    generate_reply: 'draft_reply',
+    classify_email: 'parse_email',
+    detect_missing_terms: 'analyze_risk',
+    transport_specs: 'analyze_risk',
+    normalize_cargo_json: 'parse_email',
+    normalize_vessel_json: 'parse_email',
+    match_cargo_vessel: 'match_cargo_vessel',
+    analyze_fixture: 'analyze_risk',
+    analyze_risk: 'analyze_risk',
+    compare_vessels: 'cargo_match_review',
+    compare_cargoes: 'cargo_match_review',
+    negotiation_strategy: 'negotiation_strategy',
+    laytime_demurrage_analysis: 'risk_review',
+    commercial_recommendation: 'analyze_risk'
+  };
+
   const routeAITaskBackend = (taskType: string) => {
-    const heavyTasks = ["match_cargo_vessel", "analyze_fixture", "analyze_risk", "compare_vessels", "compare_cargoes", "negotiation_strategy", "laytime_demurrage_analysis"];
+    const heavyTasks = ["match_cargo_vessel", "analyze_fixture", "analyze_risk", "compare_vessels", "compare_cargoes", "negotiation_strategy", "laytime_demurrage_analysis", "commercial_recommendation"];
     if (heavyTasks.includes(taskType)) {
       return { model: AI_MODELS.HEAVY_SERVER, preprocessing: false };
     }
@@ -2424,7 +2451,21 @@ const jobResults = new Map<string, any[]>();
       const verifiedUid = decodedIdToken.uid;
 
       const { taskType, payload } = req.body;
+      const operation = ROUTE_TASK_OPERATION[taskType];
+      if (!operation) {
+        return res.status(400).json({ error: "Unsupported AI task type" });
+      }
+      if (!payload || typeof payload !== 'object') {
+        return res.status(400).json({ error: "Invalid AI task payload" });
+      }
+
+      const creditCheck = await checkCredits(verifiedUid, operation);
+      if (!creditCheck.allowed) {
+        return res.status(creditCheck.statusCode || 402).json(creditCheck);
+      }
+
       const routing = routeAITaskBackend(taskType);
+      const reqId = (req.headers['x-request-id'] as string) || `auto-${Date.now()}`;
       
       const ai = getGoogleGenAI();
       let response;
@@ -2508,6 +2549,11 @@ const jobResults = new Map<string, any[]>();
         // Ignore JSON parse errors for non-JSON outputs
       }
       
+      await chargeCreditsAfterSuccess(verifiedUid, operation, reqId, {
+        provider: response.actualProvider,
+        model: response.actualModel || usedModel
+      });
+
       res.json({
         text: text,
         ...parsedJson,
@@ -2681,16 +2727,23 @@ const jobResults = new Map<string, any[]>();
       }
     }
 
+    const missing_fields: string[] = [];
+    if (!raw_commodity) missing_fields.push('commodity');
+    if (!quantity) missing_fields.push('quantity');
+    if (!loadPort) missing_fields.push('loadPort');
+    if (!dischargePort) missing_fields.push('dischargePort');
+    if (!laycan) missing_fields.push('laycan');
+
     return {
-      raw_commodity: raw_commodity || 'coil',
-      quantity: quantity,
-      loadPort: loadPort,
-      dischargePort: dischargePort,
-      laycan: laycan,
-      terms: terms,
-      commission: commission,
-      special_requirements: special_requirements,
-      missing_fields: []
+      ...(raw_commodity ? { raw_commodity } : {}),
+      ...(quantity ? { quantity } : {}),
+      ...(loadPort ? { loadPort } : {}),
+      ...(dischargePort ? { dischargePort } : {}),
+      ...(laycan ? { laycan } : {}),
+      ...(terms ? { terms } : {}),
+      ...(commission ? { commission } : {}),
+      ...(special_requirements ? { special_requirements } : {}),
+      missing_fields
     };
   }
 
@@ -2742,19 +2795,16 @@ const jobResults = new Map<string, any[]>();
     try {
       const { email, userId, expectedType } = req.body;
       const authHeader = req.headers.authorization;
-      if (!userId || (!authHeader && userId !== 'testId123')) {
-        return res.status(400).json({ error: "Missing parameters or auth" });
+      if (!userId || !authHeader?.startsWith('Bearer ')) {
+        return res.status(401).json({ error: "Authentication required" });
       }
-      let verifiedUid = userId;
-      if (authHeader) {
-          const idToken = authHeader.split('Bearer ')[1];
-          let decodedIdToken;
-          try {
-            decodedIdToken = await getAuth().verifyIdToken(idToken);
-            verifiedUid = decodedIdToken.uid;
-          } catch (error) {
-            return res.status(401).json({ error: "Invalid or expired authorization token" });
-          }
+
+      let verifiedUid: string;
+      try {
+        const decodedIdToken = await getAuth().verifyIdToken(authHeader.slice(7));
+        verifiedUid = decodedIdToken.uid;
+      } catch (error) {
+        return res.status(401).json({ error: "Invalid or expired authorization token" });
       }
       
       if (!checkRateLimit(verifiedUid)) {
@@ -2861,10 +2911,7 @@ const jobResults = new Map<string, any[]>();
       }
       
       const operationName = email.sender === 'Manual Entry' ? 'manual_text_intake' : 'parse_email';
-      let creditCheck: any = { allowed: true, statusCode: 200 };
-      if (verifiedUid !== 'testId123') {
-        creditCheck = await checkCredits(verifiedUid, operationName);
-      }
+      const creditCheck = await checkCredits(verifiedUid, operationName);
       if (!creditCheck.allowed) {
         return res.status(creditCheck.statusCode || 402).json(creditCheck);
       }
@@ -3603,11 +3650,55 @@ const jobResults = new Map<string, any[]>();
       const normalizedFrom = { lat: fromLat, lng: fromLng };
       const normalizedTo = { lat: toLat, lng: toLng };
 
-      // Very strict basic validation to ensure they relate to a known entity
-      // Not trusting the client purely -> checking that they provided an entity id
       if (!vesselId && !cargoId && !dealRoomId) {
          return res.status(403).json({ error: "Arbitrary public routing unsupported. Internal source required." });
       }
+
+      if (!firestore) {
+        return res.status(503).json({ error: "Database unavailable" });
+      }
+
+      const hasWorkspaceMembership = async (workspaceId: string | undefined) => {
+        if (!workspaceId) return false;
+        const membership = await firestore!.collection('users').doc(verifiedUid).collection('memberships').doc(workspaceId).get();
+        return membership.exists;
+      };
+
+      if (vesselId) {
+        const vesselDoc = await firestore.collection('vessels').doc(vesselId).get();
+        if (!vesselDoc.exists) return res.status(404).json({ error: "Vessel source not found" });
+        const data = vesselDoc.data() || {};
+        if (data.userId !== verifiedUid && !(await hasWorkspaceMembership(data.workspaceId))) {
+          return res.status(403).json({ error: "Access denied to vessel source" });
+        }
+      }
+
+      if (cargoId) {
+        const cargoDoc = await firestore.collection('cargos').doc(cargoId).get();
+        if (!cargoDoc.exists) return res.status(404).json({ error: "Cargo source not found" });
+        const data = cargoDoc.data() || {};
+        if (data.userId !== verifiedUid && !(await hasWorkspaceMembership(data.workspaceId))) {
+          return res.status(403).json({ error: "Access denied to cargo source" });
+        }
+      }
+
+      if (dealRoomId) {
+        const dealRoomDoc = await firestore.collection('dealRooms').doc(dealRoomId).get();
+        if (!dealRoomDoc.exists) return res.status(404).json({ error: "Deal room source not found" });
+        const data = dealRoomDoc.data() || {};
+        const userDoc = await firestore.collection('users').doc(verifiedUid).get();
+        const deskId = userDoc.data()?.deskId;
+        const allowed = data.createdByUid === verifiedUid ||
+          (Array.isArray(data.participantUids) && data.participantUids.includes(verifiedUid)) ||
+          (data.visibility === 'my_desk' && data.createdByDeskId && data.createdByDeskId === deskId);
+        if (!allowed) return res.status(403).json({ error: "Access denied to deal room source" });
+      }
+
+      const routingCredit = await checkCredits(verifiedUid, 'routing_estimate');
+      if (!routingCredit.allowed) {
+        return res.status(routingCredit.statusCode || 402).json(routingCredit);
+      }
+      const routingRequestId = (req.headers['x-request-id'] as string) || `route-${Date.now()}`;
 
       const cacheKey = `${normalizedFrom.lat}_${normalizedFrom.lng}_${normalizedTo.lat}_${normalizedTo.lng}_${speedKnots || 12}`;
       const cached = routingCache.get(cacheKey);
@@ -3655,6 +3746,10 @@ const jobResults = new Map<string, any[]>();
           });
       }
 
+      await chargeCreditsAfterSuccess(verifiedUid, 'routing_estimate', routingRequestId, {
+        provider: estimateResult.provider
+      });
+
       res.json(estimateResult);
 
     } catch (error: any) {
@@ -3673,7 +3768,7 @@ const jobResults = new Map<string, any[]>();
       const uid = decodedIdToken.uid;
       
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(uid) && !checkRateLimit(ip)) {
+      if (!checkRateLimit(uid) || !checkRateLimit(ip)) {
          return res.status(429).json({ error: "Too many requests" });
       }
 
