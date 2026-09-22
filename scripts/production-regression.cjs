@@ -97,6 +97,16 @@ assert(
   'readiness must cover billing, durable email sync, and canonical URL configuration'
 );
 assert(
+  server.includes("/multi-exec") &&
+  server.includes("DISTRIBUTED_RATE_LIMIT_REQUIRED") &&
+  server.includes("createHash('sha256').update(String(identifier))"),
+  'multi-instance production rate limiting must use the distributed Redis backend'
+);
+assert(
+  server.includes("checks.distributedRateLimit"),
+  'readiness must fail when distributed rate limiting is required but unavailable'
+);
+assert(
   !server.includes("processOfferAnalysis"),
   'client-controlled deal brief flags must not bypass backend authorization'
 );
