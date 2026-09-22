@@ -69,6 +69,16 @@ assert(
   'production JSON payloads must have a bounded default size'
 );
 assert(
+  server.includes("Unauthorized to use this vessel") &&
+  server.includes("vesselData.sharedItemId"),
+  'process-offer must authorize the selected vessel, including network sharing'
+);
+assert(
+  !server.includes("urgencyScore: 80") &&
+  !server.includes("matchScore: 90"),
+  'manual process-offer must not fabricate match or urgency scores'
+);
+assert(
   !server.includes("processOfferAnalysis"),
   'client-controlled deal brief flags must not bypass backend authorization'
 );
