@@ -43,6 +43,36 @@ assert(
   'users must not be able to self-grant arbitrary workspace memberships'
 );
 
+for (const [resource, id] of [
+  ['vessels', 'vesselId'],
+  ['cargos', 'cargoId'],
+  ['contacts', 'contactId'],
+  ['emails', 'emailId'],
+]) {
+  const block = new RegExp(`match /${resource}/\\{${id}\\}[\\s\\S]{0,1000}`).exec(rules)?.[0] || '';
+  assert(
+    block.includes('incoming().userId == request.auth.uid'),
+    `${resource} creates must bind userId to the authenticated user`
+  );
+  assert(
+    block.includes('incoming().userId == existing().userId'),
+    `${resource} updates must keep userId immutable`
+  );
+}
+
+assert(
+  /match \/incoming_webhooks\/\{webhookId\}[\s\S]{0,140}allow read, write: if false/.test(rules),
+  'incoming webhook payloads must remain backend-only'
+);
+assert(
+  rules.includes('incoming().ownerId == existing().ownerId'),
+  'workspace ownerId must be immutable through client rules'
+);
+assert(
+  rules.includes("incoming().get('verifiedCompany', false) == existing().get('verifiedCompany', false)"),
+  'clients must not self-verify company profiles'
+);
+
 if (!process.exitCode) {
   console.log('Security regression gates passed.');
 }
