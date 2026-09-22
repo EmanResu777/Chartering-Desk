@@ -60,6 +60,15 @@ assert(
   'successful paid operations must fail closed if usage accounting cannot be recorded'
 );
 assert(
+  server.includes("safeErrorCode: 'CREDIT_LIMIT_EXCEEDED'") &&
+  server.includes("currentUsed + cost > baseIncluded + additionalCredits"),
+  'final usage transaction must enforce the credit ceiling atomically'
+);
+assert(
+  server.includes("process.env.JSON_BODY_LIMIT || '1mb'"),
+  'production JSON payloads must have a bounded default size'
+);
+assert(
   !server.includes("processOfferAnalysis"),
   'client-controlled deal brief flags must not bypass backend authorization'
 );
