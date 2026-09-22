@@ -33,6 +33,9 @@ jobs:
       - name: TypeScript check
         run: npm run lint
 
+      - name: Security regression gates
+        run: node scripts/security-regression.cjs
+
       - name: Production build
         run: npm run build
 
