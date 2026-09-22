@@ -2157,14 +2157,14 @@ async function startServer() {
     const accessToken = typeof accessTokenResult === 'string' ? accessTokenResult : accessTokenResult?.token;
     if (!accessToken) throw new Error('CLOUD_TASKS_AUTH_FAILED');
 
-    const parent = \`projects/\${config.projectId}/locations/\${config.location}/queues/\${config.queue}\`;
+    const parent = `projects/${config.projectId}/locations/${config.location}/queues/${config.queue}`;
     const taskBody = Buffer.from(JSON.stringify({ uid, jobId, limit }), 'utf8').toString('base64');
-    const taskName = \`\${parent}/tasks/\${jobId.replace(/[^a-zA-Z0-9_-]/g, '_')}\`;
+    const taskName = `${parent}/tasks/${jobId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 
-    const response = await fetch(\`https://cloudtasks.googleapis.com/v2/\${parent}/tasks\`, {
+    const response = await fetch(`https://cloudtasks.googleapis.com/v2/${parent}/tasks`, {
       method: 'POST',
       headers: {
-        'Authorization': \`Bearer \${accessToken}\`,
+        'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -2233,7 +2233,7 @@ async function startServer() {
   const runEmailSyncJob = async (verifiedUid: string, jobId: string, requestedLimit: number) => {
     if (!firestore) throw new Error('Firestore not initialized');
     const limit = Math.max(1, Math.min(50, Number(requestedLimit) || 10));
-    const jobRef = firestore.collection(\`users/\${verifiedUid}/emailSyncJobs\`).doc(jobId);
+    const jobRef = firestore.collection(`users/${verifiedUid}/emailSyncJobs`).doc(jobId);
 
     const shouldRun = await firestore.runTransaction(async transaction => {
       const jobSnap = await transaction.get(jobRef);
@@ -2258,7 +2258,7 @@ async function startServer() {
     if (!shouldRun) return;
 
     try {
-      const snap = await firestore.collection(\`users/\${verifiedUid}/emailAccounts\`).get();
+      const snap = await firestore.collection(`users/${verifiedUid}/emailAccounts`).get();
       const activeImapAccounts = snap.docs.filter(doc => {
         const data = doc.data();
         return data.active !== false && data.provider !== 'gmail';
@@ -2303,7 +2303,7 @@ async function startServer() {
             const totalMsgs = status.messages || 0;
             if (totalMsgs > 0) {
               const startFetch = Math.max(1, totalMsgs - limit + 1);
-              for await (const msg of client.fetch(\`\${startFetch}:*\`, { source: true }, { uid: true })) {
+              for await (const msg of client.fetch(`${startFetch}:*`, { source: true }, { uid: true })) {
                 messages.push(msg);
               }
             }
@@ -2313,7 +2313,7 @@ async function startServer() {
               const subject = parsed.subject || '(No Subject)';
               const sender = parsed.from?.text || 'Unknown';
               const rawBodyStr = parsed.text || '';
-              const textContent = \`\${subject} \${sender} \${rawBodyStr.substring(0, 500)}\`.toLowerCase();
+              const textContent = `${subject} ${sender} ${rawBodyStr.substring(0, 500)}`.toLowerCase();
 
               let hasCargo = false;
               let hasVessel = false;
@@ -2371,7 +2371,7 @@ async function startServer() {
 
           successfulAccounts++;
         } catch (error: any) {
-          console.warn(\`[Email Sync] Account failed for \${doc.id}:\`, error.message || 'unknown');
+          console.warn(`[Email Sync] Account failed for ${doc.id}:`, error.message || 'unknown');
         }
       }
 
@@ -2392,7 +2392,7 @@ async function startServer() {
         const batch = firestore.batch();
         finalEmails.slice(offset, offset + 400).forEach((email, index) => {
           const absoluteIndex = offset + index;
-          const resultRef = resultsCollection.doc(\`result-\${String(absoluteIndex).padStart(4, '0')}\`);
+          const resultRef = resultsCollection.doc(`result-${String(absoluteIndex).padStart(4, '0')}`);
           batch.set(resultRef, { index: absoluteIndex, email });
         });
         await batch.commit();
@@ -2449,7 +2449,7 @@ async function startServer() {
       const verifiedUid = decodedIdToken.uid;
       if (!firestore) throw new Error("Firestore not initialized");
 
-      const jobRef = firestore.collection(\`users/\${verifiedUid}/emailSyncJobs\`).doc(jobId);
+      const jobRef = firestore.collection(`users/${verifiedUid}/emailSyncJobs`).doc(jobId);
       const jobSnap = await jobRef.get();
       if (!jobSnap.exists) return res.status(404).json({ error: "Job not found" });
 
@@ -2532,8 +2532,8 @@ async function startServer() {
     if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
 
     const safeLimit = Math.max(1, Math.min(50, Number(limit) || 10));
-    const jobId = \`email-sync-\${randomUUID()}\`;
-    const jobRef = firestore.collection(\`users/\${verifiedUid}/emailSyncJobs\`).doc(jobId);
+    const jobId = `email-sync-${randomUUID()}`;
+    const jobRef = firestore.collection(`users/${verifiedUid}/emailSyncJobs`).doc(jobId);
     const lockRef = firestore.collection('users').doc(verifiedUid).collection('emailSyncState').doc('current');
 
     try {
