@@ -22,7 +22,7 @@ export const getAccessToken = async (forcePopup: boolean = false): Promise<strin
   if (!forcePopup && userId) {
     try {
       const idToken = await auth.currentUser?.getIdToken();
-      const res = await fetch(`/api/auth/token?userId=${encodeURIComponent(userId)}`, {
+      const res = await fetch('/api/auth/token', {
         headers: {
           'Authorization': `Bearer ${idToken}`
         }
@@ -47,11 +47,28 @@ export const getAccessToken = async (forcePopup: boolean = false): Promise<strin
       return;
     }
 
-    // 1. Fetch the Auth URL from our server
-    const redirectUri = `${window.location.origin}/auth/callback`;
-    const userQuery = userId ? `&userId=${encodeURIComponent(userId)}` : '';
-    fetch(`/api/auth/google-url?redirect_uri=${encodeURIComponent(redirectUri)}${userQuery}`)
-      .then(res => res.json())
+    // 1. Fetch the Auth URL from our server. The server derives the user from
+    // the verified Firebase token and creates a one-time OAuth state.
+    if (!auth.currentUser) {
+      authPromise = null;
+      reject(new Error('Please sign in to Chartering Desk before connecting Gmail.'));
+      return;
+    }
+
+    auth.currentUser.getIdToken()
+      .then(idToken => fetch('/api/auth/google-url', {
+        headers: {
+          'Authorization': `Bearer ${idToken}`
+        }
+      }))
+      .then(res => {
+        if (!res.ok) {
+          return res.json().catch(() => ({})).then(body => {
+            throw new Error(body.error || 'Failed to start Google authorization');
+          });
+        }
+        return res.json();
+      })
       .then(data => {
         if (!data.url) throw new Error("Failed to get authorization URL");
 
@@ -83,7 +100,9 @@ export const getAccessToken = async (forcePopup: boolean = false): Promise<strin
 
         // 3. Listen for the message from the callback page
         const messageHandler = (event: MessageEvent) => {
-          // Verify origin if needed, but in dev it can vary
+          if (event.origin !== window.location.origin || event.source !== authWindow) {
+            return;
+          }
           if (event.data?.type === 'GOOGLE_AUTH_SUCCESS') {
             console.log("Auth success message received via postMessage");
             const tokens = event.data.tokens;
