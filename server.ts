@@ -3786,94 +3786,108 @@ const jobResults = new Map<string, any[]>();
       if (!firestore) return res.status(500).json({ error: "Database not configured" });
 
       let itemData: any = null;
-      let hasFullAccess = false; // full access means we can read private notes/vessel names
+      let hasFullAccess = false;
+
+      const hasWorkspaceAccessForBrief = async (workspaceId: string | undefined) => {
+        if (!workspaceId) return false;
+        const membership = await firestore!.collection('users').doc(uid).collection('memberships').doc(workspaceId).get();
+        return membership.exists;
+      };
 
       try {
         if (itemType === 'cargo' || itemType === 'vessel') {
           const colName = itemType === 'cargo' ? 'cargos' : 'vessels';
           const docSnap = await firestore.collection(colName).doc(itemId).get();
-          if (docSnap.exists) {
-            itemData = docSnap.data();
-            // User has full access if they own it, or their workspace owns it
-            const userDoc = await firestore.collection('users').doc(uid).get();
-            const userDeskId = userDoc.exists ? userDoc.data()?.deskId : null;
-            if (itemData.userId === uid || (itemData.workspaceId && userDeskId && itemData.workspaceId === userDeskId)) {
-               hasFullAccess = true;
-            } else {
-               // If they don't own it, check if it's visible to them
-               const isPublicOrNetwork = itemData.visibility === 'public' || itemData.visibility === 'network';
-               // If contextContext indicates it's for an offer candidate, we should allow it but scrub it
-               if (isPublicOrNetwork || (contextContext && contextContext.processOfferAnalysis)) {
-                 hasFullAccess = false;
-                 // Scrub private data
-                 delete itemData.privateNotes;
-                 if (itemData.hideName) {
-                    itemData.name = 'TBN / Name Hidden';
-                 }
-               } else {
-                 return res.status(403).json({ error: "Access denied or item not public" });
-               }
-            }
+          if (!docSnap.exists) {
+            return res.status(404).json({ error: "Item not found" });
           }
-        } 
+
+          itemData = docSnap.data();
+          hasFullAccess = itemData.userId === uid || await hasWorkspaceAccessForBrief(itemData.workspaceId);
+          if (!hasFullAccess) {
+            // Core cargo/vessel collections are private. Network exposure must go through sharedItems.
+            return res.status(403).json({ error: "Access denied" });
+          }
+        }
         else if (itemType === 'sharedItem') {
           const docSnap = await firestore.collection('sharedItems').doc(itemId).get();
-          if (docSnap.exists) {
-             itemData = docSnap.data();
-             if (itemData.ownerId === uid) {
-               hasFullAccess = true;
-             } else {
-               hasFullAccess = false;
-               // If it's shared, hide private notes / hidden names
-               if (itemData.config?.hideVesselName) {
-                  itemData.name = 'TBN / Name Hidden';
-               }
-               delete itemData.privateNotes;
-               delete itemData.contactDetails; // simplistic protection
-             }
+          if (!docSnap.exists) return res.status(404).json({ error: "Item not found" });
+
+          itemData = docSnap.data();
+          if (itemData.ownerId === uid) {
+            hasFullAccess = true;
+          } else {
+            if (itemData.status !== 'active' || !itemData.ownerId) {
+              return res.status(403).json({ error: "Access denied" });
+            }
+
+            const [ownerConnection, currentUserDoc] = await Promise.all([
+              firestore.collection('users').doc(itemData.ownerId).collection('networkConnections').doc(uid).get(),
+              firestore.collection('users').doc(uid).get()
+            ]);
+            const connectedTo = currentUserDoc.data()?.connectedTo;
+            const hasNetworkAccess = ownerConnection.exists ||
+              (Array.isArray(connectedTo) && connectedTo.includes(itemData.ownerId));
+
+            if (!hasNetworkAccess) {
+              return res.status(403).json({ error: "Access denied" });
+            }
+
+            delete itemData.privateNotes;
+            delete itemData.contactDetails;
+            delete itemData.rawBody;
+            delete itemData.rawText;
           }
         }
         else if (itemType === 'marketRequest') {
           const docSnap = await firestore.collection('marketRequests').doc(itemId).get();
-          if (docSnap.exists) {
-             itemData = docSnap.data();
-             if (itemData.ownerId === uid) hasFullAccess = true;
+          if (!docSnap.exists) return res.status(404).json({ error: "Item not found" });
+
+          itemData = docSnap.data();
+          hasFullAccess = itemData.createdByUid === uid;
+          if (!hasFullAccess && itemData.visibility !== 'network') {
+            return res.status(403).json({ error: "Access denied" });
           }
         }
         else if (itemType === 'radarMatch') {
           const docSnap = await firestore.collection('watchlistMatches').doc(itemId).get();
-          if (docSnap.exists) {
-             itemData = docSnap.data();
-             if (itemData.createdByUid === uid) hasFullAccess = true;
-             else return res.status(403).json({ error: "Access denied" });
+          if (!docSnap.exists) return res.status(404).json({ error: "Item not found" });
+
+          itemData = docSnap.data();
+          if (itemData.createdByUid !== uid) {
+            return res.status(403).json({ error: "Access denied" });
           }
+          hasFullAccess = true;
         }
         else if (itemType === 'hotOpp') {
           const docSnap = await firestore.collection(`users/${uid}/urgentNotifications`).doc(itemId).get();
-          if (docSnap.exists) {
-             itemData = docSnap.data();
-             hasFullAccess = true; // since it's in their own collection
-          } else {
+          if (!docSnap.exists) {
              return res.status(404).json({ error: "Opportunity not found" });
           }
+          itemData = docSnap.data();
+          hasFullAccess = true;
+        }
+        else {
+          return res.status(400).json({ error: "Unsupported deal brief item type" });
         }
       } catch (err: any) {
         console.error('[DealBrief] Error fetching item data from Firestore:', err);
         return res.status(500).json({ error: "Error fetching item data" });
       }
 
-      if (!itemData && !contextContext) {
+      if (!itemData) {
          return res.status(404).json({ error: "Item not found" });
       }
 
       const reqId = randomUUID();
       
       const ai = getGoogleGenAI();
+      const safeAdditionalContext = JSON.stringify(contextContext || {}).slice(0, 4000);
       const prompt = `You are an expert dry bulk shipbroker assistant. Generate a concise, professional AI Deal Brief for the following item.
       Context Type: ${itemType} (${dealType || 'Opportunity'})
       Item Data:
       ` + JSON.stringify(itemData, null, 2) + `
-      Additional context: ${JSON.stringify(contextContext || {})}`;
+      Additional context: ${safeAdditionalContext}`;
 
       const systemInstruction = `Analyze the provided data and return a strictly formatted JSON object matching the requested schema.
       Do not invent missing data. If laycan, freight, demurrage or commercial details are missing or vague, mark riskLevel 'medium' or 'high' and state why in riskReasons.
@@ -3937,13 +3951,7 @@ const jobResults = new Map<string, any[]>();
       const inputTokens = Math.ceil(prompt.length / 4);
       const outputTokens = Math.ceil(aiResponse.text.length / 4);
       
-      await chargeCreditsAfterSuccess(uid, operation, reqId, {
-         provider: aiResponse.actualProvider,
-         model: aiResponse.actualModel,
-         inputTokens, outputTokens, totalTokens: inputTokens + outputTokens
-      });
-
-      // Save to Firestore
+      // Save to Firestore first. A failed persistence step must not consume a user credit.
       const briefId = randomUUID();
       const briefDoc = {
          id: briefId,
@@ -3969,6 +3977,14 @@ const jobResults = new Map<string, any[]>();
         console.error('Failed to save deal brief to backend Firestore', err);
         return res.status(500).json({ error: "Failed to save deal brief." });
       }
+
+      await chargeCreditsAfterSuccess(uid, operation, reqId, {
+         provider: aiResponse.actualProvider,
+         model: aiResponse.actualModel,
+         inputTokens,
+         outputTokens,
+         totalTokens: inputTokens + outputTokens
+      });
 
       res.json({ brief: briefDoc, metrics: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens } });
 
