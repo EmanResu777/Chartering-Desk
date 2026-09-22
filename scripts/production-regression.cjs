@@ -51,6 +51,25 @@ assert(
   'rate-limit bypass via AND logic must not return'
 );
 
+assert(
+  !server.includes("x-request-id"),
+  'client x-request-id must not control billing idempotency'
+);
+assert(
+  server.includes("throw new Error('USAGE_RECORDING_FAILED')"),
+  'successful paid operations must fail closed if usage accounting cannot be recorded'
+);
+assert(
+  !server.includes("processOfferAnalysis"),
+  'client-controlled deal brief flags must not bypass backend authorization'
+);
+assert(
+  server.includes("Core cargo/vessel collections are private. Network exposure must go through sharedItems.") &&
+  server.includes("itemData.createdByUid === uid") &&
+  server.includes("itemData.visibility !== 'network'"),
+  'deal brief authorization must follow private core data and market request boundaries'
+);
+
 if (!process.exitCode) {
   console.log('Production regression gates passed.');
 }
