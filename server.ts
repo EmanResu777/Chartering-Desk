@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { OAuth2Client } from "google-auth-library";
+import { GoogleAuth, OAuth2Client } from "google-auth-library";
 import cookieParser from "cookie-parser";
 import Stripe from 'stripe';
 import { initializeApp, cert } from 'firebase-admin/app';
@@ -2100,285 +2100,468 @@ async function startServer() {
     }
   });
 
-const syncLocks = new Map<string, number>();
-const jobResults = new Map<string, any[]>();
+  const getEmailSyncMode = () => {
+    if (process.env.EMAIL_SYNC_ENABLED === 'false') return 'disabled';
+    return process.env.EMAIL_SYNC_MODE || (process.env.NODE_ENV === 'production' ? 'cloud_tasks' : 'in_process');
+  };
+
+  const getCloudTasksConfig = () => {
+    const projectId = process.env.CLOUD_TASKS_PROJECT_ID;
+    const location = process.env.CLOUD_TASKS_LOCATION;
+    const queue = process.env.CLOUD_TASKS_QUEUE;
+    const workerUrl = process.env.EMAIL_SYNC_WORKER_URL;
+    const serviceAccountEmail = process.env.CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT;
+    if (!projectId || !location || !queue || !workerUrl || !serviceAccountEmail) return null;
+    return { projectId, location, queue, workerUrl, serviceAccountEmail };
+  };
+
+  const enqueueEmailSyncTask = async (uid: string, jobId: string, limit: number) => {
+    const config = getCloudTasksConfig();
+    if (!config) throw new Error('EMAIL_SYNC_QUEUE_NOT_CONFIGURED');
+
+    const googleAuth = new GoogleAuth({
+      scopes: ['https://www.googleapis.com/auth/cloud-platform']
+    });
+    const authClient = await googleAuth.getClient();
+    const accessTokenResult = await authClient.getAccessToken();
+    const accessToken = typeof accessTokenResult === 'string' ? accessTokenResult : accessTokenResult?.token;
+    if (!accessToken) throw new Error('CLOUD_TASKS_AUTH_FAILED');
+
+    const parent = \`projects/\${config.projectId}/locations/\${config.location}/queues/\${config.queue}\`;
+    const taskBody = Buffer.from(JSON.stringify({ uid, jobId, limit }), 'utf8').toString('base64');
+    const taskName = \`\${parent}/tasks/\${jobId.replace(/[^a-zA-Z0-9_-]/g, '_')}\`;
+
+    const response = await fetch(\`https://cloudtasks.googleapis.com/v2/\${parent}/tasks\`, {
+      method: 'POST',
+      headers: {
+        'Authorization': \`Bearer \${accessToken}\`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        task: {
+          name: taskName,
+          httpRequest: {
+            httpMethod: 'POST',
+            url: config.workerUrl,
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: taskBody,
+            oidcToken: {
+              serviceAccountEmail: config.serviceAccountEmail,
+              audience: process.env.EMAIL_SYNC_WORKER_AUDIENCE || config.workerUrl
+            }
+          }
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      console.error('[Email Sync] Cloud Tasks enqueue failed:', response.status, body.substring(0, 500));
+      throw new Error('EMAIL_SYNC_QUEUE_ENQUEUE_FAILED');
+    }
+  };
+
+  const verifyEmailSyncWorkerIdentity = async (req: express.Request) => {
+    const config = getCloudTasksConfig();
+    if (!config) return false;
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) return false;
+
+    try {
+      const verifier = new OAuth2Client();
+      const ticket = await verifier.verifyIdToken({
+        idToken: authHeader.slice(7),
+        audience: process.env.EMAIL_SYNC_WORKER_AUDIENCE || config.workerUrl
+      });
+      const payload = ticket.getPayload();
+      return !!payload &&
+        payload.email === config.serviceAccountEmail &&
+        payload.email_verified === true;
+    } catch (error) {
+      console.warn('[Email Sync] Invalid Cloud Tasks OIDC token');
+      return false;
+    }
+  };
+
+  const releaseEmailSyncLock = async (uid: string, jobId: string) => {
+    if (!firestore) return;
+    const lockRef = firestore.collection('users').doc(uid).collection('emailSyncState').doc('current');
+    try {
+      await firestore.runTransaction(async transaction => {
+        const lockSnap = await transaction.get(lockRef);
+        if (lockSnap.exists && lockSnap.data()?.activeJobId === jobId) {
+          transaction.delete(lockRef);
+        }
+      });
+    } catch (error) {
+      console.warn('[Email Sync] Failed to release sync lock');
+    }
+  };
+
+  const runEmailSyncJob = async (verifiedUid: string, jobId: string, requestedLimit: number) => {
+    if (!firestore) throw new Error('Firestore not initialized');
+    const limit = Math.max(1, Math.min(50, Number(requestedLimit) || 10));
+    const jobRef = firestore.collection(\`users/\${verifiedUid}/emailSyncJobs\`).doc(jobId);
+
+    const shouldRun = await firestore.runTransaction(async transaction => {
+      const jobSnap = await transaction.get(jobRef);
+      if (!jobSnap.exists) throw new Error('EMAIL_SYNC_JOB_NOT_FOUND');
+      const data = jobSnap.data() || {};
+      if (data.userId !== verifiedUid) throw new Error('EMAIL_SYNC_JOB_OWNER_MISMATCH');
+      if (data.status === 'completed') return false;
+
+      const leaseUntilMs = Number(data.leaseUntilMs || 0);
+      if (data.status === 'running' && leaseUntilMs > Date.now()) return false;
+
+      transaction.update(jobRef, {
+        status: 'running',
+        startedAt: data.startedAt || FieldValue.serverTimestamp(),
+        lastAttemptAt: FieldValue.serverTimestamp(),
+        leaseUntilMs: Date.now() + 10 * 60 * 1000,
+        attempts: FieldValue.increment(1)
+      });
+      return true;
+    });
+
+    if (!shouldRun) return;
+
+    try {
+      const snap = await firestore.collection(\`users/\${verifiedUid}/emailAccounts\`).get();
+      const activeImapAccounts = snap.docs.filter(doc => {
+        const data = doc.data();
+        return data.active !== false && data.provider !== 'gmail';
+      });
+
+      if (activeImapAccounts.length === 0) {
+        throw new Error('NO_ACTIVE_IMAP_ACCOUNTS');
+      }
+
+      const allEmails: any[] = [];
+      let successfulAccounts = 0;
+
+      for (const doc of activeImapAccounts) {
+        const data = doc.data();
+        try {
+          const accountPassword = readStoredCredential(data, 'passwordEncrypted', 'password');
+          const acc = {
+            host: data.host,
+            port: Number(data.port || 993),
+            username: data.username,
+            password: accountPassword,
+            provider: data.provider || 'imap'
+          };
+          if (!acc.host || !acc.username || !acc.password) throw new Error('INCOMPLETE_IMAP_ACCOUNT');
+          if (acc.port !== 993) throw new Error('Only secure IMAPS on port 993 is supported.');
+
+          const resolvedHost = await resolveSafeImapHost(acc.host);
+          const client = new ImapFlow({
+            host: resolvedHost.connectHost,
+            port: 993,
+            secure: true,
+            tls: { servername: resolvedHost.servername },
+            auth: { user: acc.username, pass: acc.password },
+            logger: false
+          });
+
+          await client.connect();
+          const mailboxLock = await client.getMailboxLock('INBOX');
+          try {
+            const messages: any[] = [];
+            const status = await client.status('INBOX', { messages: true });
+            const totalMsgs = status.messages || 0;
+            if (totalMsgs > 0) {
+              const startFetch = Math.max(1, totalMsgs - limit + 1);
+              for await (const msg of client.fetch(\`\${startFetch}:*\`, { source: true }, { uid: true })) {
+                messages.push(msg);
+              }
+            }
+
+            for (const msg of messages) {
+              const parsed = await simpleParser(msg.source);
+              const subject = parsed.subject || '(No Subject)';
+              const sender = parsed.from?.text || 'Unknown';
+              const rawBodyStr = parsed.text || '';
+              const textContent = \`\${subject} \${sender} \${rawBodyStr.substring(0, 500)}\`.toLowerCase();
+
+              let hasCargo = false;
+              let hasVessel = false;
+              let hasChartering = false;
+              let isIrrelevant = false;
+
+              const irrelevantKeywords = ['bank', 'invoice', 'social media', 'newsletter', 'marketing', 'login', 'security alert', 'receipt', 'subscription', 'payment confirmation', 'do-not-reply', 'no-reply', 'prompts to', 'credits let', 'credits left', 'unsubscribe', 'opt out', 'mailer-daemon', 'postmaster', 'html', '<head', '<body', '<div', 'garbage', 'longer you wait', 'saas', 'free credits', 'promo'];
+              for (const word of irrelevantKeywords) {
+                if (textContent.includes(word) && !textContent.includes('chartering') && !textContent.includes('vessel') && !textContent.includes('cargo') && !textContent.includes('laycan')) {
+                  isIrrelevant = true;
+                  break;
+                }
+              }
+
+              if (!isIrrelevant) {
+                const cargoKeywords = ['cargo', ' stem ', 'shipment', 'fixing', 'laycan', ' discharging', 'discharge', ' mt ', 'cbm', 'bulk', 'bagged', 'project cargo', 'fertilizer', 'urea', 'cement', 'grain', 'wheat', 'coal', 'petcoke', 'steel', 'billets', ' ore ', 'phosphate', 'rice', 'freight'];
+                const vesselKeywords = ['vessel', ' mv ', ' mt ', ' open ', 'position', 'tonnage', 'dwt', 'dwat', 'mpp', 'handy', 'supramax', 'panamax', 'geared', 'gearless', 'cranes', 'open port', 'prompt', 'spot', 'owner', 'manager'];
+                const charteringKeywords = ['chartering', 'fixture', 'broker', 'shipbroker', 'commission', 'c/p', 'charter party', 'demurrage', 'despatch', 'bdi', 'baltic index', 'bunker', 'tce'];
+
+                hasCargo = cargoKeywords.some(word => textContent.includes(word));
+                hasVessel = vesselKeywords.some(word => textContent.includes(word));
+                hasChartering = charteringKeywords.some(word => textContent.includes(word));
+              }
+
+              let relevance = 'irrelevant';
+              if (!isIrrelevant) {
+                if (hasCargo && hasVessel) relevance = 'likely_mixed';
+                else if (hasCargo) relevance = 'likely_cargo';
+                else if (hasVessel) relevance = 'likely_vessel';
+                else if (hasChartering) relevance = 'maybe_relevant';
+              }
+
+              let classification = 'MARKET INTEL';
+              if (relevance === 'irrelevant') classification = 'SKIPPED';
+              else if (relevance === 'likely_cargo') classification = 'CARGO';
+              else if (relevance === 'likely_vessel') classification = 'VESSEL';
+              else if (relevance === 'likely_mixed') classification = 'MIXED';
+              else if (relevance === 'maybe_relevant') classification = 'MAYBE';
+
+              allEmails.push({
+                accountId: doc.id,
+                provider: acc.provider,
+                subject,
+                sender,
+                rawBody: rawBodyStr,
+                timestamp: parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString(),
+                classification,
+                relevanceStatus: relevance
+              });
+            }
+          } finally {
+            mailboxLock.release();
+            await client.logout().catch(() => undefined);
+          }
+
+          successfulAccounts++;
+        } catch (error: any) {
+          console.warn(\`[Email Sync] Account failed for \${doc.id}:\`, error.message || 'unknown');
+        }
+      }
+
+      if (successfulAccounts === 0) {
+        throw new Error('ALL_IMAP_ACCOUNTS_FAILED');
+      }
+
+      const finalEmails = allEmails.reverse();
+      const resultsCollection = jobRef.collection('results');
+      const existingResults = await resultsCollection.get();
+      for (let offset = 0; offset < existingResults.docs.length; offset += 400) {
+        const batch = firestore.batch();
+        for (const resultDoc of existingResults.docs.slice(offset, offset + 400)) batch.delete(resultDoc.ref);
+        await batch.commit();
+      }
+
+      for (let offset = 0; offset < finalEmails.length; offset += 400) {
+        const batch = firestore.batch();
+        finalEmails.slice(offset, offset + 400).forEach((email, index) => {
+          const absoluteIndex = offset + index;
+          const resultRef = resultsCollection.doc(\`result-\${String(absoluteIndex).padStart(4, '0')}\`);
+          batch.set(resultRef, { index: absoluteIndex, email });
+        });
+        await batch.commit();
+      }
+
+      let relevantCount = 0;
+      let skippedCount = 0;
+      for (const email of finalEmails) {
+        if (email.relevanceStatus === 'irrelevant' || email.classification === 'SKIPPED') skippedCount++;
+        else relevantCount++;
+      }
+
+      await jobRef.update({
+        status: 'completed',
+        completedAt: FieldValue.serverTimestamp(),
+        leaseUntilMs: FieldValue.delete(),
+        scannedCount: finalEmails.length,
+        relevantCount,
+        skippedCount,
+        processedCount: finalEmails.length
+      });
+    } catch (error: any) {
+      const safeCode = [
+        'NO_ACTIVE_IMAP_ACCOUNTS',
+        'ALL_IMAP_ACCOUNTS_FAILED',
+        'EMAIL_SYNC_JOB_NOT_FOUND',
+        'EMAIL_SYNC_JOB_OWNER_MISMATCH'
+      ].includes(error.message) ? error.message : 'SYNC_ERROR';
+
+      await jobRef.update({
+        status: 'failed',
+        completedAt: FieldValue.serverTimestamp(),
+        leaseUntilMs: FieldValue.delete(),
+        errorCode: safeCode,
+        safeErrorMessage: safeCode === 'NO_ACTIVE_IMAP_ACCOUNTS'
+          ? 'No active IMAP accounts are connected.'
+          : 'Email sync failed. Please retry or reconnect the account.'
+      }).catch(() => undefined);
+      throw error;
+    } finally {
+      await releaseEmailSyncLock(verifiedUid, jobId);
+    }
+  };
 
   app.get('/api/email/sync/status/:jobId', async (req, res) => {
     const { jobId } = req.params;
     const authHeader = req.headers.authorization;
-    if (!authHeader) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return res.status(401).json({ error: "Missing auth" });
     }
-    const idToken = authHeader.split('Bearer ')[1];
-    
-    let decodedIdToken;
+
     try {
-      decodedIdToken = await getAuth().verifyIdToken(idToken);
-    } catch (error) {
-       return res.status(401).json({ error: "Invalid token" });
+      const decodedIdToken = await getAuth().verifyIdToken(authHeader.slice(7));
+      const verifiedUid = decodedIdToken.uid;
+      if (!firestore) throw new Error("Firestore not initialized");
+
+      const jobRef = firestore.collection(\`users/\${verifiedUid}/emailSyncJobs\`).doc(jobId);
+      const jobSnap = await jobRef.get();
+      if (!jobSnap.exists) return res.status(404).json({ error: "Job not found" });
+
+      const data = jobSnap.data() || {};
+      if (data.userId !== verifiedUid) return res.status(403).json({ error: "Access denied" });
+
+      let currentStatus = data.status || 'unknown';
+      if (currentStatus === 'queued' || currentStatus === 'running') {
+        const requestedAtMs = data.requestedAt?.toMillis ? data.requestedAt.toMillis() : Date.now();
+        if (Date.now() - requestedAtMs > 12 * 60 * 1000) {
+          currentStatus = 'failed';
+          await jobRef.update({
+            status: 'failed',
+            errorCode: 'TIMEOUT',
+            safeErrorMessage: 'Job timed out and was marked as failed safely.',
+            leaseUntilMs: FieldValue.delete()
+          });
+          await releaseEmailSyncLock(verifiedUid, jobId);
+        }
+      }
+
+      let emails: any[] = [];
+      if (currentStatus === 'completed') {
+        const resultsSnap = await jobRef.collection('results').orderBy('index', 'asc').get();
+        emails = resultsSnap.docs.map(doc => doc.data().email).filter(Boolean);
+      }
+
+      return res.json({ status: currentStatus, data: { ...data, status: currentStatus }, emails });
+    } catch (error: any) {
+      console.warn('Email Sync Status Failed:', error.message || 'unknown');
+      return res.status(500).json({ error: "Failed to read email sync status" });
+    }
+  });
+
+  app.post('/api/internal/email-sync-worker', async (req, res) => {
+    if (!(await verifyEmailSyncWorkerIdentity(req))) {
+      return res.status(401).json({ error: 'Invalid worker identity' });
     }
 
-    const verifiedUid = decodedIdToken.uid;
-    // We only allow access to the user's own job
+    const { uid, jobId, limit } = req.body || {};
+    if (!uid || !jobId) return res.status(400).json({ error: 'Missing worker parameters' });
+
     try {
-      if (!firestore) throw new Error("Firestore not initialized");
-      const jobRef = firestore.collection(`users/${verifiedUid}/emailSyncJobs`).doc(jobId);
-      const jobSnap = await jobRef.get();
-      
-      if (!jobSnap.exists) {
-        return res.status(404).json({ error: "Job not found" });
-      }
-
-      const data = jobSnap.data();
-      let currentStatus = data?.status || 'unknown';
-
-      // Check for stale running/queued jobs (older than 6 minutes)
-      if (currentStatus === 'queued' || currentStatus === 'running') {
-         const jobAge = Date.now() - (data?.requestedAt?.toMillis ? data.requestedAt.toMillis() : Date.now());
-         if (jobAge > 6 * 60 * 1000) {
-             currentStatus = 'failed';
-             await jobRef.update({
-                status: 'failed',
-                errorCode: 'TIMEOUT',
-                safeErrorMessage: 'Job timed out and was marked as failed safely.'
-             });
-         }
-      }
-
-      if (currentStatus === 'completed' || currentStatus === 'failed') {
-         const emails = jobResults.get(jobId) || [];
-         // Clean up memory once consumed by the client
-         jobResults.delete(jobId);
-         return res.json({ status: currentStatus, data: { ...data, status: currentStatus }, emails });
-      }
-      return res.json({ status: currentStatus, data });
-      
-    } catch (err: any) {
-      console.warn('Email Sync Status Failed:', err);
-      return res.status(500).json({ error: err.message });
+      await runEmailSyncJob(String(uid), String(jobId), Number(limit || 10));
+      return res.status(200).json({ success: true });
+    } catch (error: any) {
+      console.error('[Email Sync] Worker failed:', error.message || 'unknown');
+      return res.status(500).json({ error: 'Email sync worker failed' });
     }
   });
 
   app.post('/api/email/sync', async (req, res) => {
     const { userId, limit = 10 } = req.body;
     const authHeader = req.headers.authorization;
-    if (!userId || !authHeader) {
+    if (!userId || !authHeader?.startsWith('Bearer ')) {
       return res.status(400).json({ error: "Missing parameters or auth" });
     }
-    const idToken = authHeader.split('Bearer ')[1];
-    
+
     let decodedIdToken;
     try {
-      decodedIdToken = await getAuth().verifyIdToken(idToken);
+      decodedIdToken = await getAuth().verifyIdToken(authHeader.slice(7));
     } catch (error) {
-       console.error("Invalid Firebase ID token");
-       return res.status(401).json({ error: "Invalid or expired authorization token" });
+      return res.status(401).json({ error: "Invalid or expired authorization token" });
     }
 
     const verifiedUid = decodedIdToken.uid;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
-       return res.status(429).json({ error: "Too many requests. Please wait a minute." });
+      return res.status(429).json({ error: "Too many requests. Please wait a minute." });
     }
-
     if (userId !== verifiedUid) {
-       return res.status(403).json({ error: "Forbidden: userId mismatch" });
+      return res.status(403).json({ error: "Forbidden: userId mismatch" });
     }
 
-    const currentLock = syncLocks.get(userId);
-    if (currentLock) {
-       const lockAge = Date.now() - currentLock;
-       if (lockAge < 5 * 60 * 1000) { // 5 minutes TTL
-         return res.status(429).json({ error: "Sync already in progress. Please wait." });
-       }
+    const mode = getEmailSyncMode();
+    if (mode === 'disabled') return res.status(503).json({ error: 'Email sync is disabled' });
+    if (mode === 'cloud_tasks' && !getCloudTasksConfig()) {
+      return res.status(503).json({ error: 'Email sync queue is not configured' });
     }
-    syncLocks.set(userId, Date.now());
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
 
-    const jobId = `job-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    const safeLimit = Math.max(1, Math.min(50, Number(limit) || 10));
+    const jobId = \`email-sync-\${randomUUID()}\`;
+    const jobRef = firestore.collection(\`users/\${verifiedUid}/emailSyncJobs\`).doc(jobId);
+    const lockRef = firestore.collection('users').doc(verifiedUid).collection('emailSyncState').doc('current');
 
     try {
-      if (!firestore) throw new Error("Firestore not initialized");
-      const jobRef = firestore.collection(`users/${verifiedUid}/emailSyncJobs`).doc(jobId);
-      
-      await jobRef.set({
-         id: jobId,
-         userId: verifiedUid,
-         status: 'queued',
-         source: 'imap',
-         requestedAt: new Date(),
-         scannedCount: 0,
-         relevantCount: 0,
-         skippedCount: 0,
-         processedCount: 0
+      const lockResult = await firestore.runTransaction(async transaction => {
+        const lockSnap = await transaction.get(lockRef);
+        const activeUntilMs = lockSnap.exists ? Number(lockSnap.data()?.activeUntilMs || 0) : 0;
+        if (activeUntilMs > Date.now()) return false;
+
+        transaction.set(lockRef, {
+          activeJobId: jobId,
+          activeUntilMs: Date.now() + 12 * 60 * 1000,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+        transaction.set(jobRef, {
+          id: jobId,
+          userId: verifiedUid,
+          status: 'queued',
+          source: 'imap',
+          requestedAt: FieldValue.serverTimestamp(),
+          requestedLimit: safeLimit,
+          attempts: 0,
+          scannedCount: 0,
+          relevantCount: 0,
+          skippedCount: 0,
+          processedCount: 0
+        });
+        return true;
       });
 
-      // Return immediately
-      res.json({ jobId, status: 'queued' });
+      if (!lockResult) {
+        return res.status(429).json({ error: "Sync already in progress. Please wait." });
+      }
 
-      // Run background process
-      setTimeout(async () => {
+      if (mode === 'cloud_tasks') {
         try {
-          await jobRef.update({ 
-            status: 'running', 
-            startedAt: new Date() 
-          });
-
-          const snap = await firestore!.collection(`users/${verifiedUid}/emailAccounts`).get();
-          const activeImapAccounts = snap.docs.filter(d => {
-            const data = d.data();
-            return data.active !== false && data.provider !== 'gmail';
-          });
-
-          let allEmails: any[] = [];
-          
-          for (const doc of activeImapAccounts) {
-            const data = doc.data();
-            const accountPassword = readStoredCredential(data, 'passwordEncrypted', 'password');
-            const acc = {
-               host: data.host,
-               port: Number(data.port || 993),
-               username: data.username,
-               password: accountPassword,
-               provider: data.provider || 'imap'
-            };
-            const docId = doc.id;
-            if(!acc.host || !acc.username || !acc.password) continue;
-            if (acc.port !== 993) throw new Error('Only secure IMAPS on port 993 is supported.');
-            const resolvedHost = await resolveSafeImapHost(acc.host);
-            
-            const client = new ImapFlow({
-              host: resolvedHost.connectHost,
-              port: 993,
-              secure: true,
-              tls: { servername: resolvedHost.servername },
-              auth: { user: acc.username, pass: acc.password },
-              logger: false
-            });
-            
-            try {
-              await client.connect();
-              let lock = await client.getMailboxLock('INBOX');
-              try {
-                const messages = [];
-                const status = await client.status('INBOX', { messages: true });
-                const totalMsgs = status.messages || 0;
-                if (totalMsgs > 0) {
-                  const startFetch = Math.max(1, totalMsgs - limit);
-                  for await (let msg of client.fetch(`${startFetch}:*`, { source: true }, { uid: true })) {
-                    messages.push(msg);
-                  }
-                }
-
-                for (let msg of messages) {
-                  const parsed = await simpleParser(msg.source);
-                  const subject = parsed.subject || '(No Subject)';
-                  const sender = parsed.from?.text || 'Unknown';
-                  const rawBodyStr = parsed.text || '';
-                  
-                  const textContent = `${subject} ${sender} ${rawBodyStr.substring(0, 500)}`.toLowerCase();
-                  
-                  let hasCargo = false;
-                  let hasVessel = false;
-                  let hasChartering = false;
-                  let isIrrelevant = false;
-                  
-                  const irrelevantKeywords = ['bank', 'invoice', 'social media', 'newsletter', 'marketing', 'login', 'security alert', 'receipt', 'subscription', 'payment confirmation', 'do-not-reply', 'no-reply', 'prompts to', 'credits let', 'credits left', 'unsubscribe', 'opt out', 'mailer-daemon', 'postmaster', 'html', '<head', '<body', '<div', 'garbage', 'longer you wait', 'saas', 'free credits', 'promo'];
-                  for (const word of irrelevantKeywords) {
-                    if (textContent.includes(word) && !textContent.includes('chartering') && !textContent.includes('vessel') && !textContent.includes('cargo') && !textContent.includes('laycan')) {
-                      isIrrelevant = true;
-                      break;
-                    }
-                  }
-
-                  if (!isIrrelevant) {
-                    const cargoKeywords = ['cargo', ' stem ', 'shipment', 'fixing', 'laycan', ' discharging', 'discharge', ' mt ', 'cbm', 'bulk', 'bagged', 'project cargo', 'fertilizer', 'urea', 'cement', 'grain', 'wheat', 'coal', 'petcoke', 'steel', 'billets', ' ore ', 'phosphate', 'rice', 'freight'];
-                    const vesselKeywords = ['vessel', ' mv ', ' mt ', ' open ', 'position', 'tonnage', 'dwt', 'dwat', 'mpp', 'handy', 'supramax', 'panamax', 'geared', 'gearless', 'cranes', 'open port', 'prompt', 'spot', 'owner', 'manager'];
-                    const charteringKeywords = ['chartering', 'fixture', 'broker', 'shipbroker', 'commission', 'c/p', 'charter party', 'demurrage', 'despatch', 'bdi', 'baltic index', 'bunker', 'tce'];
-
-                    for (const word of cargoKeywords) {
-                      if (textContent.includes(word)) { hasCargo = true; break; }
-                    }
-                    for (const word of vesselKeywords) {
-                      if (textContent.includes(word)) { hasVessel = true; break; }
-                    }
-                    for (const word of charteringKeywords) {
-                      if (textContent.includes(word)) { hasChartering = true; break; }
-                    }
-                  }
-
-                  let relevance = 'irrelevant';
-                  if (!isIrrelevant) {
-                    if (hasCargo && hasVessel) relevance = 'likely_mixed';
-                    else if (hasCargo) relevance = 'likely_cargo';
-                    else if (hasVessel) relevance = 'likely_vessel';
-                    else if (hasChartering) relevance = 'maybe_relevant';
-                  }
-
-                  let classf = 'MARKET INTEL';
-                  if (relevance === 'irrelevant') classf = 'SKIPPED';
-                  else if (relevance === 'likely_cargo') classf = 'CARGO';
-                  else if (relevance === 'likely_vessel') classf = 'VESSEL';
-                  else if (relevance === 'likely_mixed') classf = 'MIXED';
-                  else if (relevance === 'maybe_relevant') classf = 'MAYBE';
-
-                  allEmails.push({
-                    accountId: doc.id,
-                    provider: acc.provider,
-                    subject: subject,
-                    sender: sender,
-                    rawBody: rawBodyStr,
-                    timestamp: parsed.date ? new Date(parsed.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + 'Z' : new Date().toLocaleTimeString() + 'Z',
-                    classification: classf,
-                    relevanceStatus: relevance
-                  });
-                }
-              } finally {
-                lock.release();
-              }
-              await client.logout();
-            } catch (err) {
-              console.warn(`Failed to sync account ${acc.username}:`, err);
-            }
-          }
-          
-          const finalEmails = allEmails.reverse();
-          jobResults.set(jobId, finalEmails);
-          
-          let relCount = 0;
-          let skipCount = 0;
-          for (const e of finalEmails) {
-             if (e.relevanceStatus === 'irrelevant' || e.classification === 'SKIPPED') skipCount++;
-             else relCount++;
-          }
-
-          await jobRef.update({
-            status: 'completed',
-            completedAt: new Date(),
-            scannedCount: finalEmails.length,
-            relevantCount: relCount,
-            skippedCount: skipCount
-          });
-          
-        } catch (err: any) {
-          console.warn('Email Sync Background Failed:', err);
+          await enqueueEmailSyncTask(verifiedUid, jobId, safeLimit);
+        } catch (error) {
           await jobRef.update({
             status: 'failed',
-            completedAt: new Date(),
-            errorCode: 'SYNC_ERROR',
-            safeErrorMessage: err.message || 'Unknown error'
+            errorCode: 'QUEUE_ERROR',
+            safeErrorMessage: 'Unable to queue email sync.',
+            completedAt: FieldValue.serverTimestamp()
           });
-        } finally {
-          syncLocks.delete(userId);
+          await releaseEmailSyncLock(verifiedUid, jobId);
+          throw error;
         }
-      }, 0);
-
-    } catch (err: any) {
-      syncLocks.delete(verifiedUid);
-      console.warn('Email Sync Init Failed (expected if ADC misconfigured or lacking role):', err.message);
-      // Let's only fail if the initial job setup fails. If it responds, client uses jobId.
-      if (!res.headersSent) {
-          res.status(500).json({ error: err.message || "Failed to initialize sync job" });
+        return res.json({ jobId, status: 'queued' });
       }
+
+      // Development/local mode only. Production defaults to Cloud Tasks.
+      setImmediate(() => {
+        runEmailSyncJob(verifiedUid, jobId, safeLimit)
+          .catch(error => console.warn('[Email Sync] In-process worker failed:', error.message || 'unknown'));
+      });
+      return res.json({ jobId, status: 'queued' });
+    } catch (error: any) {
+      console.error('[Email Sync] Failed to initialize job:', error.message || 'unknown');
+      return res.status(500).json({ error: 'Failed to initialize email sync job' });
     }
   });
 
