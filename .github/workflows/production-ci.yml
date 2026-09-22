@@ -47,8 +47,8 @@ jobs:
             exit 1
           fi
 
-      - name: Critical dependency audit
-        run: npm audit --omit=dev --audit-level=critical
+      - name: High and critical dependency audit
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Server boot smoke test
         shell: bash
