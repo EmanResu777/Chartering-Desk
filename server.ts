@@ -7,7 +7,7 @@ import Stripe from 'stripe';
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, Firestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import { randomUUID, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual } from 'node:crypto';
+import { randomUUID, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual, createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import fs from 'fs';
@@ -1266,6 +1266,10 @@ async function startServer() {
       process.env.EMAIL_SYNC_WORKER_URL &&
       process.env.CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT
     );
+    const distributedRateLimitRequired = isProduction && process.env.DISTRIBUTED_RATE_LIMIT_REQUIRED !== 'false';
+    const distributedRateLimitConfigured = process.env.REDIS_ENABLED === 'true' &&
+      !!process.env.UPSTASH_REDIS_REST_URL &&
+      !!process.env.UPSTASH_REDIS_REST_TOKEN;
 
     const checks = {
       firebaseAdmin: !!firestore,
@@ -1280,6 +1284,7 @@ async function startServer() {
       emailCredentialEncryption: !emailSyncEnabled || !!process.env.EMAIL_CREDENTIALS_ENCRYPTION_KEY,
       emailSync: !emailSyncEnabled || emailSyncMode === 'in_process' || (emailSyncMode === 'cloud_tasks' && cloudTasksConfigured),
       emailSyncMode,
+      distributedRateLimit: !distributedRateLimitRequired || distributedRateLimitConfigured,
       uptime: process.uptime(),
       timestamp: new Date().toISOString()
     };
@@ -1288,21 +1293,71 @@ async function startServer() {
       checks.canonicalAppUrl &&
       checks.billing &&
       checks.emailCredentialEncryption &&
-      checks.emailSync;
+      checks.emailSync &&
+      checks.distributedRateLimit;
     res.status(isReady ? 200 : 503).json(checks);
   });
   const MAX_AI_REQUESTS_PER_MINUTE = parseInt(process.env.MAX_AI_REQUESTS_PER_MINUTE || '60');
-  
-  function checkRateLimit(uid: string): boolean {
+
+  async function checkRateLimit(identifier: string, limit = MAX_AI_REQUESTS_PER_MINUTE, namespace = 'api'): Promise<boolean> {
     const now = Date.now();
-    const limiter = userRateLimits.get(uid);
-    if (!limiter || limiter.resetAt < now) {
-        userRateLimits.set(uid, { count: 1, resetAt: now + 60000 });
+    const redisConfigured = process.env.REDIS_ENABLED === 'true' &&
+      !!process.env.UPSTASH_REDIS_REST_URL &&
+      !!process.env.UPSTASH_REDIS_REST_TOKEN;
+    const distributedRequired = process.env.NODE_ENV === 'production' &&
+      process.env.DISTRIBUTED_RATE_LIMIT_REQUIRED !== 'false';
+
+    if (redisConfigured) {
+      try {
+        const bucket = Math.floor(now / 60000);
+        const identifierHash = createHash('sha256').update(String(identifier)).digest('hex').substring(0, 32);
+        const key = `rl:${namespace}:${identifierHash}:${bucket}`;
+        const response = await fetch(`${process.env.UPSTASH_REDIS_REST_URL}/multi-exec`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.UPSTASH_REDIS_REST_TOKEN}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify([
+            ['INCR', key],
+            ['EXPIRE', key, 120]
+          ])
+        });
+
+        if (!response.ok) throw new Error(`redis_rate_limit_http_${response.status}`);
+        const results = await response.json() as any;
+        if (!Array.isArray(results) || results[0]?.error || results[1]?.error) {
+          throw new Error('redis_rate_limit_invalid_response');
+        }
+
+        const count = Number(results[0]?.result);
+        if (!Number.isFinite(count)) throw new Error('redis_rate_limit_invalid_count');
+        if (count > limit) {
+          adminDiagnostics.rateLimitHits++;
+          return false;
+        }
         return true;
+      } catch (error: any) {
+        console.warn('[RateLimit] Distributed limiter unavailable:', error.message || 'unknown');
+        if (distributedRequired && process.env.DISTRIBUTED_RATE_LIMIT_FAIL_OPEN !== 'true') {
+          adminDiagnostics.rateLimitHits++;
+          return false;
+        }
+      }
+    } else if (distributedRequired && process.env.DISTRIBUTED_RATE_LIMIT_FAIL_OPEN !== 'true') {
+      adminDiagnostics.rateLimitHits++;
+      return false;
     }
-    if (limiter.count >= MAX_AI_REQUESTS_PER_MINUTE) {
-        adminDiagnostics.rateLimitHits++;
-        return false;
+
+    const localKey = `${namespace}:${identifier}`;
+    const limiter = userRateLimits.get(localKey);
+    if (!limiter || limiter.resetAt < now) {
+      userRateLimits.set(localKey, { count: 1, resetAt: now + 60000 });
+      return true;
+    }
+    if (limiter.count >= limit) {
+      adminDiagnostics.rateLimitHits++;
+      return false;
     }
     limiter.count++;
     return true;
@@ -1453,7 +1508,7 @@ async function startServer() {
     }
 
     const verifiedUid = decodedIdToken.uid;
-    if (!checkRateLimit(verifiedUid)) {
+    if (!(await checkRateLimit(verifiedUid))) {
       return res.status(429).json({ error: "Too many requests. Please wait a minute." });
     }
 
@@ -1507,7 +1562,7 @@ async function startServer() {
 
     const verifiedUid = decodedIdToken.uid;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
+    if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
        return res.status(429).json({ error: "Too many requests. Please wait a minute." });
     }
 
@@ -1553,7 +1608,7 @@ async function startServer() {
       const verifiedUid = decodedIdToken.uid;
       
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests" });
       }
       
@@ -1698,7 +1753,7 @@ async function startServer() {
       const verifiedUid = decodedIdToken.uid;
 
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests" });
       }
 
@@ -2083,7 +2138,7 @@ async function startServer() {
     
     const verifiedUid = decodedIdToken.uid;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
+    if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
        return res.status(429).json({ error: "Too many requests. Please wait a minute." });
     }
 
@@ -2530,7 +2585,7 @@ async function startServer() {
 
     const verifiedUid = decodedIdToken.uid;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
+    if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
       return res.status(429).json({ error: "Too many requests. Please wait a minute." });
     }
     if (userId !== verifiedUid) {
@@ -2641,26 +2696,17 @@ async function startServer() {
     }
   });
 
-  // Rate Limiter map
-  const aiRateLimits = new Map<string, { count: number, resetTime: number }>();
-
-  function rateLimitMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+  async function rateLimitMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    const now = Date.now();
-    const entry = aiRateLimits.get(ip) || { count: 0, resetTime: now + 60000 };
-    
-    if (now > entry.resetTime) {
-      entry.count = 1;
-      entry.resetTime = now + 60000;
-    } else {
-      entry.count += 1;
+    try {
+      const allowed = await checkRateLimit(ip, 50, 'ai-ip');
+      if (!allowed) {
+        return res.status(429).json({ error: "Too many requests. Please try again later." });
+      }
+      next();
+    } catch (error) {
+      next(error);
     }
-    aiRateLimits.set(ip, entry);
-
-    if (entry.count > 50) {
-      return res.status(429).json({ error: "Too many requests. Please try again later." });
-    }
-    next();
   }
 
   // Unified routing logic
@@ -3066,7 +3112,7 @@ async function startServer() {
         return res.status(401).json({ error: "Invalid or expired authorization token" });
       }
       
-      if (!checkRateLimit(verifiedUid)) {
+      if (!(await checkRateLimit(verifiedUid))) {
           return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -3494,7 +3540,7 @@ async function startServer() {
       }
       const verifiedUid = decodedIdToken.uid;
 
-      if (!checkRateLimit(verifiedUid)) {
+      if (!(await checkRateLimit(verifiedUid))) {
           return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -3667,7 +3713,7 @@ async function startServer() {
       const verifiedUid = decodedIdToken.uid;
       
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -3739,7 +3785,7 @@ async function startServer() {
 
       const verifiedUid = decodedIdToken.uid;
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -3826,7 +3872,7 @@ async function startServer() {
 
       const verifiedUid = decodedIdToken.uid;
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -3889,7 +3935,7 @@ async function startServer() {
       const verifiedUid = decodedIdToken.uid;
 
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -4025,7 +4071,7 @@ async function startServer() {
       const uid = decodedIdToken.uid;
       
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(uid) || !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(uid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests" });
       }
 
@@ -4313,7 +4359,7 @@ async function startServer() {
       const decodedIdToken = await getAuth().verifyIdToken(idToken);
       const verifiedUid = decodedIdToken.uid;
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -4623,7 +4669,7 @@ Custom Context: {CONTEXT}`;
       const verifiedUid = decodedIdToken.uid;
       
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) || !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
