@@ -2,11 +2,27 @@
 
 import { auth } from './firebase';
 
-const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-
 let accessToken: string | null = null;
 let tokenExpiry: number = 0;
 let authPromise: Promise<string> | null = null;
+
+const refreshAccessTokenFromServer = async (): Promise<string | null> => {
+  if (!auth.currentUser) return null;
+  const idToken = await auth.currentUser.getIdToken();
+  const res = await fetch('/api/auth/token', {
+    headers: {
+      'Authorization': `Bearer ${idToken}`
+    }
+  });
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  if (!data.access_token) return null;
+
+  accessToken = data.access_token;
+  tokenExpiry = data.expiry_date || (Date.now() + (data.expires_in || 3600) * 1000);
+  return accessToken;
+};
 
 export const getAccessToken = async (forcePopup: boolean = false): Promise<string> => {
   if (!forcePopup && accessToken && Date.now() < tokenExpiry) {
@@ -21,32 +37,14 @@ export const getAccessToken = async (forcePopup: boolean = false): Promise<strin
 
   if (!forcePopup && userId) {
     try {
-      const idToken = await auth.currentUser?.getIdToken();
-      const res = await fetch('/api/auth/token', {
-        headers: {
-          'Authorization': `Bearer ${idToken}`
-        }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.access_token) {
-          accessToken = data.access_token;
-          tokenExpiry = data.expiry_date || (Date.now() + (data.expires_in || 3600) * 1000);
-          return accessToken!;
-        }
-      }
+      const refreshed = await refreshAccessTokenFromServer();
+      if (refreshed) return refreshed;
     } catch (e) {
       console.warn("Server-side token refresh failed, falling back to popup", e);
     }
   }
 
   authPromise = new Promise<string>((resolve, reject) => {
-    if (!CLIENT_ID) {
-      authPromise = null;
-      reject(new Error('VITE_GOOGLE_CLIENT_ID is not configured in environment variables.'));
-      return;
-    }
-
     // 1. Fetch the Auth URL from our server. The server derives the user from
     // the verified Firebase token and creates a one-time OAuth state.
     if (!auth.currentUser) {
@@ -105,20 +103,19 @@ export const getAccessToken = async (forcePopup: boolean = false): Promise<strin
           }
           if (event.data?.type === 'GOOGLE_AUTH_SUCCESS') {
             console.log("Auth success message received via postMessage");
-            const tokens = event.data.tokens;
-            accessToken = tokens.access_token;
-            
-            if (tokens.expiry_date) {
-              tokenExpiry = tokens.expiry_date;
-            } else if (tokens.expires_in) {
-              tokenExpiry = Date.now() + (tokens.expires_in * 1000);
-            } else {
-              tokenExpiry = Date.now() + 3600 * 1000;
-            }
-            
-            isSuccess = true;
-            cleanup();
-            resolve(accessToken!);
+            refreshAccessTokenFromServer()
+              .then(refreshed => {
+                if (!refreshed) {
+                  throw new Error('Google authorization completed but no server-side token was available.');
+                }
+                isSuccess = true;
+                cleanup();
+                resolve(refreshed);
+              })
+              .catch(error => {
+                cleanup();
+                reject(error);
+              });
           } else if (event.data?.type === 'GOOGLE_AUTH_ERROR') {
             console.error("Auth error message received:", event.data.error);
             cleanup();
