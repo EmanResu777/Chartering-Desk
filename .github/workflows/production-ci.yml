@@ -36,6 +36,9 @@ jobs:
       - name: Security regression gates
         run: node scripts/security-regression.cjs
 
+      - name: Commercial production regression gates
+        run: node scripts/production-regression.cjs
+
       - name: Production build
         run: npm run build
 
