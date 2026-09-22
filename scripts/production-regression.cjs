@@ -79,6 +79,24 @@ assert(
   'manual process-offer must not fabricate match or urgency scores'
 );
 assert(
+  server.includes("EMAIL_SYNC_MODE") &&
+  server.includes("cloudtasks.googleapis.com") &&
+  server.includes("verifyEmailSyncWorkerIdentity") &&
+  !server.includes("jobResults = new Map"),
+  'production email sync must use durable Cloud Tasks/Firestore state instead of in-memory results'
+);
+assert(
+  server.includes("Billing is not configured.") &&
+  server.includes("Billing plan price is not configured."),
+  'production billing must fail closed instead of returning demo success'
+);
+assert(
+  server.includes("checks.billing") &&
+  server.includes("checks.emailSync") &&
+  server.includes("checks.canonicalAppUrl"),
+  'readiness must cover billing, durable email sync, and canonical URL configuration'
+);
+assert(
   !server.includes("processOfferAnalysis"),
   'client-controlled deal brief flags must not bypass backend authorization'
 );
