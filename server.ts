@@ -368,7 +368,11 @@ export async function chargeCreditsAfterSuccess(uid: string, operation: string, 
     await recordUsageEvent(uid, operation, { requestId, status: 'success', ...metadata });
     return { recorded: true, cost, operation, requestId };
   }
-  return await incrementCreditsUsed(uid, operation, cost, requestId, metadata);
+  const result = await incrementCreditsUsed(uid, operation, cost, requestId, metadata);
+  if (!result.recorded && !result.alreadyRecorded) {
+    throw new Error('USAGE_RECORDING_FAILED');
+  }
+  return result;
 }
 
 export async function recordFailedNotCharged(uid: string, operation: string, requestId: string, safeErrorCode: string) {
@@ -2465,7 +2469,7 @@ const jobResults = new Map<string, any[]>();
       }
 
       const routing = routeAITaskBackend(taskType);
-      const reqId = (req.headers['x-request-id'] as string) || `auto-${Date.now()}`;
+      const reqId = randomUUID();
       
       const ai = getGoogleGenAI();
       let response;
@@ -2925,7 +2929,7 @@ const jobResults = new Map<string, any[]>();
 
       const ai = getGoogleGenAI();
       let response;
-      const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
+      const reqId = randomUUID();
       
       // Deterministic fallback for exceptionally short user inputs that reliably break Gemini schema parsing
       if (operationName === 'manual_text_intake') {
@@ -3199,13 +3203,12 @@ const jobResults = new Map<string, any[]>();
           // P4.4B: Marginal Usage Tracking
           // P4.3: Non-blocking Usage Logging
           const operationName = email.sender === 'Manual Entry' ? 'manual_text_intake' : 'parse_email';
-          const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
-          chargeCreditsAfterSuccess(
+          await chargeCreditsAfterSuccess(
             verifiedUid,
             operationName,
             reqId,
-            { provider: out.actualProvider, model: out.actualModel, inputTokens: unoptimizedTokenEstimate, outputTokens: 0, totalTokens: unoptimizedTokenEstimate } // Best effort metadata
-          ).catch(e => console.warn(`[Usage Logging] Non-blocking tracking failed for ${operationName}:`, e.message));
+            { provider: out.actualProvider, model: out.actualModel, inputTokens: unoptimizedTokenEstimate, outputTokens: 0, totalTokens: unoptimizedTokenEstimate }
+          );
       }
 
       res.json(out);
@@ -3306,6 +3309,7 @@ const jobResults = new Map<string, any[]>();
       }
 
       const ai = getGoogleGenAI();
+      const reqId = randomUUID();
       
       let response;
       let degraded = false;
@@ -3331,7 +3335,6 @@ const jobResults = new Map<string, any[]>();
         try {
            response = await generateContentWithFailover(ai, aiConfig);
         } catch (innerErr: any) {
-           const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
            if (verifiedUid) await recordFailedNotCharged(verifiedUid, 'match_cargo_vessel', reqId, innerErr.message || 'ai_error');
            throw innerErr;
         }
@@ -3354,13 +3357,12 @@ const jobResults = new Map<string, any[]>();
               
               // P4.4B: Marginal Usage Tracking
               // P4.3: Non-blocking Usage Logging
-              const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
-              chargeCreditsAfterSuccess(
+              await chargeCreditsAfterSuccess(
                 verifiedUid,
                 'match_cargo_vessel',
                 reqId,
-                { provider: response.actualProvider, model: response.actualModel, inputTokens: unoptimizedTokenEstimate, outputTokens: 0, totalTokens: unoptimizedTokenEstimate } // Best effort metadata
-              ).catch(e => console.warn(`[Usage Logging] Non-blocking tracking failed for match_cargo_vessel:`, e.message));
+                { provider: response.actualProvider, model: response.actualModel, inputTokens: unoptimizedTokenEstimate, outputTokens: 0, totalTokens: unoptimizedTokenEstimate }
+              );
               
           } catch (e: any) {
               console.warn("Metrics update conditionally failed:", e.message);
@@ -3432,7 +3434,7 @@ const jobResults = new Map<string, any[]>();
       }
       const ai = getGoogleGenAI();
       
-      const reqId = (req.headers['x-request-id'] as string) || `auto-${Date.now()}`;
+      const reqId = randomUUID();
       let response;
       try {
         response = await generateContentWithFailover(ai, { model, contents });
@@ -3444,13 +3446,13 @@ const jobResults = new Map<string, any[]>();
       const inputTokens = Math.ceil((contents || '').length / 4);
       const outputTokens = Math.ceil((response.text || '').length / 4);
       
-      chargeCreditsAfterSuccess(verifiedUid, operation, reqId, {
+      await chargeCreditsAfterSuccess(verifiedUid, operation, reqId, {
          provider: response.actualProvider,
          model: response.actualModel,
          inputTokens,
          outputTokens,
          totalTokens: inputTokens + outputTokens
-      }).catch(e => console.warn(`[Usage Logging] Failed to charge credits for generateContent:`, e.message));
+      });
 
       res.json({ 
         text: response.text, 
@@ -3698,7 +3700,7 @@ const jobResults = new Map<string, any[]>();
       if (!routingCredit.allowed) {
         return res.status(routingCredit.statusCode || 402).json(routingCredit);
       }
-      const routingRequestId = (req.headers['x-request-id'] as string) || `route-${Date.now()}`;
+      const routingRequestId = randomUUID();
 
       const cacheKey = `${normalizedFrom.lat}_${normalizedFrom.lng}_${normalizedTo.lat}_${normalizedTo.lng}_${speedKnots || 12}`;
       const cached = routingCache.get(cacheKey);
@@ -3864,7 +3866,7 @@ const jobResults = new Map<string, any[]>();
          return res.status(404).json({ error: "Item not found" });
       }
 
-      const reqId = (req.headers['x-request-id'] as string) || `auto-${Date.now()}`;
+      const reqId = randomUUID();
       
       const ai = getGoogleGenAI();
       const prompt = `You are an expert dry bulk shipbroker assistant. Generate a concise, professional AI Deal Brief for the following item.
@@ -4126,7 +4128,7 @@ const jobResults = new Map<string, any[]>();
         return res.status(creditCheck.statusCode || 403).json({ error: creditCheck.error, safeMessage: creditCheck.safeMessage, needsUpgrade: true });
       }
 
-      const requestId = 'nego-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+      const requestId = randomUUID();
       const ai = getGoogleGenAI();
 
       let systemPrompt = `You are an expert AI Negotiation Copilot for Shipbrokers.
@@ -4342,7 +4344,7 @@ Custom Context: {CONTEXT}`;
         history: history || []
       });
 
-      const reqId = (req.headers['x-request-id'] as string) || `auto-${Date.now()}`;
+      const reqId = randomUUID();
       let response;
       try {
         response = await chat.sendMessage({ message });
@@ -4354,13 +4356,13 @@ Custom Context: {CONTEXT}`;
       const inputTokens = Math.ceil(((systemInstruction || '').length + (message || '').length) / 4);
       const outputTokens = Math.ceil((response.text || '').length / 4);
       
-      chargeCreditsAfterSuccess(verifiedUid, operation, reqId, {
+      await chargeCreditsAfterSuccess(verifiedUid, operation, reqId, {
          provider: 'google',
          model,
          inputTokens,
          outputTokens,
          totalTokens: inputTokens + outputTokens
-      }).catch(e => console.warn(`[Usage Logging] Failed to charge credits for chat:`, e.message));
+      });
 
       res.json({ text: response.text });
     } catch (error: any) {
