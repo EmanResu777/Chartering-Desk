@@ -370,6 +370,9 @@ export async function chargeCreditsAfterSuccess(uid: string, operation: string, 
   }
   const result = await incrementCreditsUsed(uid, operation, cost, requestId, metadata);
   if (!result.recorded && !result.alreadyRecorded) {
+    if (result.safeErrorCode === 'CREDIT_LIMIT_EXCEEDED') {
+      throw new Error('CREDIT_LIMIT_EXCEEDED');
+    }
     throw new Error('USAGE_RECORDING_FAILED');
   }
   return result;
@@ -508,18 +511,43 @@ export async function incrementCreditsUsed(uid: string, operation: string, cost:
   const period = getCurrentUsagePeriod();
   const usageRef = firestore.collection('users').doc(uid).collection('usage').doc(period);
   const eventRef = firestore.collection('users').doc(uid).collection('usageEvents').doc(eventId);
+  const overrideRef = firestore.collection('users').doc(uid).collection('usageOverrides').doc('current');
   
   try {
     const result = await firestore.runTransaction(async (transaction) => {
       const eventSnap = await transaction.get(eventRef);
       if (eventSnap.exists) {
-        // Event already recorded, idempotency lock kicks in
         return { recorded: false, alreadyRecorded: true, cost, operation, requestId: validRequestId };
       }
       
       const docSnap = await transaction.get(usageRef);
+      const overrideSnap = await transaction.get(overrideRef);
+
+      const usageData = docSnap.exists ? (docSnap.data() || {}) : {};
+      const currentUsed = Number(usageData.creditsUsed || 0);
+      const baseIncludedRaw = docSnap.exists ? usageData.creditsIncluded : PLAN_CONFIG.trial.creditsIncluded;
+      const baseIncluded = Number(baseIncludedRaw);
+
+      if (!Number.isFinite(baseIncluded) || baseIncluded < 0 || !Number.isFinite(currentUsed) || currentUsed < 0) {
+        return { recorded: false, cost, operation, requestId: validRequestId, safeErrorCode: 'INVALID_USAGE_STATE' };
+      }
+
+      let additionalCredits = 0;
+      if (overrideSnap.exists) {
+        const overrideData = overrideSnap.data() || {};
+        const granted = Number(overrideData.testCreditsGranted || 0);
+        const rawExpiry = overrideData.testCreditsExpiresAt;
+        const expiry = rawExpiry?.toDate ? rawExpiry.toDate() : (rawExpiry ? new Date(rawExpiry) : null);
+        if (Number.isFinite(granted) && granted > 0 && expiry && expiry > new Date()) {
+          additionalCredits = granted;
+        }
+      }
+
+      if (currentUsed + cost > baseIncluded + additionalCredits) {
+        return { recorded: false, cost, operation, requestId: validRequestId, safeErrorCode: 'CREDIT_LIMIT_EXCEEDED' };
+      }
+
       if (!docSnap.exists) {
-        // Create new usage doc inside transaction
         transaction.set(usageRef, {
           uid,
           planId: 'trial',
@@ -531,7 +559,6 @@ export async function incrementCreditsUsed(uid: string, operation: string, cost:
           updatedAt: FieldValue.serverTimestamp()
         });
       } else {
-        // Atomic increment
         transaction.update(usageRef, {
           creditsUsed: FieldValue.increment(cost),
           updatedAt: FieldValue.serverTimestamp()
@@ -1174,8 +1201,10 @@ async function startServer() {
     }
   });
 
-  // Standard JSON middleware for all other routes
-  app.use(express.json({ limit: '10mb' }));
+  // Standard JSON middleware for all other routes. Broker emails and deal payloads
+  // should stay well below this; keeping the cap tight limits memory and AI-cost abuse.
+  const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '1mb';
+  app.use(express.json({ limit: jsonBodyLimit }));
   app.use(cookieParser());
 
   const CLIENT_ID = process.env.VITE_GOOGLE_CLIENT_ID;
@@ -4521,7 +4550,7 @@ Custom Context: {CONTEXT}`;
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (err && err.type === 'entity.too.large') {
       console.warn(`[Payload Too Large] Route: ${req.path}, IP: ${req.ip}`);
-      return res.status(413).json({ error: "The provided data is too large. Please limit input size to 10MB." });
+      return res.status(413).json({ error: "The provided data is too large for this service." });
     }
     console.error(`[Unhandled Error] Route: ${req.path}`, err.message);
     res.status(500).json({ error: "Internal Server Error" });
