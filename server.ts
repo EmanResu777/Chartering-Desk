@@ -7,7 +7,7 @@ import Stripe from 'stripe';
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, Firestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import fs from 'fs';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
@@ -138,8 +138,8 @@ export function getCurrentUsagePeriod(): string {
 export function getCreditCost(operation: string): number {
   const cost = CREDIT_COST[operation];
   if (cost === undefined) {
-    console.warn(`[Usage Warning] Unknown operation cost requested: ${operation}. Defaulting to safe fallback (0).`);
-    return 0; // Fail safely without blocking if operation is unknown
+    console.error(`[Usage Error] Unknown operation cost requested: ${operation}. Applying conservative fallback cost.`);
+    return 5; // Fail closed financially: unknown operations must never become free.
   }
   return cost;
 }
@@ -160,7 +160,7 @@ export async function checkIsAdmin(uid: string, email?: string): Promise<boolean
     return true;
   }
 
-  const adminEmailsString = process.env.ADMIN_EMAILS || 'romattttt@gmail.com';
+  const adminEmailsString = process.env.ADMIN_EMAILS || '';
   const adminEmails = adminEmailsString.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
   
   let isEmailAdmin = false;
@@ -886,7 +886,19 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.set('trust proxy', true);
+  const trustProxyHops = Math.max(0, Number.parseInt(process.env.TRUST_PROXY_HOPS || '1', 10) || 0);
+  app.set('trust proxy', process.env.NODE_ENV === 'production' ? trustProxyHops : false);
+  app.disable('x-powered-by');
+
+  if (process.env.NODE_ENV === 'production') {
+    app.use((_req, res, next) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+      res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+      res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+      next();
+    });
+  }
   
   // Webhook needs raw body for signature verification
   app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -1055,36 +1067,31 @@ async function startServer() {
   const CLIENT_ID = process.env.VITE_GOOGLE_CLIENT_ID;
   const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
   
-  // Use current host for redirect URI construction
-  const getRedirectUri = (req: express.Request) => {
-    if (req.query.state && typeof req.query.state === 'string') {
+  const getAppBaseUrl = (req: express.Request) => {
+    const configured = (process.env.APP_BASE_URL || '').trim().replace(/\/+$/, '');
+    if (configured) {
       try {
-        const decoded = JSON.parse(Buffer.from(req.query.state.replace(/ /g, '+'), 'base64').toString('utf-8'));
-        if (decoded.redirectUri) {
-          return decoded.redirectUri;
+        const parsed = new URL(configured);
+        if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('invalid protocol');
+        if (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:') {
+          throw new Error('APP_BASE_URL must use HTTPS in production');
         }
-      } catch (e) {
-        console.error("Failed to parse state", e);
+        return parsed.origin;
+      } catch (error: any) {
+        throw new Error(`Invalid APP_BASE_URL: ${error.message}`);
       }
     }
-    
-    if (req.query.redirect_uri && typeof req.query.redirect_uri === 'string') {
-        return req.query.redirect_uri;
+
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('APP_BASE_URL must be configured in production');
     }
-    
-    const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
-    
-    // In our specific cloud environments (ais-dev, ais-pre, run.app), we ALWAYS use https
-    let protocol = 'http';
-    if (typeof host === 'string' && (host.includes('ais-dev-') || host.includes('ais-pre-') || host.includes('run.app'))) {
-      protocol = 'https';
-    } else if (req.headers['x-forwarded-proto'] === 'https') {
-      protocol = 'https';
-    }
-    
-    const uri = `${protocol}://${host}/auth/callback`;
-    console.log(`[OAuth] Generated Redirect URI: ${uri} (Protocol: ${protocol}, Host: ${host})`);
-    return uri;
+
+    const host = req.get('host') || 'localhost:3000';
+    return `${req.protocol}://${host}`;
+  };
+
+  const getRedirectUri = (req: express.Request) => {
+    return `${getAppBaseUrl(req)}/auth/callback`;
   };
 
   // Simple in-memory rate limiting
@@ -1238,8 +1245,10 @@ async function startServer() {
       const idToken = authHeader.split('Bearer ')[1];
       try {
           const decoded = await getAuth().verifyIdToken(idToken);
-          // Only allow specific users, for now allow all authenticated users to see basic status, or guard behind email check
-          // If needed add: if (decoded.email !== 'owner@example.com') return res.status(403)...
+          const isAdmin = await checkIsAdmin(decoded.uid, decoded.email);
+          if (!isAdmin) {
+            return res.status(403).json({ error: "Forbidden: Admin only" });
+          }
           
           res.json({
               status: 'ok',
@@ -1254,29 +1263,62 @@ async function startServer() {
       }
   });
 
-  app.get("/api/auth/google-url", (req, res) => {
-    if (!CLIENT_ID) {
-      return res.status(500).json({ error: "VITE_GOOGLE_CLIENT_ID not configured" });
+  app.get("/api/auth/google-url", async (req, res) => {
+    if (!CLIENT_ID || !CLIENT_SECRET) {
+      return res.status(500).json({ error: "Google OAuth is not configured" });
+    }
+    if (!firestore) {
+      return res.status(503).json({ error: "Database unavailable" });
     }
 
-    const userId = req.query.userId || req.headers['x-user-id'] || '';
-    const redirectUri = getRedirectUri(req);
-    console.log(`Setting up OAuth with Redirect URI: ${redirectUri}`);
-    
-    const oAuth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, redirectUri);
-    const authorizeUrl = oAuth2Client.generateAuthUrl({
-      access_type: 'offline',
-      scope: [
-        'openid',
-        'email',
-        'profile',
-        'https://www.googleapis.com/auth/gmail.readonly',
-      ],
-      prompt: 'consent',
-      state: Buffer.from(JSON.stringify({ redirectUri, userId })).toString('base64')
-    });
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: "Missing or invalid authorization header" });
+    }
 
-    res.json({ url: authorizeUrl });
+    let decodedIdToken;
+    try {
+      decodedIdToken = await getAuth().verifyIdToken(authHeader.slice(7));
+    } catch {
+      return res.status(401).json({ error: "Invalid or expired authorization token" });
+    }
+
+    const verifiedUid = decodedIdToken.uid;
+    if (!checkRateLimit(verifiedUid)) {
+      return res.status(429).json({ error: "Too many requests. Please wait a minute." });
+    }
+
+    try {
+      const redirectUri = getRedirectUri(req);
+      const state = randomUUID();
+      const stateRef = firestore.collection('_oauth_states').doc(state);
+      await stateRef.set({
+        uid: verifiedUid,
+        redirectUri,
+        createdAt: FieldValue.serverTimestamp(),
+        expiresAtMs: Date.now() + 10 * 60 * 1000,
+        used: false
+      });
+
+      const oAuth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, redirectUri);
+      const authorizeUrl = oAuth2Client.generateAuthUrl({
+        access_type: 'offline',
+        scope: [
+          'openid',
+          'email',
+          'profile',
+          'https://www.googleapis.com/auth/gmail.readonly',
+        ],
+        prompt: 'consent',
+        include_granted_scopes: true,
+        state
+      });
+
+      res.json({ url: authorizeUrl });
+    } catch (error: any) {
+      console.error("Failed to start Google OAuth:", error.message);
+      res.status(500).json({ error: "Unable to start Google authorization" });
+    }
   });
 
   app.get("/api/auth/token", async (req, res) => {
@@ -1300,15 +1342,6 @@ async function startServer() {
        return res.status(429).json({ error: "Too many requests. Please wait a minute." });
     }
 
-    const userId = req.query.userId || req.headers['x-user-id'];
-    if (!userId) {
-       return res.status(400).json({ error: "Missing userId" });
-    }
-
-    if (userId !== decodedIdToken.uid) {
-       return res.status(403).json({ error: "Forbidden: userId mismatch" });
-    }
-  
     try {
        if (!firestore) throw new Error("Firestore not initialized");
        const snap = await firestore.collection(`users/${decodedIdToken.uid}/emailAccounts`).get();
@@ -1365,9 +1398,7 @@ async function startServer() {
         return res.json({ demoMode: true });
       }
 
-      const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
-      const protocol = (typeof host === 'string' && (host.includes('ais-dev-') || host.includes('ais-pre-') || host.includes('run.app'))) || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-      const domainURL = `${protocol}://${host}`;
+      const domainURL = getAppBaseUrl(req);
 
       const mappedPlan = STRIPE_PLAN_MAPPING[planId];
 
@@ -1459,9 +1490,7 @@ async function startServer() {
 
       const customerId = userData.stripeCustomerId;
 
-      const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
-      const protocol = (typeof host === 'string' && (host.includes('ais-dev-') || host.includes('ais-pre-') || host.includes('run.app'))) || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-      const domainURL = `${protocol}://${host}`;
+      const domainURL = getAppBaseUrl(req);
 
       const session = await stripe.billingPortal.sessions.create({
         customer: customerId,
@@ -1512,9 +1541,7 @@ async function startServer() {
 
       const customerId = userDoc.data()!.stripeCustomerId;
 
-      const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
-      const protocol = (typeof host === 'string' && (host.includes('ais-dev-') || host.includes('ais-pre-') || host.includes('run.app'))) || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-      const domainURL = `${protocol}://${host}`;
+      const domainURL = getAppBaseUrl(req);
 
       const session = await stripe.billingPortal.sessions.create({
         customer: customerId,
@@ -1742,20 +1769,29 @@ async function startServer() {
     }
 
     try {
-      let userId = '';
-      let stateRedirectUri = '';
-      try {
-        if (state && typeof state === 'string') {
-           const decodedState = JSON.parse(Buffer.from(state.replace(/ /g, '+'), 'base64').toString('utf-8'));
-           if (decodedState.userId) userId = decodedState.userId;
-           if (decodedState.redirectUri) stateRedirectUri = decodedState.redirectUri;
-        }
-      } catch (e) {
-         console.warn("Failed to parse state", e);
+      if (!state || typeof state !== 'string' || !firestore) {
+        return res.status(400).send("Missing or invalid OAuth state");
       }
-      
-      const redirectUriToUse = stateRedirectUri || getRedirectUri(req);
-      console.log(`Callback using redirectUri: ${redirectUriToUse} for code: ${code.substring(0, 10)}...`);
+
+      const stateRef = firestore.collection('_oauth_states').doc(state);
+      const stateData = await firestore.runTransaction(async transaction => {
+        const stateSnap = await transaction.get(stateRef);
+        if (!stateSnap.exists) throw new Error('oauth_state_not_found');
+        const data = stateSnap.data() || {};
+        if (data.used === true) throw new Error('oauth_state_already_used');
+        if (!data.uid || !data.redirectUri || !data.expiresAtMs || data.expiresAtMs < Date.now()) {
+          throw new Error('oauth_state_expired_or_invalid');
+        }
+        transaction.update(stateRef, {
+          used: true,
+          usedAt: FieldValue.serverTimestamp()
+        });
+        return data;
+      });
+
+      const userId = stateData.uid as string;
+      const redirectUriToUse = stateData.redirectUri as string;
+      console.log(`OAuth callback accepted for authenticated state; code prefix: ${code.substring(0, 10)}...`);
 
       const oAuth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, redirectUriToUse);
       const { tokens } = await oAuth2Client.getToken(code);
@@ -3204,7 +3240,12 @@ const jobResults = new Map<string, any[]>();
       }
 
       // P4.4B: MVP Margin Protection
-      const operation = req.body.operation || 'freight_calc'; // Fallback if not provided
+      const requestedOperation = req.body.operation || 'ai_chat';
+      const allowedOperations = new Set(['ai_chat', 'draft_reply']);
+      if (!allowedOperations.has(requestedOperation)) {
+        return res.status(400).json({ error: "Unsupported operation for generateContent" });
+      }
+      const operation = requestedOperation;
       const creditCheck = await checkCredits(verifiedUid, operation);
       if (!creditCheck.allowed) {
         return res.status(creditCheck.statusCode || 402).json(creditCheck);
@@ -3665,7 +3706,7 @@ const jobResults = new Map<string, any[]>();
       });
 
       // Save to Firestore
-      const briefId = uuidv4();
+      const briefId = randomUUID();
       const briefDoc = {
          id: briefId,
          createdByUid: uid,
@@ -4032,7 +4073,7 @@ Custom Context: {CONTEXT}`;
       }
 
       // P4.4B: MVP Margin Protection
-      const operation = req.body.operation || 'ai_chat';
+      const operation = 'ai_chat';
       const creditCheck = await checkCredits(verifiedUid, operation);
       if (!creditCheck.allowed) {
         return res.status(creditCheck.statusCode || 402).json(creditCheck);
