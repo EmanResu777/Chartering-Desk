@@ -1025,7 +1025,8 @@ async function safeAIParseJSON(rawText: string): Promise<any> {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const parsedPort = Number.parseInt(process.env.PORT || '3000', 10);
+  const PORT = Number.isFinite(parsedPort) && parsedPort > 0 && parsedPort <= 65535 ? parsedPort : 3000;
 
   const trustProxyHops = Math.max(0, Number.parseInt(process.env.TRUST_PROXY_HOPS || '1', 10) || 0);
   app.set('trust proxy', process.env.NODE_ENV === 'production' ? trustProxyHops : false);
