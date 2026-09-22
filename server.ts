@@ -4291,11 +4291,38 @@ Custom Context: {CONTEXT}`;
       }
       if (!hasAccess) return res.status(403).json({ error: 'Unauthorized to use this cargo' });
 
-      // Verify selected vessel exists
+      // Verify selected vessel exists and is actually available to this user.
       const vesselDoc = await firestore.collection('vessels').doc(vesselId).get();
       if (!vesselDoc.exists) return res.status(404).json({ error: 'Vessel not found or unavailable' });
       const vesselData = vesselDoc.data()!;
       if (vesselData.status !== 'OPEN') return res.status(400).json({ error: 'Selected vessel is no longer available' });
+
+      let vesselAccess = vesselData.userId === userId;
+      if (!vesselAccess && vesselData.workspaceId) {
+        const membershipDoc = await firestore.collection(`users/${userId}/memberships`).doc(vesselData.workspaceId).get();
+        const role = membershipDoc.exists ? membershipDoc.data()?.role : null;
+        vesselAccess = role === 'admin' || role === 'broker';
+      }
+
+      if (!vesselAccess && vesselData.sharedItemId) {
+        const sharedDoc = await firestore.collection('sharedItems').doc(vesselData.sharedItemId).get();
+        if (sharedDoc.exists) {
+          const sharedData = sharedDoc.data() || {};
+          if (sharedData.status === 'active' && sharedData.ownerId === vesselData.userId) {
+            const [ownerConnection, currentUserDoc] = await Promise.all([
+              firestore.collection('users').doc(sharedData.ownerId).collection('networkConnections').doc(userId).get(),
+              firestore.collection('users').doc(userId).get()
+            ]);
+            const connectedTo = currentUserDoc.data()?.connectedTo;
+            vesselAccess = ownerConnection.exists ||
+              (Array.isArray(connectedTo) && connectedTo.includes(sharedData.ownerId));
+          }
+        }
+      }
+
+      if (!vesselAccess) {
+        return res.status(403).json({ error: 'Unauthorized to use this vessel' });
+      }
 
       // Create match/deal server-side (Urgent Deal)
       const dealId = `${vesselId}_${cargoId}`;
@@ -4308,12 +4335,13 @@ Custom Context: {CONTEXT}`;
       const auditTrail = existingDeal.exists ? existingDeal.data()!.auditTrail || [] : [];
       auditTrail.push({
         action: 'process_offer',
-        timestamp: FieldValue.serverTimestamp(),
+        timestamp: new Date().toISOString(),
         actorUid: userId,
         safeMessage: 'Offer processed and deal created.'
       });
 
-      const dealData = {
+      const existingDealData = existingDeal.exists ? existingDeal.data()! : null;
+      const dealData: any = {
         dealId,
         vesselItemId: vesselId,
         cargoItemId: cargoId,
@@ -4322,16 +4350,18 @@ Custom Context: {CONTEXT}`;
         vesselSharedItemId: vesselData.sharedItemId || null,
         cargoSharedItemId: cargoData.sharedItemId || null,
         status: 'contacted',
-        urgencyScore: 80,
-        matchScore: 90,
         region: cargoData.loadPort || vesselData.openPort || 'Unknown',
-        reason: 'User manually processed offer from Matching Engine.',
-        createdAt: existingDeal.exists ? existingDeal.data()!.createdAt : FieldValue.serverTimestamp(),
+        reason: 'User manually processed offer from Matching Engine. No synthetic match or urgency score assigned.',
+        createdAt: existingDealData?.createdAt || FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
-        expiresAt: existingDeal.exists ? existingDeal.data()!.expiresAt : expiresAt,
+        expiresAt: existingDealData?.expiresAt || expiresAt,
         createdBySystem: false,
         auditTrail
       };
+
+      // Preserve previously computed scores, but never fabricate scores for a manual action.
+      if (typeof existingDealData?.urgencyScore === 'number') dealData.urgencyScore = existingDealData.urgencyScore;
+      if (typeof existingDealData?.matchScore === 'number') dealData.matchScore = existingDealData.matchScore;
 
       await dealRef.set(dealData, { merge: true });
 
@@ -4339,15 +4369,15 @@ Custom Context: {CONTEXT}`;
       // Note: we're acting as Admin here so rules don't block this!
       await firestore.collection('cargos').doc(cargoId).update({
         assignedVesselId: vesselId,
-        vesselETA: eta,
-        updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + 'Z'
+        vesselETA: typeof eta === 'string' ? eta.slice(0, 100) : null,
+        updatedAt: FieldValue.serverTimestamp()
       });
 
       return res.json({ success: true, dealId });
     } catch (err: any) {
       console.error("Process offer failed:", err);
       // Let's send 200 with an error object instead of 500 when it's safe
-      return res.status(500).json({ error: 'Internal server error while processing offer', message: err.message });
+      return res.status(500).json({ error: 'Internal server error while processing offer' });
     }
   });
 
