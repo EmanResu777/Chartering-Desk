@@ -44,10 +44,12 @@ service cloud.firestore {
       allow get: if isSignedIn() && (resource.data.ownerId == request.auth.uid || isWorkspaceMember(workspaceId));
       allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || isWorkspaceMember(workspaceId));
       allow create: if isSignedIn() && incoming().ownerId == request.auth.uid;
-      allow update: if isSignedIn() && (
-        resource.data.ownerId == request.auth.uid ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
-      );
+      allow update: if isSignedIn()
+        && incoming().ownerId == existing().ownerId
+        && (
+          resource.data.ownerId == request.auth.uid ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
+        );
       
       match /members/{memberId} {
         allow read: if isSignedIn() && isWorkspaceMember(workspaceId);
@@ -62,11 +64,18 @@ service cloud.firestore {
     // Public Profiles
     match /publicProfiles/{deskId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() 
-        && incoming().uid == request.auth.uid 
+      allow create: if isSignedIn()
+        && incoming().uid == request.auth.uid
         && deskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId
         && deskId == incoming().deskId
-        && (!exists(/databases/$(database)/documents/publicProfiles/$(deskId)) || get(/databases/$(database)/documents/publicProfiles/$(deskId)).data.uid == request.auth.uid)
+        && (!incoming().keys().hasAny(['verifiedCompany']) || incoming().verifiedCompany == false)
+        && incoming().keys().hasOnly(['uid', 'deskId', 'displayName', 'companyName', 'role', 'region', 'verifiedCompany', 'updatedAt', 'createdAt']);
+      allow update: if isSignedIn()
+        && existing().uid == request.auth.uid
+        && incoming().uid == existing().uid
+        && incoming().deskId == existing().deskId
+        && deskId == existing().deskId
+        && incoming().get('verifiedCompany', false) == existing().get('verifiedCompany', false)
         && incoming().keys().hasOnly(['uid', 'deskId', 'displayName', 'companyName', 'role', 'region', 'verifiedCompany', 'updatedAt', 'createdAt']);
     }
     
@@ -187,8 +196,8 @@ service cloud.firestore {
     match /vessels/{vesselId} {
       allow get: if isSignedIn() && isValidId(vesselId) && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
       allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
-      allow create: if isSignedIn() && isValidId(vesselId) && isValidVessel(incoming()) && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
-      allow update: if isSignedIn() && isValidId(vesselId) && isValidVessel(incoming()) && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
+      allow create: if isSignedIn() && isValidId(vesselId) && isValidVessel(incoming()) && incoming().userId == request.auth.uid && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
+      allow update: if isSignedIn() && isValidId(vesselId) && isValidVessel(incoming()) && incoming().userId == existing().userId && incoming().workspaceId == existing().workspaceId && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
       allow delete: if isSignedIn() && isValidId(vesselId) && (resource.data.userId == request.auth.uid || isWorkspaceWriter(resource.data.workspaceId));
     }
 
@@ -206,8 +215,8 @@ service cloud.firestore {
     match /cargos/{cargoId} {
       allow get: if isSignedIn() && isValidId(cargoId) && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
       allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
-      allow create: if isSignedIn() && isValidId(cargoId) && isValidCargo(incoming()) && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
-      allow update: if isSignedIn() && isValidId(cargoId) && isValidCargo(incoming()) && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
+      allow create: if isSignedIn() && isValidId(cargoId) && isValidCargo(incoming()) && incoming().userId == request.auth.uid && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
+      allow update: if isSignedIn() && isValidId(cargoId) && isValidCargo(incoming()) && incoming().userId == existing().userId && incoming().workspaceId == existing().workspaceId && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
       allow delete: if isSignedIn() && isValidId(cargoId) && (resource.data.userId == request.auth.uid || isWorkspaceWriter(resource.data.workspaceId));
     }
 
@@ -224,8 +233,8 @@ service cloud.firestore {
     match /contacts/{contactId} {
       allow get: if isSignedIn() && isValidId(contactId) && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
       allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
-      allow create: if isSignedIn() && isValidId(contactId) && isValidContact(incoming()) && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
-      allow update: if isSignedIn() && isValidId(contactId) && isValidContact(incoming()) && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
+      allow create: if isSignedIn() && isValidId(contactId) && isValidContact(incoming()) && incoming().userId == request.auth.uid && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
+      allow update: if isSignedIn() && isValidId(contactId) && isValidContact(incoming()) && incoming().userId == existing().userId && incoming().workspaceId == existing().workspaceId && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
       allow delete: if isSignedIn() && isValidId(contactId) && (resource.data.userId == request.auth.uid || isWorkspaceWriter(resource.data.workspaceId));
     }
 
@@ -243,8 +252,8 @@ service cloud.firestore {
     match /emails/{emailId} {
       allow get: if isSignedIn() && isValidId(emailId) && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
       allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
-      allow create: if isSignedIn() && isValidId(emailId) && isValidEmail(incoming()) && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
-      allow update: if isSignedIn() && isValidId(emailId) && isValidEmail(incoming()) && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
+      allow create: if isSignedIn() && isValidId(emailId) && isValidEmail(incoming()) && incoming().userId == request.auth.uid && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
+      allow update: if isSignedIn() && isValidId(emailId) && isValidEmail(incoming()) && incoming().userId == existing().userId && incoming().workspaceId == existing().workspaceId && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
       allow delete: if isSignedIn() && isValidId(emailId) && (resource.data.userId == request.auth.uid || isWorkspaceWriter(resource.data.workspaceId));
     }
 
@@ -293,8 +302,7 @@ service cloud.firestore {
     }
 
     match /incoming_webhooks/{webhookId} {
-      allow read: if isSignedIn();
-      allow write: if false; // Only written via fast-server webhook API
+      allow read, write: if false; // Backend-only operational payloads.
     }
 
     function getCargoApproval(data) {
