@@ -81,15 +81,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ user, onComple
              updatedAt: serverTimestamp(),
          });
 
-         const metricsRef = doc(db, `users/${user.uid}/usage/aiMetrics`);
-         await setDoc(metricsRef, {
-             aiCallsMade: 0,
-             aiCallsSavedByCache: 0,
-             cacheHitCount: 0,
-             riskRuleAppliedCount: 0,
-             senderProfileUsedCount: 0,
-             parseRequestsTotal: 0
-         }, { merge: true });
       } else {
          const data = userSnap.data();
          newDeskId = data.deskId || `CDP-${Math.floor(Math.random()*1000000).toString(16).toUpperCase()}`;
