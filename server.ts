@@ -2233,6 +2233,14 @@ async function startServer() {
   const runEmailSyncJob = async (verifiedUid: string, jobId: string, requestedLimit: number) => {
     if (!firestore) throw new Error('Firestore not initialized');
     const limit = Math.max(1, Math.min(50, Number(requestedLimit) || 10));
+    const maxMessageBytes = Math.max(
+      64 * 1024,
+      Math.min(2 * 1024 * 1024, Number(process.env.EMAIL_SYNC_MAX_MESSAGE_BYTES) || 512 * 1024)
+    );
+    const maxStoredBodyChars = Math.max(
+      10_000,
+      Math.min(500_000, Number(process.env.EMAIL_SYNC_MAX_STORED_BODY_CHARS) || 200_000)
+    );
     const jobRef = firestore.collection(`users/${verifiedUid}/emailSyncJobs`).doc(jobId);
 
     const shouldRun = await firestore.runTransaction(async transaction => {
@@ -2303,7 +2311,11 @@ async function startServer() {
             const totalMsgs = status.messages || 0;
             if (totalMsgs > 0) {
               const startFetch = Math.max(1, totalMsgs - limit + 1);
-              for await (const msg of client.fetch(`${startFetch}:*`, { source: true }, { uid: true })) {
+              for await (const msg of client.fetch(
+                `${startFetch}:*`,
+                { source: { start: 0, maxLength: maxMessageBytes } },
+                { uid: true }
+              )) {
                 messages.push(msg);
               }
             }
@@ -2358,7 +2370,8 @@ async function startServer() {
                 provider: acc.provider,
                 subject,
                 sender,
-                rawBody: rawBodyStr,
+                rawBody: rawBodyStr.slice(0, maxStoredBodyChars),
+                bodyTruncated: rawBodyStr.length > maxStoredBodyChars || (msg.source?.length || 0) >= maxMessageBytes,
                 timestamp: parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString(),
                 classification,
                 relevanceStatus: relevance
