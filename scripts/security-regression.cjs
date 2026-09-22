@@ -26,6 +26,35 @@ assert(authClient.includes('event.origin !== window.location.origin'), 'OAuth po
 assert(authClient.includes('event.source !== authWindow'), 'OAuth popup messages must validate source');
 
 assert(
+  !/const safeTokens\s*=\s*\{[\s\S]{0,120}access_token/.test(server),
+  'OAuth callback must not embed access tokens in HTML/postMessage payloads'
+);
+assert(
+  server.includes("refreshTokenEncrypted: encryptCredential(tokens.refresh_token)") &&
+  server.includes("passwordEncrypted: encryptCredential(password)"),
+  'email account secrets must be encrypted before Firestore storage'
+);
+assert(
+  server.includes("process.env.EMAIL_WEBHOOK_SECRET") &&
+  server.includes("x-email-webhook-secret") &&
+  server.includes("constantTimeSecretEquals"),
+  'incoming email webhook must require a server-side secret'
+);
+assert(
+  server.includes("resolveSafeImapHost") &&
+  server.includes("Only secure IMAPS on port 993 is supported."),
+  'IMAP connections must block arbitrary internal hosts/ports'
+);
+assert(
+  !server.includes("!checkRateLimit(verifiedUid) && !checkRateLimit(ip)"),
+  'per-user or per-IP rate limit exhaustion must block the request'
+);
+assert(
+  server.includes("const isOwner = vesselData.userId === verifiedUid"),
+  'AIS access must use the canonical vessel owner field'
+);
+
+assert(
   /match \/usage\/\{usageId\}[\s\S]{0,180}allow write: if false/.test(rules),
   'users must not be able to write billing/usage counters'
 );
