@@ -281,7 +281,7 @@ function AppContent() {
          const batch = writeBatch(db);
 
          if (!userSnap.exists()) {
-             deskId = `CDP-${Math.floor(Math.random()*1000000).toString(16).toUpperCase()}`;
+             deskId = `CDP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
              batch.set(userRef, {
                  deskId,
                  displayName: user.displayName || '',
@@ -294,7 +294,7 @@ function AppContent() {
              const data = userSnap.data();
              deskId = data.deskId;
              if (!deskId) {
-                 deskId = `CDP-${Math.floor(Math.random()*1000000).toString(16).toUpperCase()}`;
+                 deskId = `CDP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
                  batch.update(userRef, { deskId });
                  needsBatch = true;
              }
