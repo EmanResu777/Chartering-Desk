@@ -24,16 +24,18 @@ jobs:
           node-version: "22"
           cache: npm
 
-      - name: Install locked dependencies
-        run: npm ci
+      - name: Resolve updated dependency graph
+        run: npm install
 
-      - name: Apply non-breaking security updates
-        run: npm audit fix
+      - name: Audit including moderate advisories
+        run: npm audit --omit=dev --audit-level=moderate
 
       - name: Verify updated dependency graph
         run: |
           npm run lint
           npm run build
+          node scripts/security-regression.cjs
+          node scripts/production-regression.cjs
           node --test tests/security/*.test.cjs
           npx tsx --test tests/unit/*.test.ts
 
