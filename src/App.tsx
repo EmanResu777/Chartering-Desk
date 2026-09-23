@@ -343,12 +343,6 @@ function AppContent() {
       const unsubUser = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          const derivedSubscription =
-            data.planId === 'desk' ? 'maximum' :
-            data.planId === 'solo' ? 'premium' :
-            (data.subscription === 'basic' || data.subscription === 'premium' || data.subscription === 'maximum') ? data.subscription :
-            'basic';
-          setSubscription(derivedSubscription);
           if (data.onboardingCompleted === undefined || data.onboardingCompleted === false) {
              setShowOnboarding(true);
           } else {
