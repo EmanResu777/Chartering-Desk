@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Save, AlertCircle } from 'lucide-react';
 import { MarketRequestType, MarketRequestVisibility } from '../../lib/utils';
 import { useAuth, db } from '../../lib/firebase';
-import { doc, setDoc, serverTimestamp, getDoc, getDocs, collection, query, where } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, getDocs, collection, query, where } from 'firebase/firestore';
 
 interface MarketRequestsFormProps {
   type: MarketRequestType;
@@ -77,13 +77,11 @@ export const MarketRequestsForm: React.FC<MarketRequestsFormProps> = ({ type, on
     };
 
     try {
-      const userSnap = await getDoc(doc(db, 'users', user.uid));
-      const connectedTo = Array.isArray(userSnap.data()?.connectedTo)
-        ? userSnap.data()!.connectedTo.filter((id: unknown) => typeof id === 'string' && id)
-        : [];
+      const connectionsSnap = await getDocs(collection(db, `users/${user.uid}/networkConnections`));
+      const connectedOwnerIds = connectionsSnap.docs.map(d => d.id).filter(Boolean);
 
       const sharedItems: any[] = [];
-      for (const ownerId of connectedTo) {
+      for (const ownerId of connectedOwnerIds) {
         const sharedQuery = query(
           collection(db, 'sharedItems'),
           where('ownerId', '==', ownerId),
@@ -188,8 +186,24 @@ export const MarketRequestsForm: React.FC<MarketRequestsFormProps> = ({ type, on
         });
       }
 
+      const token = await user.getIdToken();
       for (const match of matches) {
         await setDoc(doc(db, 'marketMatches', match.id), match);
+        try {
+          const response = await fetch('/api/market/matches/notify', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ matchId: match.id })
+          });
+          if (!response.ok) {
+            console.warn(`Market match notification rejected: HTTP ${response.status}`);
+          }
+        } catch (notifyError) {
+          console.warn('Market match notification failed:', notifyError);
+        }
       }
     } catch (err) {
       console.warn("Failed to generate market request screening matches:", err);
