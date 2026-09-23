@@ -90,3 +90,52 @@ export async function fetchImapEmails(limit: number = 10, onProgress?: (status: 
     setTimeout(poll, 1000);
   });
 }
+
+
+export interface SafeEmailAccount {
+  id: string;
+  email: string;
+  provider: 'gmail' | 'outlook' | 'icloud' | 'imap';
+  active: boolean;
+}
+
+async function getAuthHeaders() {
+  if (!auth.currentUser) throw new Error("User not authenticated");
+  const token = await auth.currentUser.getIdToken();
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  };
+}
+
+export async function fetchEmailAccounts(): Promise<SafeEmailAccount[]> {
+  const headers = await getAuthHeaders();
+  const res = await fetch('/api/email/accounts', { headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to load email accounts');
+  return Array.isArray(data.accounts) ? data.accounts : [];
+}
+
+export async function setEmailAccountActive(accountId: string, active: boolean) {
+  const headers = await getAuthHeaders();
+  const res = await fetch('/api/email/accounts/set-active', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ accountId, active })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update email account');
+  return data;
+}
+
+export async function removeEmailAccount(accountId: string) {
+  const headers = await getAuthHeaders();
+  const res = await fetch('/api/email/accounts/remove', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ accountId })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to remove email account');
+  return data;
+}
