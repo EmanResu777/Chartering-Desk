@@ -130,6 +130,14 @@ assert(
   'clients must not self-verify company profiles'
 );
 
+assert(
+  rules.includes("incoming().get('confirmations', {}).get('cargoSide', {}).get('confirmedBy', null)") &&
+  rules.includes("incoming().get('confirmations', {}).get('vesselSide', {}).get('confirmedBy', null)") &&
+  rules.includes("incoming().status == 'locked'") &&
+  rules.includes("incoming().get('confirmationStatus', '') == 'confirmed_by_both_sides'"),
+  'recap lock must require authentic confirmation identities from both deal sides'
+);
+
 if (!process.exitCode) {
   console.log('Security regression gates passed.');
 }
