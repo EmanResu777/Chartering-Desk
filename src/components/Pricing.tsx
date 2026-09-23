@@ -201,10 +201,10 @@ export const Pricing: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
               <div>
                  <button
                     onClick={handleManageBilling}
-                    disabled={loading === 'manage' || usage.planId === 'trial'}
+                    disabled={loading === 'manage' || usage.planId === 'trial' || usage.planId === 'free'}
                     className={cn(
                       "px-6 py-3 font-medium text-sm tracking-wide transition-colors uppercase tracking-widest",
-                      usage.planId === 'trial' ? "opacity-30 cursor-not-allowed bg-surface-container" : "bg-surface-container hover:bg-surface-container-high text-on-surface"
+                      usage.planId === 'trial' || usage.planId === 'free' ? "opacity-30 cursor-not-allowed bg-surface-container" : "bg-surface-container hover:bg-surface-container-high text-on-surface"
                     )}
                  >
                     {loading === 'manage' ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Manage Billing"}
