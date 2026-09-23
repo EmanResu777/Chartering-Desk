@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Search, Plus, Calendar, ArrowRight, TrendingUp, X, Info, Scale, MapPin, FileText, Zap, Loader2, Package2, RotateCw, CheckCircle, Database, Trash2, Share2, User, Download, FileJson, FileSpreadsheet, ChevronDown, Filter, Radar } from 'lucide-react';
-import { Cargo, Vessel, INITIAL_CARGO, cn, exportToCSV, exportToJSON } from '../lib/utils';
+import { Cargo, Vessel, cn, exportToCSV, exportToJSON } from '../lib/utils';
 import { REGIONS, parseRegion, isDateInRange, matchMinMax } from '../lib/filterUtils';
 import { calculateProximity, ProximityInsight } from '../lib/proximityIntelligence';
 import { motion, AnimatePresence } from 'motion/react';
@@ -1351,7 +1351,7 @@ const CargoDraftModal = ({ onClose, onSubmit }: { onClose: () => void, onSubmit:
     e.preventDefault();
     const newCargo: Cargo = {
       ...formData as Cargo,
-      id: `CRG-${Math.floor(1000 + Math.random() * 9000)}-${formData.category?.[0] || 'G'}`,
+      id: `CRG-${crypto.randomUUID()}`,
       confidence: 100
     };
     onSubmit(newCargo);
