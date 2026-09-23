@@ -378,12 +378,14 @@ const MatchEngineView = ({ watchlists }: { watchlists: Watchlist[] }) => {
             }
 
             const activeWatchlists = watchlists.filter(w => w.status === 'active');
+            const currentDerivedMatchIds = new Set<string>();
             for (const watchlist of activeWatchlists) {
               for (const item of sharedItems) {
                 const scored = scoreSharedItem(watchlist, item);
                 if (!scored) continue;
 
                 const matchId = `${watchlist.id}__${item.id}`;
+                currentDerivedMatchIds.add(matchId);
                 const isCargo = item.itemType === 'cargo';
                 const title = isCargo
                   ? `${item.quantity || ''} ${item.commodity || 'Cargo'}`.trim()
@@ -413,7 +415,9 @@ const MatchEngineView = ({ watchlists }: { watchlists: Watchlist[] }) => {
 
             const matchesQuery = query(collection(db, 'watchlistMatches'), where('createdByUid', '==', user.uid));
             const snap = await getDocs(matchesQuery);
-            const loadedMatches = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const loadedMatches = snap.docs
+              .map(d => ({ id: d.id, ...d.data() } as any))
+              .filter(match => !match.sourceItemId || currentDerivedMatchIds.has(match.id));
             if (!cancelled) setMatches(loadedMatches);
          } catch (err) {
             console.error('Smart Radar scan failed', err);
