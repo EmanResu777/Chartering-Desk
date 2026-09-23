@@ -12,6 +12,8 @@ function assert(condition, message) {
 }
 
 const server = read('server.ts');
+const selectionDesk = read('src/components/SelectionDesk.tsx');
+const cargoDesk = read('src/components/CargoDesk.tsx');
 
 assert(!server.includes("testId123"), 'test-user authentication bypass must never ship');
 assert(!server.includes("raw_commodity: raw_commodity || 'coil'"), 'deterministic parser must never invent COIL');
@@ -125,6 +127,18 @@ assert(
   server.includes("itemData.createdByUid === uid") &&
   server.includes("itemData.visibility !== 'network'"),
   'deal brief authorization must follow private core data and market request boundaries'
+);
+
+assert(
+  !selectionDesk.includes('process.env.GEMINI_API_KEY') &&
+  selectionDesk.includes("taskType: 'calculate_voyage'") &&
+  server.includes("calculate_voyage: 'freight_calc'"),
+  'Selection Desk voyage calculation must use the authenticated server AI router'
+);
+assert(
+  cargoDesk.includes("taskType: \"transport_specs\"") &&
+  !cargoDesk.includes('operation: "analyze_risk"'),
+  'Cargo transport intelligence must use the allowlisted AI router instead of a blocked generic operation'
 );
 
 if (!process.exitCode) {
