@@ -480,12 +480,23 @@ service cloud.firestore {
         (resource.data.visibility == 'my_desk' && resource.data.participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in resource.data.participantDeskIds)
       );
       allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid && (!('createdByDeskId' in incoming()) || incoming().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId);
-      allow update: if isSignedIn() && (
-        existing().createdByUid == request.auth.uid || 
-        (existing().participantUids != null && request.auth.uid in existing().participantUids) ||
-        (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
-        (existing().visibility == 'my_desk' && existing().participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in existing().participantDeskIds)
-      );
+      allow update: if isSignedIn()
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().get('createdByDeskId', null) == existing().get('createdByDeskId', null)
+        && (
+          existing().createdByUid == request.auth.uid ||
+          (
+            (
+              (existing().participantUids != null && request.auth.uid in existing().participantUids) ||
+              (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
+              (existing().visibility == 'my_desk' && existing().participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in existing().participantDeskIds)
+            )
+            && !incoming().diff(existing()).affectedKeys().hasAny([
+              'createdByUid', 'createdByDeskId', 'participantUids', 'participantDeskIds',
+              'visibility', 'linkedCargoId', 'linkedVesselId'
+            ])
+          )
+        );
       allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
     }
 
@@ -544,13 +555,27 @@ service cloud.firestore {
         (resource.data.visibility == 'my_desk' && resource.data.createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
         (resource.data.visibility == 'my_desk' && resource.data.participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in resource.data.participantDeskIds)
       );
-      allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid;
-      allow update: if isSignedIn() && (
-        existing().createdByUid == request.auth.uid || 
-        (existing().participantUids != null && request.auth.uid in existing().participantUids) ||
-        (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
-        (existing().visibility == 'my_desk' && existing().participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in existing().participantDeskIds)
-      );
+      allow create: if isSignedIn()
+        && incoming().createdByUid == request.auth.uid
+        && incoming().visibility in ['private', 'my_desk', 'participants']
+        && (!('createdByDeskId' in incoming()) || incoming().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId);
+      allow update: if isSignedIn()
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().get('createdByDeskId', null) == existing().get('createdByDeskId', null)
+        && (
+          existing().createdByUid == request.auth.uid ||
+          (
+            (
+              (existing().participantUids != null && request.auth.uid in existing().participantUids) ||
+              (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
+              (existing().visibility == 'my_desk' && existing().participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in existing().participantDeskIds)
+            )
+            && !incoming().diff(existing()).affectedKeys().hasAny([
+              'createdByUid', 'createdByDeskId', 'participantUids', 'participantDeskIds',
+              'visibility', 'sourceType', 'sourceId', 'dealRoomId', 'cargoId', 'vesselId'
+            ])
+          )
+        );
       allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
     }
     match /negotiationSuggestions/{suggestionId} {
@@ -560,10 +585,17 @@ service cloud.firestore {
         (resource.data.visibility == 'my_desk' && resource.data.createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
       );
       allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid;
-      allow update: if isSignedIn() && (
-        existing().createdByUid == request.auth.uid || 
-        (existing().participantUids != null && request.auth.uid in existing().participantUids)
-      );
+      allow update: if isSignedIn()
+        && incoming().createdByUid == existing().createdByUid
+        && (
+          existing().createdByUid == request.auth.uid ||
+          (
+            existing().participantUids != null && request.auth.uid in existing().participantUids
+            && !incoming().diff(existing()).affectedKeys().hasAny([
+              'createdByUid', 'createdByDeskId', 'participantUids', 'participantDeskIds', 'visibility'
+            ])
+          )
+        );
       allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
     }
   }
