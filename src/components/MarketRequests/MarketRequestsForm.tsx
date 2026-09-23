@@ -46,93 +46,143 @@ export const MarketRequestsForm: React.FC<MarketRequestsFormProps> = ({ type, on
   });
 
   const generateDeterministicMatches = async (requestId: string, reqData: any) => {
+    if (!user) return;
+
+    const normalize = (value: unknown) => String(value || '').trim().toLowerCase();
+    const contains = (value: unknown, required: unknown) => {
+      const needle = normalize(required);
+      return !needle || normalize(value).includes(needle);
+    };
+    const numericFromText = (value: unknown) => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      const match = String(value || '').replace(/,/g, '').match(/\d+(?:\.\d+)?/);
+      return match ? Number(match[0]) : 0;
+    };
+    const dateScore = (reqStart: string, reqEnd: string, itemDateText: unknown) => {
+      if (!reqStart && !reqEnd) return 10;
+      if (!itemDateText) return 0;
+      const itemTime = Date.parse(String(itemDateText));
+      if (!Number.isFinite(itemTime)) return 0;
+      const startTime = reqStart ? Date.parse(reqStart) : Number.NEGATIVE_INFINITY;
+      const endTime = reqEnd ? Date.parse(reqEnd) : Number.POSITIVE_INFINITY;
+      if (itemTime < startTime || itemTime > endTime) return 0;
+      return 20;
+    };
+
     try {
-      const q = query(collection(db, 'deskNetworkSharedItems'), where('visibility', '==', 'desk_network'));
-      const snap = await getDocs(q);
+      const connectionsSnap = await getDocs(collection(db, 'users', user.uid, 'networkConnections'));
+      const connectedOwnerIds = connectionsSnap.docs.map(d => d.id).filter(Boolean);
+      const sharedItems: Array<{ id: string; [key: string]: any }> = [];
+
+      for (const ownerId of connectedOwnerIds) {
+        const sharedQuery = query(
+          collection(db, 'sharedItems'),
+          where('ownerId', '==', ownerId),
+          where('status', '==', 'active')
+        );
+        const sharedSnap = await getDocs(sharedQuery);
+        sharedSnap.forEach(d => sharedItems.push({ id: d.id, ...d.data() }));
+      }
+
       const matches: any[] = [];
-      snap.forEach(d => {
-        const item = d.data();
-        if (item.userId === user?.uid) return;
+      for (const item of sharedItems) {
         let score = 0;
+        const reasons: string[] = [];
 
-        const compareDates = (reqStart: string, reqEnd: string, itemStart: string, itemEnd: string) => {
-           if (!reqStart && !reqEnd && !itemStart && !itemEnd) return 5;
-           const rS = reqStart ? new Date(reqStart).getTime() : 0;
-           const rE = reqEnd ? new Date(reqEnd).getTime() : Infinity;
-           const iS = itemStart ? new Date(itemStart).getTime() : 0;
-           const iE = itemEnd ? new Date(itemEnd).getTime() : Infinity;
-           if (isNaN(rS) || isNaN(rE) || isNaN(iS) || isNaN(iE)) return 0;
-           if (rE < iS || rS > iE) return 0;
-           if (rS >= iS && rE <= iE) return 30;
-           return 15;
-        };
+        if (reqData.type === 'cargo_search') {
+          if (item.itemType !== 'cargo') continue;
+          if (reqData.cargoType && !contains(item.commodity, reqData.cargoType)) continue;
+          if (reqData.loadArea && !contains(item.loadPort, reqData.loadArea)) continue;
+          if (reqData.dischargeArea && !contains(item.dischargePort, reqData.dischargeArea)) continue;
 
-        const compareQuantity = (reqMin: number, reqMax: number, itemNum: number) => {
-           if (!reqMin && !reqMax && !itemNum) return 5;
-           if (!itemNum) return 0;
-           const rm = reqMin || 0;
-           const rM = reqMax || Infinity;
-           if (itemNum >= rm && itemNum <= rM) return 30;
-           if (itemNum >= rm * 0.8 && itemNum <= rM * 1.2) return 15;
-           return 0;
-        };
-        
-        // Basic Deterministic Score logic
-        if (reqData.type === 'cargo_search' && item.itemType === 'vessel') {
-           if (item.vesselData?.openPort && reqData.loadArea && item.vesselData.openPort.toLowerCase().includes(reqData.loadArea.toLowerCase())) score += 30;
-           if (item.vesselData?.type && reqData.vesselType && item.vesselData.type.toLowerCase().includes(reqData.vesselType.toLowerCase())) score += 20;
-           score += compareDates(reqData.dateFrom, reqData.dateTo, item.vesselData?.openDate, item.vesselData?.openDate); // using openDate twice for a point in time
-           score += compareQuantity(reqData.quantityMin, reqData.quantityMax, item.vesselData?.dwt);
-        } else if (reqData.type === 'tonnage_search' && item.itemType === 'cargo') {
-           if (item.cargoData?.loadPort && reqData.loadArea && item.cargoData.loadPort.toLowerCase().includes(reqData.loadArea.toLowerCase())) score += 30;
-           if (item.cargoData?.commodity && reqData.cargoType && item.cargoData.commodity.toLowerCase().includes(reqData.cargoType.toLowerCase())) score += 20;
-           score += compareDates(reqData.dateFrom, reqData.dateTo, item.cargoData?.laycanFrom, item.cargoData?.laycanTo);
-           score += compareQuantity(item.cargoData?.quantity, item.cargoData?.quantity, reqData.dwtMax); // reverse check
-        } else if (reqData.type === 'available_vessel' && item.itemType === 'cargo') {
-           if (item.cargoData?.loadPort && reqData.loadArea && item.cargoData.loadPort.toLowerCase().includes(reqData.loadArea.toLowerCase())) score += 30;
-           if (item.cargoData?.commodity && reqData.cargoType && item.cargoData.commodity.toLowerCase().includes(reqData.cargoType.toLowerCase())) score += 20;
-           score += compareDates(reqData.dateFrom, reqData.dateFrom, item.cargoData?.laycanFrom, item.cargoData?.laycanTo);
-           score += compareQuantity(item.cargoData?.quantity, item.cargoData?.quantity, reqData.dwtMax);
+          if (reqData.cargoType) { score += 25; reasons.push(`Commodity: ${item.commodity}`); }
+          if (reqData.loadArea) { score += 25; reasons.push(`Load: ${item.loadPort}`); }
+          if (reqData.dischargeArea) { score += 15; reasons.push(`Discharge: ${item.dischargePort}`); }
+
+          const quantity = numericFromText(item.quantity);
+          if (reqData.quantityMin || reqData.quantityMax) {
+            const min = Number(reqData.quantityMin || 0);
+            const max = Number(reqData.quantityMax || Number.POSITIVE_INFINITY);
+            if (!quantity || quantity < min || quantity > max) continue;
+            score += 20;
+            reasons.push(`Quantity: ${item.quantity}`);
+          }
+
+          const ds = dateScore(reqData.dateFrom, reqData.dateTo, item.laycan);
+          score += ds;
+          if (ds) reasons.push(`Laycan: ${item.laycan || 'within requested window'}`);
+        } else if (reqData.type === 'tonnage_search') {
+          if (item.itemType !== 'vessel') continue;
+          if (reqData.vesselType && !contains(item.vessel_type || item.type, reqData.vesselType)) continue;
+          if (reqData.loadArea && !contains(item.openPort, reqData.loadArea)) continue;
+
+          if (reqData.vesselType) { score += 35; reasons.push(`Type: ${item.vessel_type || item.type}`); }
+          if (reqData.loadArea) { score += 35; reasons.push(`Open: ${item.openPort}`); }
+          const ds = dateScore(reqData.dateFrom, reqData.dateTo, item.openDate);
+          score += ds;
+          if (ds) reasons.push(`Open date: ${item.openDate || 'within requested window'}`);
+        } else if (reqData.type === 'available_vessel') {
+          if (item.itemType !== 'cargo') continue;
+          const vesselDwt = Number(reqData.dwtMin || 0);
+          const cargoQuantity = numericFromText(item.quantity);
+          if (vesselDwt > 0 && cargoQuantity > 0 && cargoQuantity > vesselDwt) continue;
+
+          if (reqData.loadArea && contains(item.loadPort, reqData.loadArea)) {
+            score += 35;
+            reasons.push(`Load area: ${item.loadPort}`);
+          }
+          if (vesselDwt > 0 && cargoQuantity > 0) {
+            score += 35;
+            reasons.push(`Cargo ${item.quantity} within stated DWT`);
+          }
+          const ds = dateScore(reqData.dateFrom, reqData.dateTo || reqData.dateFrom, item.laycan);
+          score += ds;
+          if (ds) reasons.push(`Laycan: ${item.laycan || 'within requested window'}`);
+        } else {
+          continue;
         }
 
-        if (score >= 40) {
-          score = Math.min(score, 100);
-          matches.push({
-            id: `MATCH-${Math.random().toString(36).substring(2,9)}`,
-            requestId,
-            sharedItemId: d.id,
-            requestType: reqData.type,
-            vesselOwnerUid: item.itemType === 'vessel' ? item.userId : user?.uid,
-            cargoOwnerUid: item.itemType === 'cargo' ? item.userId : user?.uid,
-            matchScore: score,
-            label: score >= 80 ? 'strong match' : (score >= 60 ? 'possible match' : 'weak match'),
-            status: 'active',
-            createdAt: new Date().toISOString(),
-            audit: [{ action: 'match generated', timestamp: new Date().toISOString(), actor: 'system' }]
-          });
-        }
-      });
+        if (score < 40) continue;
+        const matchId = `MATCH-${requestId}-${item.id}`;
+        const currentUserIsVesselSide = reqData.type === 'available_vessel' || reqData.type === 'cargo_search';
+        // Find Cargo = our vessel-side request matched to another desk's cargo.
+        // Find Tonnage = our cargo-side request matched to another desk's vessel.
+        const vesselOwnerUid = reqData.type === 'tonnage_search' ? item.ownerId : user.uid;
+        const cargoOwnerUid = reqData.type === 'tonnage_search' ? user.uid : item.ownerId;
 
+        matches.push({
+          id: matchId,
+          requestId,
+          sharedItemId: item.id,
+          requestType: reqData.type,
+          vesselOwnerUid,
+          cargoOwnerUid,
+          matchScore: Math.min(100, score),
+          label: score >= 80 ? 'strong match' : score >= 60 ? 'possible match' : 'candidate',
+          reasons,
+          status: 'active',
+          createdAt: new Date().toISOString(),
+          audit: [{ action: 'deterministic match generated', timestamp: new Date().toISOString(), actor: user.uid }]
+        });
+      }
+
+      const idToken = await user.getIdToken();
       for (const match of matches) {
-         await setDoc(doc(db, 'marketMatches', match.id), match);
-         
-         // Trigger alert for the counterpart (owner of the shared item)
-         const counterpartUid = match.vesselOwnerUid === user?.uid ? match.cargoOwnerUid : match.vesselOwnerUid;
-         if (counterpartUid) {
-             import('../../lib/alertService').then(({ createAlert }) => {
-                 createAlert({
-                     recipientUid: counterpartUid,
-                     title: 'New Market Match',
-                     message: `A new market request matches your shared item with score ${Math.round(match.matchScore)}%.`,
-                     priority: match.matchScore >= 80 ? 'high' : 'info',
-                     category: 'market_request_match',
-                     actionRoute: '/dashboard'
-                 }).catch(console.error);
-             });
-         }
+        await setDoc(doc(db, 'marketMatches', match.id), match, { merge: true });
+        const notifyResponse = await fetch('/api/market/matches/notify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`
+          },
+          body: JSON.stringify({ matchId: match.id })
+        });
+        if (!notifyResponse.ok) {
+          console.warn(`Market match notification failed for ${match.id}: HTTP ${notifyResponse.status}`);
+        }
       }
     } catch (err) {
-      console.warn("Failed to generate matches:", err);
+      console.warn("Failed to generate market request matches:", err);
     }
   };
 
@@ -143,7 +193,7 @@ export const MarketRequestsForm: React.FC<MarketRequestsFormProps> = ({ type, on
     setError('');
 
     try {
-      const id = `REQ-${Math.floor(Math.random() * 1000000).toString(16).toUpperCase()}`;
+      const id = `REQ-${crypto.randomUUID()}`;
       const requestRef = doc(db, 'marketRequests', id);
       
       const expiry = new Date();
