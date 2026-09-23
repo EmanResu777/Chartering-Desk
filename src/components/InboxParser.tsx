@@ -42,6 +42,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
   const { currentWorkspace } = useWorkspace();
   const isViewer = currentWorkspace?.myRole === 'viewer';
   const { t } = useConfig();
+  const demoDataEnabled = import.meta.env.DEV && import.meta.env.VITE_ALLOW_DEMO_DATA === 'true';
   const [parsingId, setParsingId] = useState<string | null>(null);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [extractionResult, setExtractionResult] = useState<any>(null);
@@ -451,34 +452,22 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
         setIsLoggedIn(true);
         if (syncStatus !== 'failed') setSyncStatus('completed');
       } else {
-        // Fallback to mock data for demo purposes directly
-        console.warn("Using mock data because OAuth/IMAP is not configured or results were empty.");
-        const mockEmails: Email[] = [
-          {
-            id: `msg-${Date.now()}-1`,
-            accountId: accounts.find(a => a.provider === 'gmail')?.id || 'acc-1',
-            sender: 'charter@pacific-materials.com',
-            subject: 'URGENT: 50,000 MT COAL IDO/N.D.A',
-            rawBody: 'Please offer firm for 50,000 MT +/- 10% MOLOO Coal in bulk from Richards Bay to Kandla. Laycan 15-25 May. 15,000 SHINC / 15,000 SHINC. Freight idea: Try mid 20s.',
-            summary: '50k MT Coal from Richards Bay to Kandla. Laycan May 15-25.',
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + 'Z',
-            classification: 'CARGO',
-            confidence: 98,
-            category: 'DRY BULK',
-            provider: 'gmail',
-            relevanceStatus: 'likely_cargo'
-          },
-          ...INITIAL_EMAILS
-        ];
-        
         setLastChecked(new Date());
-        setEmails(prev => {
-          const uniqueExisting = prev.filter(e => !mockEmails.some(ne => ne.id === e.id));
-          return [...mockEmails, ...uniqueExisting];
-        });
-        setIsLoggedIn(true);
-        setSyncStatus('completed');
-        if (!isBackground) notify({ title: 'Demo Mode', message: "Running in Demo Mode: Check email settings.", type: 'info' });
+        if (demoDataEnabled) {
+          const demoEmails: Email[] = [...INITIAL_EMAILS];
+          setEmails(prev => {
+            const uniqueExisting = prev.filter(e => !demoEmails.some(ne => ne.id === e.id));
+            return [...demoEmails, ...uniqueExisting];
+          });
+          setIsLoggedIn(true);
+          setSyncStatus('completed');
+          if (!isBackground) notify({ title: 'Development Demo Data', message: 'No live messages returned; explicit dev demo data loaded.', type: 'info' });
+        } else {
+          setSyncStatus('completed');
+          if (!isBackground) {
+            notify({ title: 'Inbox Checked', message: 'No new messages were returned by the configured email sources.', type: 'info' });
+          }
+        }
       }
     } catch (error: any) {
       console.warn('Fetch operation failed:', error.message);
@@ -502,35 +491,14 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
       handleFetchEmails();
     } catch (error: any) {
       console.error('Auth error:', error);
-      if (error.message?.includes('VITE_GOOGLE_CLIENT_ID') || error.message?.includes('Client Secret') || error.message?.includes('Authentication window closed')) {
-        // Option to show guide or fallback
-        if (!accounts.find(a => a.provider === 'gmail')) {
-            setAccounts(prev => [...prev, { id: `acc-${Date.now()}`, email: 'demo@gmail.com', provider: 'gmail', active: true }]);
-        }
-        
-        // Use demo mode
-        console.warn("Using mock data because OAuth is not configured or failed.");
-        const mockEmails: Email[] = [
-          {
-            id: `msg-${Date.now()}-1`,
-            accountId: accounts.find(a => a.provider === 'gmail')?.id || 'acc-1',
-            sender: 'charter@pacific-materials.com',
-            subject: 'URGENT: 50,000 MT COAL IDO/N.D.A',
-            rawBody: 'Please offer firm for 50,000 MT +/- 10% MOLOO Coal in bulk from Richards Bay to Kandla. Laycan 15-25 May. 15,000 SHINC / 15,000 SHINC. Freight idea: Try mid 20s.',
-            summary: '50k MT Coal from Richards Bay to Kandla. Laycan May 15-25.',
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + 'Z',
-            classification: 'CARGO',
-            confidence: 98,
-            category: 'DRY BULK',
-            provider: 'gmail',
-            relevanceStatus: 'likely_cargo'
-          },
-          ...INITIAL_EMAILS
-        ];
-        setEmails(mockEmails as any);
+      if (demoDataEnabled) {
+        setEmails([...INITIAL_EMAILS]);
         setIsLoggedIn(true);
+        notify({ title: 'Development Demo Data', message: 'OAuth failed; explicit dev demo data loaded.', type: 'info' });
       } else {
+        setIsLoggedIn(false);
         setGlobalError(error.message || "Authentication failed.");
+        setShowSetupGuide(true);
       }
     }
   };
@@ -983,21 +951,21 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
                                 );
                               })}
                             </div>
-                            <div className="mt-4">
-                              <button
-                                onClick={() => {
-                                  if (!accounts.find(a => a.provider === 'gmail')) {
-                                      setAccounts(prev => [...prev, { id: `acc-${Date.now()}`, email: 'demo@gmail.com', provider: 'gmail', active: true }]);
-                                  }
-                                  setGlobalError(null);
-                                  setIsLoggedIn(true);
-                                  handleFetchEmails();
-                                  setShowSetupGuide(false);
-                                }}
-                                className="w-full flex items-center justify-center gap-2 p-3 bg-surface-container-high hover:bg-surface-container-highest border border-outline text-[10px] font-bold text-[#b4c6e4] hover:text-on-surface uppercase tracking-widest transition-all"
-                              >
-                                🚀 Load Demo Data (Bypass Auth)
-                              </button>
+                            {demoDataEnabled && (
+                              <div className="mt-4">
+                                <button
+                                  onClick={() => {
+                                    setGlobalError(null);
+                                    setEmails([...INITIAL_EMAILS]);
+                                    setIsLoggedIn(true);
+                                    setShowSetupGuide(false);
+                                  }}
+                                  className="w-full flex items-center justify-center gap-2 p-3 bg-surface-container-high hover:bg-surface-container-highest border border-outline text-[10px] font-bold text-[#b4c6e4] hover:text-on-surface uppercase tracking-widest transition-all"
+                                >
+                                  Load Development Demo Data
+                                </button>
+                              </div>
+                            )}
                             </div>
                           </div>
                         </>
@@ -1508,13 +1476,13 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
               className="fixed inset-0 z-[100] flex items-center justify-center bg-surface-dim/80 p-4 backdrop-blur-sm"
             >
               <div className="bg-surface-container border border-primary max-w-lg w-full p-8 font-mono relative text-center">
-                <h3 className="text-primary font-bold uppercase tracking-widest mb-4">Fallback Mode</h3>
-                <p className="text-on-surface-variant font-sans text-sm mb-6">Running in Mock Data mode because VITE_GOOGLE_CLIENT_ID is not configured in the platform settings. This ensures the UI remains accessible for testing.</p>
+                <h3 className="text-primary font-bold uppercase tracking-widest mb-4">Email Integration Required</h3>
+                <p className="text-on-surface-variant font-sans text-sm mb-6">Gmail OAuth is not available or authorization failed. Configure the Google OAuth client or connect an IMAP mailbox. Production mode does not substitute demo messages.</p>
                 <button 
                   onClick={() => setShowSetupGuide(false)}
                   className="bg-primary text-on-primary py-2 px-8 font-bold uppercase tracking-widest hover:opacity-90 transition-opacity"
                 >
-                  Continue in Demo Mode
+                  Close
                 </button>
               </div>
             </motion.div>
