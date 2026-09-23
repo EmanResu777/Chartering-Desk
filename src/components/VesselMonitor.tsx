@@ -879,7 +879,7 @@ export const VesselMonitor: React.FC<{
                 initial={{ y: 100, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 100, opacity: 0 }}
-                className="fixed bottom-12 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-6 px-8 py-4 bg-surface-container-high border border-primary/30 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+                className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] md:bottom-12 left-1/2 -translate-x-1/2 z-[60] flex max-w-[calc(100vw-1.5rem)] items-center gap-3 sm:gap-6 px-4 sm:px-8 py-3 sm:py-4 bg-surface-container-high border border-primary/30 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl"
               >
                 <div className="flex items-center gap-3 pr-6 border-r border-outline/30">
                   <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-mono text-sm">
