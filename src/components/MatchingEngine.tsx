@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cargo, Vessel, INITIAL_VESSELS, MatchResult, cn } from '../lib/utils';
+import { Cargo, Vessel, MatchResult, cn } from '../lib/utils';
 import { matchVessels } from '../lib/geminiService';
 import { ShieldCheck, Zap, Ship, MapPin, Gauge, Edit3, MessageSquare, RotateCw, ArrowRight, AlertTriangle, Calculator, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -20,16 +20,16 @@ export const MatchingEngine: React.FC<{
   const [processingVesselId, setProcessingVesselId] = useState<string | null>(null);
   const [showAssumptions, setShowAssumptions] = useState(false);
   const [assumptions, setAssumptions] = useState({
-    bunkerPrice: 600,
-    dailyHire: 10000,
-    portCost: 30000,
+    bunkerPrice: 0,
+    dailyHire: 0,
+    portCost: 0,
     canalCost: 0,
-    ballastSpeed: 13,
-    ladenSpeed: 12.5,
-    ballastConsumption: 25,
-    ladenConsumption: 28,
-    idleConsumption: 3,
-    waitingDays: 2
+    ballastSpeed: 0,
+    ladenSpeed: 0,
+    ballastConsumption: 0,
+    ladenConsumption: 0,
+    idleConsumption: 0,
+    waitingDays: 0
   });
   const { notify, addNotification, settings } = useNotification();
 
@@ -121,15 +121,15 @@ export const MatchingEngine: React.FC<{
         <div className="bg-surface-container-lowest border border-outline p-3 font-mono text-[10px] text-tertiary/80 space-y-1">
           <div className="flex gap-4">
             <span className="text-[#2d3f5a]">&gt;&gt; [14:40:01]</span>
-            <span>INTEL_SCAN: FETCHING AIS TELEMETRY... [OK]</span>
+            <span>SOURCE_CHECK: LOADING SAVED VESSEL POSITION DATA... [OK]</span>
           </div>
           <div className="flex gap-4">
             <span className="text-[#2d3f5a]">&gt;&gt; [14:40:02]</span>
-            <span>FILTER: APPLYING LAYCAN_TOLERANCE (±2.5d)... [OK]</span>
+            <span>FILTER: APPLYING CAPACITY / POSITION / LAYCAN CHECKS... [OK]</span>
           </div>
           <div className="flex gap-4">
             <span className="text-[#2d3f5a]">&gt;&gt; [14:40:03]</span>
-            <span className="animate-pulse">COMPUTING: MATCH_PROBABILITY_MATRIX...</span>
+            <span className="animate-pulse">COMPUTING: COMMERCIAL MATCH SCENARIO...</span>
           </div>
           {!loading && (
              <div className="pt-2 text-tertiary font-bold uppercase">
@@ -142,7 +142,7 @@ export const MatchingEngine: React.FC<{
           <div className="border border-outline bg-surface-container p-4">
             <div className="flex items-center justify-between cursor-pointer" onClick={() => setShowAssumptions(!showAssumptions)}>
               <div className="flex items-center gap-2 font-bold uppercase text-[12px] tracking-widest text-primary">
-                <Calculator className="h-4 w-4" /> Market Assumptions (Estimated)
+                <Calculator className="h-4 w-4" /> Commercial Assumptions (Enter Actuals)
               </div>
               <button className="text-[10px] text-on-surface-variant uppercase hover:text-on-surface">
                 {showAssumptions ? 'Hide Settings' : 'Edit Settings'}
@@ -339,8 +339,10 @@ export const MatchingEngine: React.FC<{
                          <span className="text-on-surface font-bold">{match.eta}</span>
                        </div>
                        <div className="flex justify-between items-center text-[11px] font-mono">
-                         <span className="text-on-surface-variant uppercase font-bold">SPATIAL_GAP:</span>
-                         <span className="text-primary font-bold">{match.distance}</span>
+                         <span className="text-on-surface-variant uppercase font-bold">
+                           {match.missingPositionData ? 'SPATIAL_GAP (INDICATIVE):' : 'SPATIAL_GAP:'}
+                         </span>
+                         <span className={match.missingPositionData ? "text-amber-500 font-bold" : "text-primary font-bold"}>{match.distance}</span>
                        </div>
                     </div>
                   </div>

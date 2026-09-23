@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Search, Plus, Calendar, ArrowRight, TrendingUp, X, Info, Scale, MapPin, FileText, Zap, Loader2, Package2, RotateCw, CheckCircle, Database, Trash2, Share2, User, Download, FileJson, FileSpreadsheet, ChevronDown, Filter, Radar } from 'lucide-react';
-import { Cargo, Vessel, INITIAL_CARGO, cn, exportToCSV, exportToJSON } from '../lib/utils';
+import { Cargo, Vessel, cn, exportToCSV, exportToJSON } from '../lib/utils';
 import { REGIONS, parseRegion, isDateInRange, matchMinMax } from '../lib/filterUtils';
 import { calculateProximity, ProximityInsight } from '../lib/proximityIntelligence';
 import { motion, AnimatePresence } from 'motion/react';
@@ -259,16 +259,18 @@ export const CargoDesk: React.FC<{
     setAiInsights(null);
     try {
       const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-      const response = await fetch('/api/ai/generateContent', {
+      if (!idToken) throw new Error('Authentication required');
+      const response = await fetch('/api/ai/routeTask', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
+          'Authorization': `Bearer ${idToken}`
         },
         body: JSON.stringify({
-          model: "gemini-1.5-flash",
-          operation: "analyze_risk", // Using a relevant cost category
-          contents: `Provide transport specs for "${commodity}": SF range, hazards(IMDG/IMSBC), moisture limits, ventilation needs. Keep it short.`
+          taskType: "transport_specs",
+          payload: {
+            contents: `Provide transport specs for "${commodity}": SF range, hazards (IMDG/IMSBC), moisture limits, ventilation needs. Keep it short and flag uncertainty.`
+          }
         })
       });
       
@@ -771,7 +773,7 @@ export const CargoDesk: React.FC<{
                 initial={{ y: 100, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 100, opacity: 0 }}
-                className="fixed bottom-12 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-6 px-8 py-4 bg-surface-container-high border border-primary/30 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+                className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] md:bottom-12 left-1/2 -translate-x-1/2 z-[60] flex max-w-[calc(100vw-1.5rem)] items-center gap-3 sm:gap-6 px-4 sm:px-8 py-3 sm:py-4 bg-surface-container-high border border-primary/30 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl"
               >
                 <div className="flex items-center gap-3 pr-6 border-r border-outline/30">
                   <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-mono text-sm">
@@ -1349,7 +1351,7 @@ const CargoDraftModal = ({ onClose, onSubmit }: { onClose: () => void, onSubmit:
     e.preventDefault();
     const newCargo: Cargo = {
       ...formData as Cargo,
-      id: `CRG-${Math.floor(1000 + Math.random() * 9000)}-${formData.category?.[0] || 'G'}`,
+      id: `CRG-${crypto.randomUUID()}`,
       confidence: 100
     };
     onSubmit(newCargo);

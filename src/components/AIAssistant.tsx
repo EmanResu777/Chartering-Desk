@@ -57,10 +57,6 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ context }) => {
     setIsTyping(true);
 
     try {
-      if (!process.env.GEMINI_API_KEY) {
-        throw new Error("API Key not configured");
-      }
-
       let systemContext = "You are a professional maritime chartering assistant. ";
       const hasCargo = !!context?.cargo;
       const hasVessel = !!context?.vessel;

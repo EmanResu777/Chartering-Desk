@@ -1,13 +1,15 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { OAuth2Client } from "google-auth-library";
+import { GoogleAuth, OAuth2Client } from "google-auth-library";
 import cookieParser from "cookie-parser";
 import Stripe from 'stripe';
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, Firestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual, createHash } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import fs from 'fs';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
@@ -15,6 +17,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import OpenAI from "openai";
 import { fetchAISPosition, getAISProviderStatus } from './src/server/aisProvider';
 import { estimateRoute } from './src/lib/routingProvider';
+import { getMarketSnapshot, getBunkerSnapshot } from './src/server/marketProvider';
 
 let firestore: Firestore | null = null;
 try {
@@ -70,6 +73,111 @@ try {
   console.error("Failed to initialize Firebase Admin:", e);
 }
 
+function getCredentialEncryptionKey(): Buffer {
+  const encoded = (process.env.EMAIL_CREDENTIALS_ENCRYPTION_KEY || '').trim();
+  if (!encoded) {
+    throw new Error('EMAIL_CREDENTIALS_ENCRYPTION_KEY is not configured');
+  }
+  const key = Buffer.from(encoded, 'base64');
+  if (key.length !== 32) {
+    throw new Error('EMAIL_CREDENTIALS_ENCRYPTION_KEY must be a base64-encoded 32-byte key');
+  }
+  return key;
+}
+
+function encryptCredential(value: string): string {
+  const key = getCredentialEncryptionKey();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return ['v1', iv.toString('base64'), tag.toString('base64'), ciphertext.toString('base64')].join('.');
+}
+
+function decryptCredential(payload: string): string {
+  const [version, ivB64, tagB64, ciphertextB64] = String(payload || '').split('.');
+  if (version !== 'v1' || !ivB64 || !tagB64 || !ciphertextB64) {
+    throw new Error('Unsupported encrypted credential format');
+  }
+  const key = getCredentialEncryptionKey();
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivB64, 'base64'));
+  decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
+  return Buffer.concat([
+    decipher.update(Buffer.from(ciphertextB64, 'base64')),
+    decipher.final()
+  ]).toString('utf8');
+}
+
+function readStoredCredential(data: any, encryptedField: string, legacyField: string): string | undefined {
+  if (data?.[encryptedField]) {
+    return decryptCredential(data[encryptedField]);
+  }
+  if (data?.[legacyField]) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Legacy plaintext email credentials are blocked in production; reconnect the account.');
+    }
+    return data[legacyField];
+  }
+  return undefined;
+}
+
+function constantTimeSecretEquals(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided || '', 'utf8');
+  const b = Buffer.from(expected || '', 'utf8');
+  return a.length === b.length && a.length > 0 && timingSafeEqual(a, b);
+}
+
+function isBlockedNetworkAddress(address: string): boolean {
+  if (isIP(address) === 4) {
+    const parts = address.split('.').map(Number);
+    const [a, b] = parts;
+    return a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 198 && (b === 18 || b === 19)) ||
+      a >= 224;
+  }
+
+  if (isIP(address) === 6) {
+    const value = address.toLowerCase();
+    if (value === '::' || value === '::1' || value.startsWith('ff')) return true;
+    if (value.startsWith('fc') || value.startsWith('fd')) return true;
+    if (/^fe[89ab]/.test(value)) return true;
+    if (value.startsWith('::ffff:')) {
+      return isBlockedNetworkAddress(value.substring('::ffff:'.length));
+    }
+  }
+
+  return false;
+}
+
+async function resolveSafeImapHost(host: string): Promise<{ connectHost: string; servername: string }> {
+  const normalizedHost = String(host || '').trim().toLowerCase().replace(/\.$/, '');
+  if (!normalizedHost || normalizedHost === 'localhost' || normalizedHost.endsWith('.local')) {
+    throw new Error('Invalid IMAP host');
+  }
+  if (normalizedHost.length > 253 || (!isIP(normalizedHost) && !/^[a-z0-9.-]+$/.test(normalizedHost))) {
+    throw new Error('Invalid IMAP host');
+  }
+
+  const addresses = isIP(normalizedHost)
+    ? [{ address: normalizedHost }]
+    : await lookup(normalizedHost, { all: true, verbatim: true });
+
+  if (!addresses.length || addresses.some(result => isBlockedNetworkAddress(result.address))) {
+    throw new Error('IMAP host resolves to a blocked network address');
+  }
+
+  return {
+    connectHost: addresses[0].address,
+    servername: normalizedHost
+  };
+}
+
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY, { apiVersion: '2025-01-27.acacia' as any }) : null;
 
@@ -80,8 +188,8 @@ const STRIPE_PLAN_MAPPING: Record<string, { priceId: string, name: string }> = {
 
 const AI_MODELS = {
   BROWSER_OPTIONAL: "gemini-nano-browser-optional",
-  COMPLEX_CLOUD: "gemini-2.5-flash",
-  HEAVY_SERVER: "gemini-2.5-pro",
+  COMPLEX_CLOUD: process.env.GEMINI_MODEL_FAST || "gemini-2.5-flash",
+  HEAVY_SERVER: process.env.GEMINI_MODEL_HEAVY || "gemini-2.5-pro",
   LOCAL_PROCESSING: "no-llm"
 };
 
@@ -119,6 +227,7 @@ export const CREDIT_COST: Record<string, number> = {
   analyze_risk: 5,
   match_cargo_vessel: 5,
   negotiation_strategy: 5,
+  market_report_analysis: 3,
   email_sync_scan: 1,
   manual_text_intake: 1,
   draft_reply: 2,
@@ -126,7 +235,8 @@ export const CREDIT_COST: Record<string, number> = {
   recap_generation: 3,
   risk_review: 5,
   vessel_search: 1,
-  cargo_match_review: 3
+  cargo_match_review: 3,
+  routing_estimate: 1
 };
 
 // Usage Helper Functions
@@ -135,11 +245,114 @@ export function getCurrentUsagePeriod(): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+type BillingState = {
+  planId: 'trial' | 'solo' | 'desk' | 'free';
+  billingStatus: string;
+  creditsIncluded: number;
+  resetAt: Date;
+  trialStartedAt?: Date;
+  trialEndsAt?: Date;
+  currentPeriodStart?: Date;
+  currentPeriodEnd?: Date;
+};
+
+async function getOrCreateBillingState(uid: string): Promise<BillingState | null> {
+  if (!firestore) return null;
+  const stateRef = firestore.collection('users').doc(uid).collection('billingState').doc('current');
+  const existing = await stateRef.get();
+  if (existing.exists) {
+    return existing.data() as BillingState;
+  }
+
+  let accountCreatedAt = new Date();
+  try {
+    const userRecord = await getAuth().getUser(uid);
+    if (userRecord.metadata.creationTime) {
+      accountCreatedAt = new Date(userRecord.metadata.creationTime);
+    }
+  } catch (error: any) {
+    console.warn('[Billing] Failed to resolve Firebase Auth creation time:', error.message);
+    return null;
+  }
+
+  const trialEndsAt = new Date(accountCreatedAt.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const activeTrial = Date.now() < trialEndsAt.getTime();
+  const initialState: BillingState = {
+    planId: 'trial',
+    billingStatus: activeTrial ? 'trial' : 'trial_expired',
+    creditsIncluded: activeTrial ? PLAN_CONFIG.trial.creditsIncluded : 0,
+    resetAt: trialEndsAt,
+    trialStartedAt: accountCreatedAt,
+    trialEndsAt,
+  };
+
+  try {
+    await stateRef.create({
+      ...initialState,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return initialState;
+  } catch (error: any) {
+    const raced = await stateRef.get();
+    if (raced.exists) return raced.data() as BillingState;
+    console.error('[Billing] Failed to initialize billing state:', error.message);
+    return null;
+  }
+}
+
+function normalizeBillingState(raw: any): BillingState | null {
+  if (!raw) return null;
+  const toDate = (value: any) => value?.toDate ? value.toDate() : (value ? new Date(value) : undefined);
+  const planId = ['trial', 'solo', 'desk', 'free'].includes(raw.planId) ? raw.planId : 'free';
+  const resetAt = toDate(raw.resetAt) || new Date(0);
+  const trialEndsAt = toDate(raw.trialEndsAt);
+  const currentPeriodStart = toDate(raw.currentPeriodStart);
+  const currentPeriodEnd = toDate(raw.currentPeriodEnd);
+
+  let creditsIncluded = Number(raw.creditsIncluded || 0);
+  let billingStatus = String(raw.billingStatus || 'inactive');
+
+  if (planId === 'trial') {
+    const stillActive = !!trialEndsAt && Date.now() < trialEndsAt.getTime();
+    creditsIncluded = stillActive ? PLAN_CONFIG.trial.creditsIncluded : 0;
+    billingStatus = stillActive ? 'trial' : 'trial_expired';
+  } else if (planId === 'solo' || planId === 'desk') {
+    const activeStatus = ['active', 'trialing'].includes(billingStatus);
+    const withinPaidPeriod = !currentPeriodEnd || Date.now() <= currentPeriodEnd.getTime();
+    creditsIncluded = activeStatus && withinPaidPeriod
+      ? Number(PLAN_CONFIG[planId].creditsIncluded)
+      : 0;
+    if (!withinPaidPeriod && activeStatus) billingStatus = 'renewal_pending';
+  } else {
+    creditsIncluded = 0;
+  }
+
+  return {
+    planId,
+    billingStatus,
+    creditsIncluded,
+    resetAt: currentPeriodEnd || trialEndsAt || resetAt,
+    trialStartedAt: toDate(raw.trialStartedAt),
+    trialEndsAt,
+    currentPeriodStart,
+    currentPeriodEnd,
+  };
+}
+
+async function writeBillingState(uid: string, data: Record<string, any>) {
+  if (!firestore) throw new Error('Firestore not initialized');
+  await firestore.collection('users').doc(uid).collection('billingState').doc('current').set({
+    ...data,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+}
+
 export function getCreditCost(operation: string): number {
   const cost = CREDIT_COST[operation];
   if (cost === undefined) {
-    console.warn(`[Usage Warning] Unknown operation cost requested: ${operation}. Defaulting to safe fallback (0).`);
-    return 0; // Fail safely without blocking if operation is unknown
+    console.error(`[Usage Error] Unknown operation cost requested: ${operation}. Applying conservative fallback cost.`);
+    return 5; // Fail closed financially: unknown operations must never become free.
   }
   return cost;
 }
@@ -160,7 +373,7 @@ export async function checkIsAdmin(uid: string, email?: string): Promise<boolean
     return true;
   }
 
-  const adminEmailsString = process.env.ADMIN_EMAILS || 'romattttt@gmail.com';
+  const adminEmailsString = process.env.ADMIN_EMAILS || '';
   const adminEmails = adminEmailsString.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
   
   let isEmailAdmin = false;
@@ -260,7 +473,14 @@ export async function chargeCreditsAfterSuccess(uid: string, operation: string, 
     await recordUsageEvent(uid, operation, { requestId, status: 'success', ...metadata });
     return { recorded: true, cost, operation, requestId };
   }
-  return await incrementCreditsUsed(uid, operation, cost, requestId, metadata);
+  const result = await incrementCreditsUsed(uid, operation, cost, requestId, metadata);
+  if (!result.recorded && !result.alreadyRecorded) {
+    if (result.safeErrorCode === 'CREDIT_LIMIT_EXCEEDED') {
+      throw new Error('CREDIT_LIMIT_EXCEEDED');
+    }
+    throw new Error('USAGE_RECORDING_FAILED');
+  }
+  return result;
 }
 
 export async function recordFailedNotCharged(uid: string, operation: string, requestId: string, safeErrorCode: string) {
@@ -316,27 +536,49 @@ export async function getOrCreateUsageDoc(uid: string) {
   if (!firestore) return null;
   const period = getCurrentUsagePeriod();
   const usageRef = firestore.collection('users').doc(uid).collection('usage').doc(period);
-  
+
   try {
+    const rawBillingState = await getOrCreateBillingState(uid);
+    const billingState = normalizeBillingState(rawBillingState);
+    if (!billingState) return null;
+
     const docSnap = await usageRef.get();
-    if (!docSnap.exists) {
-      // Create new monthly doc or trial doc
+    const existing = docSnap.exists ? (docSnap.data() || {}) : null;
+    const desired = {
+      uid,
+      planId: billingState.planId,
+      creditsIncluded: billingState.creditsIncluded,
+      period,
+      resetAt: billingState.resetAt,
+      billingStatus: billingState.billingStatus,
+      updatedAt: FieldValue.serverTimestamp()
+    };
+
+    if (!existing) {
       const newDoc = {
-        uid,
-        planId: 'trial', // Defaulting to trial for skeleton
-        creditsIncluded: PLAN_CONFIG.trial.creditsIncluded,
+        ...desired,
         creditsUsed: 0,
-        period,
-        resetAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days for trial
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp()
+        createdAt: FieldValue.serverTimestamp()
       };
       await usageRef.set(newDoc);
-      return newDoc;
+      return { ...newDoc, updatedAt: undefined, createdAt: undefined };
     }
-    return docSnap.data();
+
+    const existingResetAt = existing.resetAt?.toDate ? existing.resetAt.toDate() : new Date(existing.resetAt || 0);
+    const needsReconcile =
+      existing.planId !== desired.planId ||
+      Number(existing.creditsIncluded || 0) !== desired.creditsIncluded ||
+      existing.billingStatus !== desired.billingStatus ||
+      existingResetAt.getTime() !== billingState.resetAt.getTime();
+
+    if (needsReconcile) {
+      await usageRef.set(desired, { merge: true });
+      return { ...existing, ...desired };
+    }
+
+    return existing;
   } catch (err: any) {
-    console.error("[Usage Fatal] Failed to get or create usage doc. Error name:", err.name, "Message:", err.message, "Stack:", err.stack);
+    console.error("[Usage Fatal] Failed to get or create usage doc. Error name:", err.name, "Message:", err.message);
     return null;
   }
 }
@@ -370,6 +612,7 @@ export async function recordUsageEvent(uid: string, operation: string, metadata:
       outputTokens: safeMetadata.outputTokens || null,
       totalTokens: safeMetadata.totalTokens || null,
       estimatedCostUsd: safeMetadata.estimatedCostUsd || null,
+      period: getCurrentUsagePeriod(),
       createdAt: FieldValue.serverTimestamp()
     });
   } catch (error) {
@@ -382,6 +625,11 @@ export async function incrementCreditsUsed(uid: string, operation: string, cost:
     return { recorded: false, cost, operation, requestId, safeErrorCode: 'no_firestore' };
   }
   
+  const preparedUsage = await getOrCreateUsageDoc(uid);
+  if (!preparedUsage) {
+    return { recorded: false, cost, operation, requestId, safeErrorCode: 'USAGE_STATE_UNAVAILABLE' };
+  }
+
   let validRequestId = requestId;
   if (!validRequestId) {
     // Fail-safe logic if no idempotency key is provided.
@@ -395,30 +643,54 @@ export async function incrementCreditsUsed(uid: string, operation: string, cost:
   const period = getCurrentUsagePeriod();
   const usageRef = firestore.collection('users').doc(uid).collection('usage').doc(period);
   const eventRef = firestore.collection('users').doc(uid).collection('usageEvents').doc(eventId);
+  const overrideRef = firestore.collection('users').doc(uid).collection('usageOverrides').doc('current');
   
   try {
     const result = await firestore.runTransaction(async (transaction) => {
       const eventSnap = await transaction.get(eventRef);
       if (eventSnap.exists) {
-        // Event already recorded, idempotency lock kicks in
         return { recorded: false, alreadyRecorded: true, cost, operation, requestId: validRequestId };
       }
       
       const docSnap = await transaction.get(usageRef);
+      const overrideSnap = await transaction.get(overrideRef);
+
+      const usageData = docSnap.exists ? (docSnap.data() || {}) : preparedUsage;
+      const currentUsed = Number(usageData.creditsUsed || 0);
+      const baseIncluded = Number(usageData.creditsIncluded || 0);
+
+      if (!Number.isFinite(baseIncluded) || baseIncluded < 0 || !Number.isFinite(currentUsed) || currentUsed < 0) {
+        return { recorded: false, cost, operation, requestId: validRequestId, safeErrorCode: 'INVALID_USAGE_STATE' };
+      }
+
+      let additionalCredits = 0;
+      if (overrideSnap.exists) {
+        const overrideData = overrideSnap.data() || {};
+        const granted = Number(overrideData.testCreditsGranted || 0);
+        const rawExpiry = overrideData.testCreditsExpiresAt;
+        const expiry = rawExpiry?.toDate ? rawExpiry.toDate() : (rawExpiry ? new Date(rawExpiry) : null);
+        if (Number.isFinite(granted) && granted > 0 && expiry && expiry > new Date()) {
+          additionalCredits = granted;
+        }
+      }
+
+      if (currentUsed + cost > baseIncluded + additionalCredits) {
+        return { recorded: false, cost, operation, requestId: validRequestId, safeErrorCode: 'CREDIT_LIMIT_EXCEEDED' };
+      }
+
       if (!docSnap.exists) {
-        // Create new usage doc inside transaction
         transaction.set(usageRef, {
           uid,
-          planId: 'trial',
-          creditsIncluded: PLAN_CONFIG.trial.creditsIncluded,
+          planId: preparedUsage.planId,
+          creditsIncluded: preparedUsage.creditsIncluded,
           creditsUsed: cost,
           period,
-          resetAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), 
+          resetAt: preparedUsage.resetAt,
+          billingStatus: preparedUsage.billingStatus,
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp()
         });
       } else {
-        // Atomic increment
         transaction.update(usageRef, {
           creditsUsed: FieldValue.increment(cost),
           updatedAt: FieldValue.serverTimestamp()
@@ -448,6 +720,7 @@ export async function incrementCreditsUsed(uid: string, operation: string, cost:
         outputTokens: safeMetadata.outputTokens || null,
         totalTokens: safeMetadata.totalTokens || null,
         estimatedCostUsd: safeMetadata.estimatedCostUsd || null,
+        period,
         createdAt: FieldValue.serverTimestamp()
       });
       
@@ -465,6 +738,18 @@ export async function incrementCreditsUsed(uid: string, operation: string, cost:
 const COMMERCIAL_SAFETY_RULES = "CRITICAL: If freight rate or cargo weight (MT) is missing, mark as 'Pending' or 'Pending Data'. Do not falsely output 'Profitable' or 'Above Market'. Never hallucinate freight rate, demurrage, or law/arbitration details.";
 const RISK_ANALYST_SYSTEM = `You are a maritime risk analyst. Evaluate commercial data and identify risks (CQD, FIOS, lacking details). ${COMMERCIAL_SAFETY_RULES}
 Interpret terms in chartering context: SHINC/SHEX for laytime, NOR/WIBON for tendering. For CQD, severity is Medium, action is clarify. Return strictly structured JSON matching the schema.`;
+
+const VOYAGE_CALC_SYSTEM = `You are a senior dry-bulk voyage estimator assisting a shipbroker.
+Use only the supplied cargo, vessel and manual overrides. Never invent a freight rate or lump sum.
+When route distance, speed, consumption, bunker price, port time or PDA is not confirmed, you may use a transparent reference assumption ONLY to produce an indicative scenario, and its status must be "Assumed default" or "Estimated route".
+Never label an indicative result as fixture-grade, confirmed, profitable, or above market.
+If cargo weight in MT is unknown, keep TCE/profitability pending.
+Return strict JSON matching the response schema.`;
+
+const MARKET_REPORT_SYSTEM = `You are a senior dry-bulk shipbroker market analyst. Parse only facts supported by the supplied broker circular or market report.
+Return structured JSON. Never invent rates, index values, fixtures, bunker prices, dates, vessel availability, counterparties, or market direction.
+If evidence is mixed, set trend to "mixed" or "unclear" and reduce confidence.
+Keep ai_summary concise and operational. Distinguish stated facts from inference.`;
 
 const JSON_REPAIR_SYSTEM_INSTRUCTION = `Repair this malformed JSON to valid JSON matching the provided schema. Do not add new facts.`;
 
@@ -490,14 +775,17 @@ Return ONLY valid JSON with this exact structure (do not use markdown blocks):
 
 const MATCH_VESSELS_SYSTEM_INSTRUCTION = `Analyze matches between Cargo C and Vessels V.
 Do NOT give 100% score just because DWT and Vessel Type match.
+Do not claim AIS/live position evidence unless numeric position fields are supplied.
+If route distance is not supplied or derivable from supplied numeric coordinates, distance/ETA must be clearly prefixed "Indicative" and treated as low-confidence.
+If cargo quantity in MT exceeds stated vessel DWT, the recommendation must be "Reject / Not Commercial".
 Calculate 5 component scores out of 100:
 1. TechnicalFit: DWT, type, gear, holds, restrictions.
-2. PositionFit: Distance open port to load port.
-3. LaycanFit: Wait time, reach time.
-4. CommercialViability: Repositioning and idle cost. ${COMMERCIAL_SAFETY_RULES}
+2. PositionFit: position evidence and open port proximity; lower confidence when only port names are available.
+3. LaycanFit: wait time and reach-time evidence.
+4. CommercialViability: repositioning and idle cost. ${COMMERCIAL_SAFETY_RULES}
 5. RiskAdjustment: 0 to -100 depending on risks.
 Score = average(Technical, Position, Laycan, Commercial) + RiskAdjustment. Severe penalties for long ballast.
-Calculate Owner Loss Calculator details using provided assumptions.
+Calculate Owner Loss Calculator details only from provided assumptions. Do not invent a live bunker/hire/PDA value.
 Ensure 'recommendation' is one of: 'Strong Match', 'Conditional Match', 'Weak Match', 'Reject / Not Commercial'.
 Return ONLY valid JSON with this exact structure (no markdown blocks):
 {
@@ -547,8 +835,27 @@ function getGoogleGenAI() {
 let _openAI: OpenAI | null = null;
 function getOpenAI() {
   if (_openAI) return _openAI;
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY env var not set");
   _openAI = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   return _openAI;
+}
+
+let _experimentalRouter: OpenAI | null = null;
+function getExperimentalRouter() {
+  const enabled = process.env.FREELLM_FALLBACK_ENABLED === 'true';
+  if (!enabled) return null;
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_EXPERIMENTAL_LLM_FALLBACK !== 'true') return null;
+
+  const baseURL = (process.env.FREELLM_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  const apiKey = (process.env.FREELLM_API_KEY || '').trim();
+  if (!baseURL || !apiKey) return null;
+
+  if (_experimentalRouter) return _experimentalRouter;
+  _experimentalRouter = new OpenAI({
+    apiKey,
+    baseURL: baseURL.endsWith('/v1') ? baseURL : `${baseURL}/v1`,
+  });
+  return _experimentalRouter;
 }
 
 class AsyncQueue {
@@ -659,14 +966,11 @@ async function generateContentWithFailover(ai: GoogleGenAI, args: any): Promise<
     const timeoutMs = parseInt(process.env.AI_PROVIDER_TIMEOUT_MS || '30000');
     
     // 3. Clean model tier mapping
-    let openaiModel = 'gpt-4o-mini';
-    let anthropicModel = 'claude-3-haiku-20240307';
-    if (args.model === 'gemini-2.5-pro' || args.model === 'gemini-1.5-pro') {
-        openaiModel = 'gpt-4o';
-        anthropicModel = 'claude-3-5-sonnet-20241022';
-    } else if (args.model === 'gemini-2.5-flash-8b') {
-        openaiModel = 'gpt-4o-mini';
-        anthropicModel = 'claude-3-haiku-20240307';
+    let openaiModel = process.env.OPENAI_MODEL_FAST || 'gpt-4o-mini';
+    let anthropicModel = process.env.ANTHROPIC_MODEL_FAST || 'claude-3-5-haiku-latest';
+    if (args.model === AI_MODELS.HEAVY_SERVER || args.model === 'gemini-1.5-pro') {
+        openaiModel = process.env.OPENAI_MODEL_HEAVY || 'gpt-4o';
+        anthropicModel = process.env.ANTHROPIC_MODEL_HEAVY || 'claude-sonnet-4-5';
     }
 
     while (retries <= maxRetries) {
@@ -777,58 +1081,88 @@ async function generateContentWithFailover(ai: GoogleGenAI, args: any): Promise<
          } catch (oaError: any) {
              console.log('OpenAI failed. Failing over to Anthropic.', oaError.message);
              if (process.env.ANTHROPIC_API_KEY) {
-                 let system = args.config?.systemInstruction;
-                 let prompt = args.contents;
-                 if (Array.isArray(prompt)) {
-                    prompt = prompt.map((p: any) => typeof p === 'string' ? p : JSON.stringify(p)).join('\n');
-                 }
-
-                 if (args.config?.responseMimeType === 'application/json') {
-                     let schemaStr = JSON.stringify(args.config?.responseSchema || {});
-                     prompt += "\n\nReturn strictly JSON according to the schema: " + schemaStr;
-                 }
-                 
-                 const reqBody: any = {
-                     model: anthropicModel,
-                     max_tokens: 4096,
-                     messages: [{role: 'user', content: prompt}]
-                 };
-                 if (system) {
-                     reqBody.system = system;
-                 }
-                 
-                 const abortController = new AbortController();
-                 const timeoutId = setTimeout(() => abortController.abort(new Error("provider_timeout")), timeoutMs);
-                 let r;
                  try {
-                     r = await fetch('https://api.anthropic.com/v1/messages', {
-                         method: 'POST',
-                         headers: {
-                            'x-api-key': process.env.ANTHROPIC_API_KEY,
-                            'anthropic-version': '2023-06-01',
-                            'content-type': 'application/json'
-                         },
-                         body: JSON.stringify(reqBody),
-                         signal: abortController.signal as any
-                     });
-                     clearTimeout(timeoutId);
-                 } catch(err: any) {
-                     clearTimeout(timeoutId);
-                     const errMsgAn = (err.message || '').toLowerCase();
-                     if (err.name === 'AbortError' || errMsgAn.includes('provider_timeout')) timeoutCount++;
-                     throw err;
+                     let system = args.config?.systemInstruction;
+                     let prompt = args.contents;
+                     if (Array.isArray(prompt)) {
+                        prompt = prompt.map((p: any) => typeof p === 'string' ? p : JSON.stringify(p)).join('\n');
+                     }
+
+                     if (args.config?.responseMimeType === 'application/json') {
+                         const schemaStr = JSON.stringify(args.config?.responseSchema || {});
+                         prompt += "\n\nReturn strictly JSON according to the schema: " + schemaStr;
+                     }
+                     
+                     const reqBody: any = {
+                         model: anthropicModel,
+                         max_tokens: 4096,
+                         messages: [{role: 'user', content: prompt}]
+                     };
+                     if (system) reqBody.system = system;
+                     
+                     const abortController = new AbortController();
+                     const timeoutId = setTimeout(() => abortController.abort(new Error("provider_timeout")), timeoutMs);
+                     let r;
+                     try {
+                         r = await fetch('https://api.anthropic.com/v1/messages', {
+                             method: 'POST',
+                             headers: {
+                                'x-api-key': process.env.ANTHROPIC_API_KEY,
+                                'anthropic-version': '2023-06-01',
+                                'content-type': 'application/json'
+                             },
+                             body: JSON.stringify(reqBody),
+                             signal: abortController.signal as any
+                         });
+                         clearTimeout(timeoutId);
+                     } catch(err: any) {
+                         clearTimeout(timeoutId);
+                         const errMsgAn = (err.message || '').toLowerCase();
+                         if (err.name === 'AbortError' || errMsgAn.includes('provider_timeout')) timeoutCount++;
+                         throw err;
+                     }
+                     
+                     if (!r.ok) throw new Error(`Anthropic HTTP ${r.status}`);
+                     const d = await r.json();
+                     if (d.error) throw new Error(d.error.message);
+                     
+                     const text = d.content?.[0]?.text || "";
+                     if (!text) throw new Error("Anthropic returned no text content");
+                     
+                     return { text, actualModel: anthropicModel, actualProvider: 'anthropic', degraded: true, retries, failovers: 2, timeoutCount, queueWaitMs };
+                 } catch (anthropicError: any) {
+                     console.log('Anthropic failed.', anthropicError.message);
                  }
-                 
-                 const d = await r.json();
-                 if (d.error) throw new Error(d.error.message);
-                 
-                 // 5. Safe Anthropic extraction
-                 const text = d.content?.[0]?.text || "";
-                 if (!text) throw new Error("Anthropic returned no text content");
-                 
-                 return { text, actualModel: anthropicModel, actualProvider: 'anthropic', degraded: true, retries, failovers: 2, timeoutCount, queueWaitMs };
              }
-             throw error; // Re-throw original Gemini error if Anthropic also fails and cannot be used
+
+             const experimentalRouter = getExperimentalRouter();
+             if (experimentalRouter) {
+                 try {
+                     let system = args.config?.systemInstruction;
+                     let prompt = args.contents;
+                     if (Array.isArray(prompt)) {
+                       prompt = prompt.map((p: any) => typeof p === 'string' ? p : JSON.stringify(p)).join('\n');
+                     }
+                     const messages: any[] = [];
+                     if (system) messages.push({ role: 'system', content: system });
+                     messages.push({ role: 'user', content: prompt });
+
+                     const routerModel = process.env.FREELLM_MODEL || 'auto';
+                     const routerConfig: any = { model: routerModel, messages };
+                     if (args.config?.responseMimeType === 'application/json') {
+                       routerConfig.response_format = { type: 'json_object' };
+                     }
+
+                     const routerResponse = await experimentalRouter.chat.completions.create(routerConfig);
+                     const text = routerResponse.choices?.[0]?.message?.content || '';
+                     if (!text) throw new Error('Experimental router returned no content');
+                     return { text, actualModel: routerModel, actualProvider: 'freellm-experimental', degraded: true, retries, failovers: 3, timeoutCount, queueWaitMs };
+                 } catch (routerError: any) {
+                     console.log('Experimental FreeLLM-compatible router failed.', routerError.message);
+                 }
+             }
+
+             throw error; // Re-throw original Gemini error if all configured fallbacks fail
          } // end inner catch oaError
       } // end outer catch error
     } // end while loop
@@ -884,9 +1218,26 @@ async function safeAIParseJSON(rawText: string): Promise<any> {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const parsedPort = Number.parseInt(process.env.PORT || '3000', 10);
+  const PORT = Number.isFinite(parsedPort) && parsedPort > 0 && parsedPort <= 65535 ? parsedPort : 3000;
 
-  app.set('trust proxy', true);
+  // The application uses flat query parameters only. Avoid Express's extended
+  // qs parser to reduce the query-string attack surface.
+  app.set('query parser', 'simple');
+
+  const trustProxyHops = Math.max(0, Number.parseInt(process.env.TRUST_PROXY_HOPS || '1', 10) || 0);
+  app.set('trust proxy', process.env.NODE_ENV === 'production' ? trustProxyHops : false);
+  app.disable('x-powered-by');
+
+  if (process.env.NODE_ENV === 'production') {
+    app.use((_req, res, next) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+      res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+      res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+      next();
+    });
+  }
   
   // Webhook needs raw body for signature verification
   app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -947,7 +1298,8 @@ async function startServer() {
           await firestore.collection('users').doc(userId).set({
             stripeCustomerId: session.customer,
             stripeSubscriptionId: session.subscription,
-            planId: planId,
+            planId,
+            subscription: planId === 'desk' ? 'maximum' : 'premium',
             billingStatus: 'active'
           }, { merge: true });
 
@@ -958,6 +1310,15 @@ async function startServer() {
              creditsUsed: 0, // Reset on new subscription completed
              billingStatus: 'active'
           }, { merge: true });
+
+          await writeBillingState(userId, {
+            planId,
+            billingStatus: 'active',
+            creditsIncluded: Number(planConfig.creditsIncluded),
+            stripeCustomerId: session.customer,
+            stripeSubscriptionId: session.subscription,
+            trialConsumed: true
+          });
         }
       } 
       else if (event.type === 'customer.subscription.created' || event.type === 'customer.subscription.updated') {
@@ -971,7 +1332,8 @@ async function startServer() {
            await firestore.collection('users').doc(userId).set({
              stripeCustomerId: subscription.customer,
              stripeSubscriptionId: subscription.id,
-             planId: planId,
+             planId,
+             subscription: planId === 'desk' ? 'maximum' : 'premium',
              billingStatus: subscription.status
            }, { merge: true });
 
@@ -985,6 +1347,18 @@ async function startServer() {
               currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
               resetAt: new Date((subscription as any).current_period_end * 1000)
            }, { merge: true });
+
+           await writeBillingState(userId, {
+             planId,
+             billingStatus: subscription.status,
+             creditsIncluded: Number(planConfig.creditsIncluded),
+             stripeCustomerId: subscription.customer,
+             stripeSubscriptionId: subscription.id,
+             currentPeriodStart: new Date((subscription as any).current_period_start * 1000),
+             currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+             resetAt: new Date((subscription as any).current_period_end * 1000),
+             trialConsumed: true
+           });
         }
       }
       else if (event.type === 'customer.subscription.deleted') {
@@ -994,15 +1368,24 @@ async function startServer() {
         if (userId) {
            await firestore.collection('users').doc(userId).set({
              billingStatus: 'cancelled',
-             planId: 'trial' // downgrade to trial/free
+             planId: 'trial',
+             subscription: 'basic'
            }, { merge: true });
 
            const period = getCurrentUsagePeriod();
            await firestore.collection('users').doc(userId).collection('usage').doc(period).set({
               billingStatus: 'cancelled',
-              planId: 'trial',
-              creditsIncluded: PLAN_CONFIG.trial.creditsIncluded // safe read-only or limited fallback
+              planId: 'free',
+              creditsIncluded: 0
            }, { merge: true });
+
+           await writeBillingState(userId, {
+             planId: 'free',
+             billingStatus: 'cancelled',
+             creditsIncluded: 0,
+             stripeSubscriptionId: subscription.id,
+             trialConsumed: true
+           });
         }
       }
       else if (event.type === 'invoice.payment_succeeded') {
@@ -1015,6 +1398,7 @@ async function startServer() {
                  creditsUsed: 0, // Reset credits on successful recurring invoice payment
                  billingStatus: 'active'
               }, { merge: true });
+              await writeBillingState(userId, { billingStatus: 'active' });
             }
         }
       }
@@ -1029,8 +1413,13 @@ async function startServer() {
 
                const period = getCurrentUsagePeriod();
                await firestore.collection('users').doc(userId).collection('usage').doc(period).set({
-                  billingStatus: 'past_due'
+                  billingStatus: 'past_due',
+                  creditsIncluded: 0
                }, { merge: true });
+               await writeBillingState(userId, {
+                 billingStatus: 'past_due',
+                 creditsIncluded: 0
+               });
             }
         }
       }
@@ -1048,43 +1437,40 @@ async function startServer() {
     }
   });
 
-  // Standard JSON middleware for all other routes
-  app.use(express.json({ limit: '10mb' }));
+  // Standard JSON middleware for all other routes. Broker emails and deal payloads
+  // should stay well below this; keeping the cap tight limits memory and AI-cost abuse.
+  const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '1mb';
+  app.use(express.json({ limit: jsonBodyLimit }));
   app.use(cookieParser());
 
   const CLIENT_ID = process.env.VITE_GOOGLE_CLIENT_ID;
   const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
   
-  // Use current host for redirect URI construction
-  const getRedirectUri = (req: express.Request) => {
-    if (req.query.state && typeof req.query.state === 'string') {
+  const getAppBaseUrl = (req: express.Request) => {
+    const configured = (process.env.APP_BASE_URL || '').trim().replace(/\/+$/, '');
+    if (configured) {
       try {
-        const decoded = JSON.parse(Buffer.from(req.query.state.replace(/ /g, '+'), 'base64').toString('utf-8'));
-        if (decoded.redirectUri) {
-          return decoded.redirectUri;
+        const parsed = new URL(configured);
+        if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('invalid protocol');
+        if (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:') {
+          throw new Error('APP_BASE_URL must use HTTPS in production');
         }
-      } catch (e) {
-        console.error("Failed to parse state", e);
+        return parsed.origin;
+      } catch (error: any) {
+        throw new Error(`Invalid APP_BASE_URL: ${error.message}`);
       }
     }
-    
-    if (req.query.redirect_uri && typeof req.query.redirect_uri === 'string') {
-        return req.query.redirect_uri;
+
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('APP_BASE_URL must be configured in production');
     }
-    
-    const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
-    
-    // In our specific cloud environments (ais-dev, ais-pre, run.app), we ALWAYS use https
-    let protocol = 'http';
-    if (typeof host === 'string' && (host.includes('ais-dev-') || host.includes('ais-pre-') || host.includes('run.app'))) {
-      protocol = 'https';
-    } else if (req.headers['x-forwarded-proto'] === 'https') {
-      protocol = 'https';
-    }
-    
-    const uri = `${protocol}://${host}/auth/callback`;
-    console.log(`[OAuth] Generated Redirect URI: ${uri} (Protocol: ${protocol}, Host: ${host})`);
-    return uri;
+
+    const host = req.get('host') || 'localhost:3000';
+    return `${req.protocol}://${host}`;
+  };
+
+  const getRedirectUri = (req: express.Request) => {
+    return `${getAppBaseUrl(req)}/auth/callback`;
   };
 
   // Simple in-memory rate limiting
@@ -1105,28 +1491,109 @@ async function startServer() {
   });
 
   app.get('/readyz', (req, res) => {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const billingEnabled = process.env.BILLING_ENABLED !== 'false';
+    const emailSyncEnabled = process.env.EMAIL_SYNC_ENABLED !== 'false';
+    const emailSyncMode = process.env.EMAIL_SYNC_MODE || (isProduction ? 'cloud_tasks' : 'in_process');
+    const cloudTasksConfigured = !!(
+      process.env.CLOUD_TASKS_PROJECT_ID &&
+      process.env.CLOUD_TASKS_LOCATION &&
+      process.env.CLOUD_TASKS_QUEUE &&
+      process.env.EMAIL_SYNC_WORKER_URL &&
+      process.env.CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT
+    );
+    const distributedRateLimitRequired = isProduction && process.env.DISTRIBUTED_RATE_LIMIT_REQUIRED !== 'false';
+    const distributedRateLimitConfigured = process.env.REDIS_ENABLED === 'true' &&
+      !!process.env.UPSTASH_REDIS_REST_URL &&
+      !!process.env.UPSTASH_REDIS_REST_TOKEN;
+
     const checks = {
       firebaseAdmin: !!firestore,
-      firestoreDatabaseId: process.env.UPSTASH_REDIS_REST_URL ? "checked" : "checked", // Optional check
       aiProviderConfig: !!process.env.GEMINI_API_KEY,
+      canonicalAppUrl: !isProduction || !!process.env.APP_BASE_URL,
+      billing: !billingEnabled || !!(
+        process.env.STRIPE_SECRET_KEY &&
+        process.env.STRIPE_WEBHOOK_SECRET &&
+        process.env.STRIPE_PRICE_ID_SOLO &&
+        process.env.STRIPE_PRICE_ID_DESK
+      ),
+      emailCredentialEncryption: !emailSyncEnabled || !!process.env.EMAIL_CREDENTIALS_ENCRYPTION_KEY,
+      emailSync: !emailSyncEnabled || emailSyncMode === 'in_process' || (emailSyncMode === 'cloud_tasks' && cloudTasksConfigured),
+      emailSyncMode,
+      distributedRateLimit: !distributedRateLimitRequired || distributedRateLimitConfigured,
       uptime: process.uptime(),
       timestamp: new Date().toISOString()
     };
-    const isReady = checks.firebaseAdmin && checks.aiProviderConfig;
+    const isReady = checks.firebaseAdmin &&
+      checks.aiProviderConfig &&
+      checks.canonicalAppUrl &&
+      checks.billing &&
+      checks.emailCredentialEncryption &&
+      checks.emailSync &&
+      checks.distributedRateLimit;
     res.status(isReady ? 200 : 503).json(checks);
   });
   const MAX_AI_REQUESTS_PER_MINUTE = parseInt(process.env.MAX_AI_REQUESTS_PER_MINUTE || '60');
-  
-  function checkRateLimit(uid: string): boolean {
+
+  async function checkRateLimit(identifier: string, limit = MAX_AI_REQUESTS_PER_MINUTE, namespace = 'api'): Promise<boolean> {
     const now = Date.now();
-    const limiter = userRateLimits.get(uid);
-    if (!limiter || limiter.resetAt < now) {
-        userRateLimits.set(uid, { count: 1, resetAt: now + 60000 });
+    const redisConfigured = process.env.REDIS_ENABLED === 'true' &&
+      !!process.env.UPSTASH_REDIS_REST_URL &&
+      !!process.env.UPSTASH_REDIS_REST_TOKEN;
+    const distributedRequired = process.env.NODE_ENV === 'production' &&
+      process.env.DISTRIBUTED_RATE_LIMIT_REQUIRED !== 'false';
+
+    if (redisConfigured) {
+      try {
+        const bucket = Math.floor(now / 60000);
+        const identifierHash = createHash('sha256').update(String(identifier)).digest('hex').substring(0, 32);
+        const key = `rl:${namespace}:${identifierHash}:${bucket}`;
+        const response = await fetch(`${process.env.UPSTASH_REDIS_REST_URL}/multi-exec`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.UPSTASH_REDIS_REST_TOKEN}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify([
+            ['INCR', key],
+            ['EXPIRE', key, 120]
+          ])
+        });
+
+        if (!response.ok) throw new Error(`redis_rate_limit_http_${response.status}`);
+        const results = await response.json() as any;
+        if (!Array.isArray(results) || results[0]?.error || results[1]?.error) {
+          throw new Error('redis_rate_limit_invalid_response');
+        }
+
+        const count = Number(results[0]?.result);
+        if (!Number.isFinite(count)) throw new Error('redis_rate_limit_invalid_count');
+        if (count > limit) {
+          adminDiagnostics.rateLimitHits++;
+          return false;
+        }
         return true;
+      } catch (error: any) {
+        console.warn('[RateLimit] Distributed limiter unavailable:', error.message || 'unknown');
+        if (distributedRequired && process.env.DISTRIBUTED_RATE_LIMIT_FAIL_OPEN !== 'true') {
+          adminDiagnostics.rateLimitHits++;
+          return false;
+        }
+      }
+    } else if (distributedRequired && process.env.DISTRIBUTED_RATE_LIMIT_FAIL_OPEN !== 'true') {
+      adminDiagnostics.rateLimitHits++;
+      return false;
     }
-    if (limiter.count >= MAX_AI_REQUESTS_PER_MINUTE) {
-        adminDiagnostics.rateLimitHits++;
-        return false;
+
+    const localKey = `${namespace}:${identifier}`;
+    const limiter = userRateLimits.get(localKey);
+    if (!limiter || limiter.resetAt < now) {
+      userRateLimits.set(localKey, { count: 1, resetAt: now + 60000 });
+      return true;
+    }
+    if (limiter.count >= limit) {
+      adminDiagnostics.rateLimitHits++;
+      return false;
     }
     limiter.count++;
     return true;
@@ -1238,8 +1705,10 @@ async function startServer() {
       const idToken = authHeader.split('Bearer ')[1];
       try {
           const decoded = await getAuth().verifyIdToken(idToken);
-          // Only allow specific users, for now allow all authenticated users to see basic status, or guard behind email check
-          // If needed add: if (decoded.email !== 'owner@example.com') return res.status(403)...
+          const isAdmin = await checkIsAdmin(decoded.uid, decoded.email);
+          if (!isAdmin) {
+            return res.status(403).json({ error: "Forbidden: Admin only" });
+          }
           
           res.json({
               status: 'ok',
@@ -1254,29 +1723,62 @@ async function startServer() {
       }
   });
 
-  app.get("/api/auth/google-url", (req, res) => {
-    if (!CLIENT_ID) {
-      return res.status(500).json({ error: "VITE_GOOGLE_CLIENT_ID not configured" });
+  app.get("/api/auth/google-url", async (req, res) => {
+    if (!CLIENT_ID || !CLIENT_SECRET) {
+      return res.status(500).json({ error: "Google OAuth is not configured" });
+    }
+    if (!firestore) {
+      return res.status(503).json({ error: "Database unavailable" });
     }
 
-    const userId = req.query.userId || req.headers['x-user-id'] || '';
-    const redirectUri = getRedirectUri(req);
-    console.log(`Setting up OAuth with Redirect URI: ${redirectUri}`);
-    
-    const oAuth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, redirectUri);
-    const authorizeUrl = oAuth2Client.generateAuthUrl({
-      access_type: 'offline',
-      scope: [
-        'openid',
-        'email',
-        'profile',
-        'https://www.googleapis.com/auth/gmail.readonly',
-      ],
-      prompt: 'consent',
-      state: Buffer.from(JSON.stringify({ redirectUri, userId })).toString('base64')
-    });
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: "Missing or invalid authorization header" });
+    }
 
-    res.json({ url: authorizeUrl });
+    let decodedIdToken;
+    try {
+      decodedIdToken = await getAuth().verifyIdToken(authHeader.slice(7));
+    } catch {
+      return res.status(401).json({ error: "Invalid or expired authorization token" });
+    }
+
+    const verifiedUid = decodedIdToken.uid;
+    if (!(await checkRateLimit(verifiedUid))) {
+      return res.status(429).json({ error: "Too many requests. Please wait a minute." });
+    }
+
+    try {
+      const redirectUri = getRedirectUri(req);
+      const state = randomUUID();
+      const stateRef = firestore.collection('_oauth_states').doc(state);
+      await stateRef.set({
+        uid: verifiedUid,
+        redirectUri,
+        createdAt: FieldValue.serverTimestamp(),
+        expiresAtMs: Date.now() + 10 * 60 * 1000,
+        used: false
+      });
+
+      const oAuth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, redirectUri);
+      const authorizeUrl = oAuth2Client.generateAuthUrl({
+        access_type: 'offline',
+        scope: [
+          'openid',
+          'email',
+          'profile',
+          'https://www.googleapis.com/auth/gmail.readonly',
+        ],
+        prompt: 'consent',
+        include_granted_scopes: true,
+        state
+      });
+
+      res.json({ url: authorizeUrl });
+    } catch (error: any) {
+      console.error("Failed to start Google OAuth:", error.message);
+      res.status(500).json({ error: "Unable to start Google authorization" });
+    }
   });
 
   app.get("/api/auth/token", async (req, res) => {
@@ -1296,19 +1798,10 @@ async function startServer() {
 
     const verifiedUid = decodedIdToken.uid;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+    if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
        return res.status(429).json({ error: "Too many requests. Please wait a minute." });
     }
 
-    const userId = req.query.userId || req.headers['x-user-id'];
-    if (!userId) {
-       return res.status(400).json({ error: "Missing userId" });
-    }
-
-    if (userId !== decodedIdToken.uid) {
-       return res.status(403).json({ error: "Forbidden: userId mismatch" });
-    }
-  
     try {
        if (!firestore) throw new Error("Firestore not initialized");
        const snap = await firestore.collection(`users/${decodedIdToken.uid}/emailAccounts`).get();
@@ -1316,7 +1809,8 @@ async function startServer() {
        
        let refreshToken = undefined;
        if (gmailDoc) {
-         refreshToken = gmailDoc.data().refreshToken;
+         const gmailData = gmailDoc.data();
+         refreshToken = readStoredCredential(gmailData, 'refreshTokenEncrypted', 'refreshToken');
        }
        
        if (!refreshToken) {
@@ -1350,7 +1844,7 @@ async function startServer() {
       const verifiedUid = decodedIdToken.uid;
       
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests" });
       }
       
@@ -1361,13 +1855,14 @@ async function startServer() {
       }
       
       if (!stripe) {
-        console.log('Stripe API Key not provided, returning demo mode success.');
+        if (process.env.NODE_ENV === 'production' && process.env.BILLING_ENABLED !== 'false') {
+          return res.status(503).json({ error: 'Billing is not configured.' });
+        }
+        console.log('Stripe API Key not provided; development demo mode only.');
         return res.json({ demoMode: true });
       }
 
-      const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
-      const protocol = (typeof host === 'string' && (host.includes('ais-dev-') || host.includes('ais-pre-') || host.includes('run.app'))) || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-      const domainURL = `${protocol}://${host}`;
+      const domainURL = getAppBaseUrl(req);
 
       const mappedPlan = STRIPE_PLAN_MAPPING[planId];
 
@@ -1403,9 +1898,10 @@ async function startServer() {
           },
         ];
       } else {
-        // Fallback for development if price IDs aren't real Stripe objects (prevents crashes if Stripe demands real IDs)
-        // But Stripe subscriptions require real price IDs, so we'll throw error if so
-        console.warn('Real Stripe Price ID map is missing, returning demo checkout session.');
+        if (process.env.NODE_ENV === 'production' && process.env.BILLING_ENABLED !== 'false') {
+          return res.status(503).json({ error: 'Billing plan price is not configured.' });
+        }
+        console.warn('Real Stripe Price ID map is missing; development demo mode only.');
         return res.json({ demoMode: true });
       }
 
@@ -1459,9 +1955,7 @@ async function startServer() {
 
       const customerId = userData.stripeCustomerId;
 
-      const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
-      const protocol = (typeof host === 'string' && (host.includes('ais-dev-') || host.includes('ais-pre-') || host.includes('run.app'))) || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-      const domainURL = `${protocol}://${host}`;
+      const domainURL = getAppBaseUrl(req);
 
       const session = await stripe.billingPortal.sessions.create({
         customer: customerId,
@@ -1495,7 +1989,7 @@ async function startServer() {
       const verifiedUid = decodedIdToken.uid;
 
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests" });
       }
 
@@ -1512,9 +2006,7 @@ async function startServer() {
 
       const customerId = userDoc.data()!.stripeCustomerId;
 
-      const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
-      const protocol = (typeof host === 'string' && (host.includes('ais-dev-') || host.includes('ais-pre-') || host.includes('run.app'))) || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-      const domainURL = `${protocol}://${host}`;
+      const domainURL = getAppBaseUrl(req);
 
       const session = await stripe.billingPortal.sessions.create({
         customer: customerId,
@@ -1742,20 +2234,29 @@ async function startServer() {
     }
 
     try {
-      let userId = '';
-      let stateRedirectUri = '';
-      try {
-        if (state && typeof state === 'string') {
-           const decodedState = JSON.parse(Buffer.from(state.replace(/ /g, '+'), 'base64').toString('utf-8'));
-           if (decodedState.userId) userId = decodedState.userId;
-           if (decodedState.redirectUri) stateRedirectUri = decodedState.redirectUri;
-        }
-      } catch (e) {
-         console.warn("Failed to parse state", e);
+      if (!state || typeof state !== 'string' || !firestore) {
+        return res.status(400).send("Missing or invalid OAuth state");
       }
-      
-      const redirectUriToUse = stateRedirectUri || getRedirectUri(req);
-      console.log(`Callback using redirectUri: ${redirectUriToUse} for code: ${code.substring(0, 10)}...`);
+
+      const stateRef = firestore.collection('_oauth_states').doc(state);
+      const stateData = await firestore.runTransaction(async transaction => {
+        const stateSnap = await transaction.get(stateRef);
+        if (!stateSnap.exists) throw new Error('oauth_state_not_found');
+        const data = stateSnap.data() || {};
+        if (data.used === true) throw new Error('oauth_state_already_used');
+        if (!data.uid || !data.redirectUri || !data.expiresAtMs || data.expiresAtMs < Date.now()) {
+          throw new Error('oauth_state_expired_or_invalid');
+        }
+        transaction.update(stateRef, {
+          used: true,
+          usedAt: FieldValue.serverTimestamp()
+        });
+        return data;
+      });
+
+      const userId = stateData.uid as string;
+      const redirectUriToUse = stateData.redirectUri as string;
+      console.log(`OAuth callback accepted for authenticated state; code prefix: ${code.substring(0, 10)}...`);
 
       const oAuth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, redirectUriToUse);
       const { tokens } = await oAuth2Client.getToken(code);
@@ -1773,8 +2274,9 @@ async function startServer() {
            await firestore.collection('users').doc(userId).collection('emailAccounts').doc(email).set({
              provider: 'gmail',
              username: email,
-             refreshToken: tokens.refresh_token,
-             createdAt: (await import('firebase-admin/firestore')).FieldValue.serverTimestamp()
+             refreshTokenEncrypted: encryptCredential(tokens.refresh_token),
+             refreshToken: FieldValue.delete(),
+             createdAt: FieldValue.serverTimestamp()
            }, { merge: true });
          } catch(e: any) {
            console.warn("Could not save refresh token to firestore:", e.message);
@@ -1782,9 +2284,6 @@ async function startServer() {
       }
 
       const safeTokens = {
-        access_token: tokens.access_token,
-        expiry_date: tokens.expiry_date,
-        expires_in: (tokens as any).expires_in,
         email: email
       };
       
@@ -1875,7 +2374,7 @@ async function startServer() {
     
     const verifiedUid = decodedIdToken.uid;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+    if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
        return res.status(429).json({ error: "Too many requests. Please wait a minute." });
     }
 
@@ -1884,10 +2383,16 @@ async function startServer() {
     }
 
     try {
+      const normalizedPort = Number(port);
+      if (normalizedPort !== 993) {
+        return res.status(400).json({ error: "Only secure IMAPS on port 993 is supported." });
+      }
+      const resolvedHost = await resolveSafeImapHost(host);
       const client = new ImapFlow({
-        host,
-        port: parseInt(port),
-        secure: parseInt(port) === 993,
+        host: resolvedHost.connectHost,
+        port: normalizedPort,
+        secure: true,
+        tls: { servername: resolvedHost.servername },
         auth: { user: username, pass: password },
         logger: false
       });
@@ -1897,10 +2402,11 @@ async function startServer() {
 
       if (firestore) {
         await firestore.collection('users').doc(userId).collection('emailAccounts').doc(username).set({
-          host,
-          port: parseInt(port),
+          host: String(host).trim(),
+          port: 993,
           username,
-          password, // Basic text for demo, use KMS in production
+          passwordEncrypted: encryptCredential(password),
+          password: FieldValue.delete(),
           provider: provider || 'imap',
           active: true,
           email: username,
@@ -1915,289 +2421,498 @@ async function startServer() {
     }
   });
 
-const syncLocks = new Map<string, number>();
-const jobResults = new Map<string, any[]>();
+  const getEmailSyncMode = () => {
+    if (process.env.EMAIL_SYNC_ENABLED === 'false') return 'disabled';
+    return process.env.EMAIL_SYNC_MODE || (process.env.NODE_ENV === 'production' ? 'cloud_tasks' : 'in_process');
+  };
+
+  const getCloudTasksConfig = () => {
+    const projectId = process.env.CLOUD_TASKS_PROJECT_ID;
+    const location = process.env.CLOUD_TASKS_LOCATION;
+    const queue = process.env.CLOUD_TASKS_QUEUE;
+    const workerUrl = process.env.EMAIL_SYNC_WORKER_URL;
+    const serviceAccountEmail = process.env.CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT;
+    if (!projectId || !location || !queue || !workerUrl || !serviceAccountEmail) return null;
+    return { projectId, location, queue, workerUrl, serviceAccountEmail };
+  };
+
+  const enqueueEmailSyncTask = async (uid: string, jobId: string, limit: number) => {
+    const config = getCloudTasksConfig();
+    if (!config) throw new Error('EMAIL_SYNC_QUEUE_NOT_CONFIGURED');
+
+    const googleAuth = new GoogleAuth({
+      scopes: ['https://www.googleapis.com/auth/cloud-platform']
+    });
+    const authClient = await googleAuth.getClient();
+    const accessTokenResult = await authClient.getAccessToken();
+    const accessToken = typeof accessTokenResult === 'string' ? accessTokenResult : accessTokenResult?.token;
+    if (!accessToken) throw new Error('CLOUD_TASKS_AUTH_FAILED');
+
+    const parent = `projects/${config.projectId}/locations/${config.location}/queues/${config.queue}`;
+    const taskBody = Buffer.from(JSON.stringify({ uid, jobId, limit }), 'utf8').toString('base64');
+    const taskName = `${parent}/tasks/${jobId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+
+    const response = await fetch(`https://cloudtasks.googleapis.com/v2/${parent}/tasks`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        task: {
+          name: taskName,
+          httpRequest: {
+            httpMethod: 'POST',
+            url: config.workerUrl,
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: taskBody,
+            oidcToken: {
+              serviceAccountEmail: config.serviceAccountEmail,
+              audience: process.env.EMAIL_SYNC_WORKER_AUDIENCE || new URL(config.workerUrl).origin
+            }
+          }
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      console.error('[Email Sync] Cloud Tasks enqueue failed:', response.status, body.substring(0, 500));
+      throw new Error('EMAIL_SYNC_QUEUE_ENQUEUE_FAILED');
+    }
+  };
+
+  const verifyEmailSyncWorkerIdentity = async (req: express.Request) => {
+    const config = getCloudTasksConfig();
+    if (!config) return false;
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) return false;
+
+    try {
+      const verifier = new OAuth2Client();
+      const ticket = await verifier.verifyIdToken({
+        idToken: authHeader.slice(7),
+        audience: process.env.EMAIL_SYNC_WORKER_AUDIENCE || new URL(config.workerUrl).origin
+      });
+      const payload = ticket.getPayload();
+      return !!payload &&
+        payload.email === config.serviceAccountEmail &&
+        payload.email_verified === true;
+    } catch (error) {
+      console.warn('[Email Sync] Invalid Cloud Tasks OIDC token');
+      return false;
+    }
+  };
+
+  const releaseEmailSyncLock = async (uid: string, jobId: string) => {
+    if (!firestore) return;
+    const lockRef = firestore.collection('users').doc(uid).collection('emailSyncState').doc('current');
+    try {
+      await firestore.runTransaction(async transaction => {
+        const lockSnap = await transaction.get(lockRef);
+        if (lockSnap.exists && lockSnap.data()?.activeJobId === jobId) {
+          transaction.delete(lockRef);
+        }
+      });
+    } catch (error) {
+      console.warn('[Email Sync] Failed to release sync lock');
+    }
+  };
+
+  const runEmailSyncJob = async (verifiedUid: string, jobId: string, requestedLimit: number) => {
+    if (!firestore) throw new Error('Firestore not initialized');
+    const limit = Math.max(1, Math.min(50, Number(requestedLimit) || 10));
+    const maxMessageBytes = Math.max(
+      64 * 1024,
+      Math.min(2 * 1024 * 1024, Number(process.env.EMAIL_SYNC_MAX_MESSAGE_BYTES) || 512 * 1024)
+    );
+    const maxStoredBodyChars = Math.max(
+      10_000,
+      Math.min(500_000, Number(process.env.EMAIL_SYNC_MAX_STORED_BODY_CHARS) || 200_000)
+    );
+    const jobRef = firestore.collection(`users/${verifiedUid}/emailSyncJobs`).doc(jobId);
+
+    const shouldRun = await firestore.runTransaction(async transaction => {
+      const jobSnap = await transaction.get(jobRef);
+      if (!jobSnap.exists) throw new Error('EMAIL_SYNC_JOB_NOT_FOUND');
+      const data = jobSnap.data() || {};
+      if (data.userId !== verifiedUid) throw new Error('EMAIL_SYNC_JOB_OWNER_MISMATCH');
+      if (data.status === 'completed') return false;
+
+      const leaseUntilMs = Number(data.leaseUntilMs || 0);
+      if (data.status === 'running' && leaseUntilMs > Date.now()) return false;
+
+      transaction.update(jobRef, {
+        status: 'running',
+        startedAt: data.startedAt || FieldValue.serverTimestamp(),
+        lastAttemptAt: FieldValue.serverTimestamp(),
+        leaseUntilMs: Date.now() + 10 * 60 * 1000,
+        attempts: FieldValue.increment(1)
+      });
+      return true;
+    });
+
+    if (!shouldRun) return;
+
+    try {
+      const snap = await firestore.collection(`users/${verifiedUid}/emailAccounts`).get();
+      const activeImapAccounts = snap.docs.filter(doc => {
+        const data = doc.data();
+        return data.active !== false && data.provider !== 'gmail';
+      });
+
+      if (activeImapAccounts.length === 0) {
+        throw new Error('NO_ACTIVE_IMAP_ACCOUNTS');
+      }
+
+      const allEmails: any[] = [];
+      let successfulAccounts = 0;
+
+      for (const doc of activeImapAccounts) {
+        const data = doc.data();
+        try {
+          const accountPassword = readStoredCredential(data, 'passwordEncrypted', 'password');
+          const acc = {
+            host: data.host,
+            port: Number(data.port || 993),
+            username: data.username,
+            password: accountPassword,
+            provider: data.provider || 'imap'
+          };
+          if (!acc.host || !acc.username || !acc.password) throw new Error('INCOMPLETE_IMAP_ACCOUNT');
+          if (acc.port !== 993) throw new Error('Only secure IMAPS on port 993 is supported.');
+
+          const resolvedHost = await resolveSafeImapHost(acc.host);
+          const client = new ImapFlow({
+            host: resolvedHost.connectHost,
+            port: 993,
+            secure: true,
+            tls: { servername: resolvedHost.servername },
+            auth: { user: acc.username, pass: acc.password },
+            logger: false
+          });
+
+          await client.connect();
+          const mailboxLock = await client.getMailboxLock('INBOX');
+          try {
+            const messages: any[] = [];
+            const status = await client.status('INBOX', { messages: true });
+            const totalMsgs = status.messages || 0;
+            if (totalMsgs > 0) {
+              const startFetch = Math.max(1, totalMsgs - limit + 1);
+              for await (const msg of client.fetch(
+                `${startFetch}:*`,
+                { source: { start: 0, maxLength: maxMessageBytes } },
+                { uid: true }
+              )) {
+                messages.push(msg);
+              }
+            }
+
+            for (const msg of messages) {
+              const parsed = await simpleParser(msg.source);
+              const subject = parsed.subject || '(No Subject)';
+              const sender = parsed.from?.text || 'Unknown';
+              const rawBodyStr = parsed.text || '';
+              const textContent = `${subject} ${sender} ${rawBodyStr.substring(0, 500)}`.toLowerCase();
+
+              let hasCargo = false;
+              let hasVessel = false;
+              let hasChartering = false;
+              let isIrrelevant = false;
+
+              const irrelevantKeywords = ['bank', 'invoice', 'social media', 'newsletter', 'marketing', 'login', 'security alert', 'receipt', 'subscription', 'payment confirmation', 'do-not-reply', 'no-reply', 'prompts to', 'credits let', 'credits left', 'unsubscribe', 'opt out', 'mailer-daemon', 'postmaster', 'html', '<head', '<body', '<div', 'garbage', 'longer you wait', 'saas', 'free credits', 'promo'];
+              for (const word of irrelevantKeywords) {
+                if (textContent.includes(word) && !textContent.includes('chartering') && !textContent.includes('vessel') && !textContent.includes('cargo') && !textContent.includes('laycan')) {
+                  isIrrelevant = true;
+                  break;
+                }
+              }
+
+              if (!isIrrelevant) {
+                const cargoKeywords = ['cargo', ' stem ', 'shipment', 'fixing', 'laycan', ' discharging', 'discharge', ' mt ', 'cbm', 'bulk', 'bagged', 'project cargo', 'fertilizer', 'urea', 'cement', 'grain', 'wheat', 'coal', 'petcoke', 'steel', 'billets', ' ore ', 'phosphate', 'rice', 'freight'];
+                const vesselKeywords = ['vessel', ' mv ', ' mt ', ' open ', 'position', 'tonnage', 'dwt', 'dwat', 'mpp', 'handy', 'supramax', 'panamax', 'geared', 'gearless', 'cranes', 'open port', 'prompt', 'spot', 'owner', 'manager'];
+                const charteringKeywords = ['chartering', 'fixture', 'broker', 'shipbroker', 'commission', 'c/p', 'charter party', 'demurrage', 'despatch', 'bdi', 'baltic index', 'bunker', 'tce'];
+
+                hasCargo = cargoKeywords.some(word => textContent.includes(word));
+                hasVessel = vesselKeywords.some(word => textContent.includes(word));
+                hasChartering = charteringKeywords.some(word => textContent.includes(word));
+              }
+
+              let relevance = 'irrelevant';
+              if (!isIrrelevant) {
+                if (hasCargo && hasVessel) relevance = 'likely_mixed';
+                else if (hasCargo) relevance = 'likely_cargo';
+                else if (hasVessel) relevance = 'likely_vessel';
+                else if (hasChartering) relevance = 'maybe_relevant';
+              }
+
+              let classification = 'MARKET INTEL';
+              if (relevance === 'irrelevant') classification = 'SKIPPED';
+              else if (relevance === 'likely_cargo') classification = 'CARGO';
+              else if (relevance === 'likely_vessel') classification = 'VESSEL';
+              else if (relevance === 'likely_mixed') classification = 'MIXED';
+              else if (relevance === 'maybe_relevant') classification = 'MAYBE';
+
+              allEmails.push({
+                accountId: doc.id,
+                provider: acc.provider,
+                subject,
+                sender,
+                rawBody: rawBodyStr.slice(0, maxStoredBodyChars),
+                bodyTruncated: rawBodyStr.length > maxStoredBodyChars || (msg.source?.length || 0) >= maxMessageBytes,
+                timestamp: parsed.date ? new Date(parsed.date).toISOString() : new Date().toISOString(),
+                classification,
+                relevanceStatus: relevance
+              });
+            }
+          } finally {
+            mailboxLock.release();
+            await client.logout().catch(() => undefined);
+          }
+
+          successfulAccounts++;
+        } catch (error: any) {
+          console.warn(`[Email Sync] Account failed for ${doc.id}:`, error.message || 'unknown');
+        }
+      }
+
+      if (successfulAccounts === 0) {
+        throw new Error('ALL_IMAP_ACCOUNTS_FAILED');
+      }
+
+      const finalEmails = allEmails.reverse();
+      const resultsCollection = jobRef.collection('results');
+      const existingResults = await resultsCollection.get();
+      for (let offset = 0; offset < existingResults.docs.length; offset += 400) {
+        const batch = firestore.batch();
+        for (const resultDoc of existingResults.docs.slice(offset, offset + 400)) batch.delete(resultDoc.ref);
+        await batch.commit();
+      }
+
+      for (let offset = 0; offset < finalEmails.length; offset += 400) {
+        const batch = firestore.batch();
+        finalEmails.slice(offset, offset + 400).forEach((email, index) => {
+          const absoluteIndex = offset + index;
+          const resultRef = resultsCollection.doc(`result-${String(absoluteIndex).padStart(4, '0')}`);
+          batch.set(resultRef, { index: absoluteIndex, email });
+        });
+        await batch.commit();
+      }
+
+      let relevantCount = 0;
+      let skippedCount = 0;
+      for (const email of finalEmails) {
+        if (email.relevanceStatus === 'irrelevant' || email.classification === 'SKIPPED') skippedCount++;
+        else relevantCount++;
+      }
+
+      await jobRef.update({
+        status: 'completed',
+        completedAt: FieldValue.serverTimestamp(),
+        leaseUntilMs: FieldValue.delete(),
+        scannedCount: finalEmails.length,
+        relevantCount,
+        skippedCount,
+        processedCount: finalEmails.length
+      });
+    } catch (error: any) {
+      const safeCode = [
+        'NO_ACTIVE_IMAP_ACCOUNTS',
+        'ALL_IMAP_ACCOUNTS_FAILED',
+        'EMAIL_SYNC_JOB_NOT_FOUND',
+        'EMAIL_SYNC_JOB_OWNER_MISMATCH'
+      ].includes(error.message) ? error.message : 'SYNC_ERROR';
+
+      await jobRef.update({
+        status: 'failed',
+        completedAt: FieldValue.serverTimestamp(),
+        leaseUntilMs: FieldValue.delete(),
+        errorCode: safeCode,
+        safeErrorMessage: safeCode === 'NO_ACTIVE_IMAP_ACCOUNTS'
+          ? 'No active IMAP accounts are connected.'
+          : 'Email sync failed. Please retry or reconnect the account.'
+      }).catch(() => undefined);
+      throw error;
+    } finally {
+      await releaseEmailSyncLock(verifiedUid, jobId);
+    }
+  };
 
   app.get('/api/email/sync/status/:jobId', async (req, res) => {
     const { jobId } = req.params;
     const authHeader = req.headers.authorization;
-    if (!authHeader) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return res.status(401).json({ error: "Missing auth" });
     }
-    const idToken = authHeader.split('Bearer ')[1];
-    
-    let decodedIdToken;
-    try {
-      decodedIdToken = await getAuth().verifyIdToken(idToken);
-    } catch (error) {
-       return res.status(401).json({ error: "Invalid token" });
-    }
 
-    const verifiedUid = decodedIdToken.uid;
-    // We only allow access to the user's own job
     try {
+      const decodedIdToken = await getAuth().verifyIdToken(authHeader.slice(7));
+      const verifiedUid = decodedIdToken.uid;
       if (!firestore) throw new Error("Firestore not initialized");
+
       const jobRef = firestore.collection(`users/${verifiedUid}/emailSyncJobs`).doc(jobId);
       const jobSnap = await jobRef.get();
-      
-      if (!jobSnap.exists) {
-        return res.status(404).json({ error: "Job not found" });
-      }
+      if (!jobSnap.exists) return res.status(404).json({ error: "Job not found" });
 
-      const data = jobSnap.data();
-      let currentStatus = data?.status || 'unknown';
+      const data = jobSnap.data() || {};
+      if (data.userId !== verifiedUid) return res.status(403).json({ error: "Access denied" });
 
-      // Check for stale running/queued jobs (older than 6 minutes)
+      let currentStatus = data.status || 'unknown';
       if (currentStatus === 'queued' || currentStatus === 'running') {
-         const jobAge = Date.now() - (data?.requestedAt?.toMillis ? data.requestedAt.toMillis() : Date.now());
-         if (jobAge > 6 * 60 * 1000) {
-             currentStatus = 'failed';
-             await jobRef.update({
-                status: 'failed',
-                errorCode: 'TIMEOUT',
-                safeErrorMessage: 'Job timed out and was marked as failed safely.'
-             });
-         }
+        const requestedAtMs = data.requestedAt?.toMillis ? data.requestedAt.toMillis() : Date.now();
+        if (Date.now() - requestedAtMs > 12 * 60 * 1000) {
+          currentStatus = 'failed';
+          await jobRef.update({
+            status: 'failed',
+            errorCode: 'TIMEOUT',
+            safeErrorMessage: 'Job timed out and was marked as failed safely.',
+            leaseUntilMs: FieldValue.delete()
+          });
+          await releaseEmailSyncLock(verifiedUid, jobId);
+        }
       }
 
-      if (currentStatus === 'completed' || currentStatus === 'failed') {
-         const emails = jobResults.get(jobId) || [];
-         // Clean up memory once consumed by the client
-         jobResults.delete(jobId);
-         return res.json({ status: currentStatus, data: { ...data, status: currentStatus }, emails });
+      let emails: any[] = [];
+      if (currentStatus === 'completed') {
+        const resultsSnap = await jobRef.collection('results').orderBy('index', 'asc').get();
+        emails = resultsSnap.docs.map(doc => doc.data().email).filter(Boolean);
       }
-      return res.json({ status: currentStatus, data });
-      
-    } catch (err: any) {
-      console.warn('Email Sync Status Failed:', err);
-      return res.status(500).json({ error: err.message });
+
+      return res.json({ status: currentStatus, data: { ...data, status: currentStatus }, emails });
+    } catch (error: any) {
+      console.warn('Email Sync Status Failed:', error.message || 'unknown');
+      return res.status(500).json({ error: "Failed to read email sync status" });
+    }
+  });
+
+  app.post('/api/internal/email-sync-worker', async (req, res) => {
+    if (!(await verifyEmailSyncWorkerIdentity(req))) {
+      return res.status(401).json({ error: 'Invalid worker identity' });
+    }
+
+    const { uid, jobId, limit } = req.body || {};
+    if (!uid || !jobId) return res.status(400).json({ error: 'Missing worker parameters' });
+
+    try {
+      await runEmailSyncJob(String(uid), String(jobId), Number(limit || 10));
+      return res.status(200).json({ success: true });
+    } catch (error: any) {
+      console.error('[Email Sync] Worker failed:', error.message || 'unknown');
+      return res.status(500).json({ error: 'Email sync worker failed' });
     }
   });
 
   app.post('/api/email/sync', async (req, res) => {
     const { userId, limit = 10 } = req.body;
     const authHeader = req.headers.authorization;
-    if (!userId || !authHeader) {
+    if (!userId || !authHeader?.startsWith('Bearer ')) {
       return res.status(400).json({ error: "Missing parameters or auth" });
     }
-    const idToken = authHeader.split('Bearer ')[1];
-    
+
     let decodedIdToken;
     try {
-      decodedIdToken = await getAuth().verifyIdToken(idToken);
+      decodedIdToken = await getAuth().verifyIdToken(authHeader.slice(7));
     } catch (error) {
-       console.error("Invalid Firebase ID token");
-       return res.status(401).json({ error: "Invalid or expired authorization token" });
+      return res.status(401).json({ error: "Invalid or expired authorization token" });
     }
 
     const verifiedUid = decodedIdToken.uid;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
-       return res.status(429).json({ error: "Too many requests. Please wait a minute." });
+    if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
+      return res.status(429).json({ error: "Too many requests. Please wait a minute." });
     }
-
     if (userId !== verifiedUid) {
-       return res.status(403).json({ error: "Forbidden: userId mismatch" });
+      return res.status(403).json({ error: "Forbidden: userId mismatch" });
     }
 
-    const currentLock = syncLocks.get(userId);
-    if (currentLock) {
-       const lockAge = Date.now() - currentLock;
-       if (lockAge < 5 * 60 * 1000) { // 5 minutes TTL
-         return res.status(429).json({ error: "Sync already in progress. Please wait." });
-       }
+    const mode = getEmailSyncMode();
+    if (mode === 'disabled') return res.status(503).json({ error: 'Email sync is disabled' });
+    if (mode === 'cloud_tasks' && !getCloudTasksConfig()) {
+      return res.status(503).json({ error: 'Email sync queue is not configured' });
     }
-    syncLocks.set(userId, Date.now());
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
 
-    const jobId = `job-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    const safeLimit = Math.max(1, Math.min(50, Number(limit) || 10));
+    const jobId = `email-sync-${randomUUID()}`;
+    const jobRef = firestore.collection(`users/${verifiedUid}/emailSyncJobs`).doc(jobId);
+    const lockRef = firestore.collection('users').doc(verifiedUid).collection('emailSyncState').doc('current');
 
     try {
-      if (!firestore) throw new Error("Firestore not initialized");
-      const jobRef = firestore.collection(`users/${verifiedUid}/emailSyncJobs`).doc(jobId);
-      
-      await jobRef.set({
-         id: jobId,
-         userId: verifiedUid,
-         status: 'queued',
-         source: 'imap',
-         requestedAt: new Date(),
-         scannedCount: 0,
-         relevantCount: 0,
-         skippedCount: 0,
-         processedCount: 0
+      const lockResult = await firestore.runTransaction(async transaction => {
+        const lockSnap = await transaction.get(lockRef);
+        const activeUntilMs = lockSnap.exists ? Number(lockSnap.data()?.activeUntilMs || 0) : 0;
+        if (activeUntilMs > Date.now()) return false;
+
+        transaction.set(lockRef, {
+          activeJobId: jobId,
+          activeUntilMs: Date.now() + 12 * 60 * 1000,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+        transaction.set(jobRef, {
+          id: jobId,
+          userId: verifiedUid,
+          status: 'queued',
+          source: 'imap',
+          requestedAt: FieldValue.serverTimestamp(),
+          requestedLimit: safeLimit,
+          attempts: 0,
+          scannedCount: 0,
+          relevantCount: 0,
+          skippedCount: 0,
+          processedCount: 0
+        });
+        return true;
       });
 
-      // Return immediately
-      res.json({ jobId, status: 'queued' });
+      if (!lockResult) {
+        return res.status(429).json({ error: "Sync already in progress. Please wait." });
+      }
 
-      // Run background process
-      setTimeout(async () => {
+      if (mode === 'cloud_tasks') {
         try {
-          await jobRef.update({ 
-            status: 'running', 
-            startedAt: new Date() 
-          });
-
-          const snap = await firestore!.collection(`users/${verifiedUid}/emailAccounts`).get();
-          const activeImapAccounts = snap.docs.filter(d => {
-            const data = d.data();
-            return data.active !== false && data.provider !== 'gmail';
-          });
-
-          let allEmails: any[] = [];
-          
-          for (const doc of activeImapAccounts) {
-            const data = doc.data();
-            const acc = {
-               host: data.host,
-               port: Number(data.port || 993),
-               username: data.username,
-               password: data.password,
-               provider: data.provider || 'imap'
-            };
-            const docId = doc.id;
-            if(!acc.host || !acc.username || !acc.password) continue;
-            
-            const client = new ImapFlow({
-              host: acc.host,
-              port: acc.port,
-              secure: acc.port === 993,
-              auth: { user: acc.username, pass: acc.password },
-              logger: false
-            });
-            
-            try {
-              await client.connect();
-              let lock = await client.getMailboxLock('INBOX');
-              try {
-                const messages = [];
-                const status = await client.status('INBOX', { messages: true });
-                const totalMsgs = status.messages || 0;
-                if (totalMsgs > 0) {
-                  const startFetch = Math.max(1, totalMsgs - limit);
-                  for await (let msg of client.fetch(`${startFetch}:*`, { source: true }, { uid: true })) {
-                    messages.push(msg);
-                  }
-                }
-
-                for (let msg of messages) {
-                  const parsed = await simpleParser(msg.source);
-                  const subject = parsed.subject || '(No Subject)';
-                  const sender = parsed.from?.text || 'Unknown';
-                  const rawBodyStr = parsed.text || '';
-                  
-                  const textContent = `${subject} ${sender} ${rawBodyStr.substring(0, 500)}`.toLowerCase();
-                  
-                  let hasCargo = false;
-                  let hasVessel = false;
-                  let hasChartering = false;
-                  let isIrrelevant = false;
-                  
-                  const irrelevantKeywords = ['bank', 'invoice', 'social media', 'newsletter', 'marketing', 'login', 'security alert', 'receipt', 'subscription', 'payment confirmation', 'do-not-reply', 'no-reply', 'prompts to', 'credits let', 'credits left', 'unsubscribe', 'opt out', 'mailer-daemon', 'postmaster', 'html', '<head', '<body', '<div', 'garbage', 'longer you wait', 'saas', 'free credits', 'promo'];
-                  for (const word of irrelevantKeywords) {
-                    if (textContent.includes(word) && !textContent.includes('chartering') && !textContent.includes('vessel') && !textContent.includes('cargo') && !textContent.includes('laycan')) {
-                      isIrrelevant = true;
-                      break;
-                    }
-                  }
-
-                  if (!isIrrelevant) {
-                    const cargoKeywords = ['cargo', ' stem ', 'shipment', 'fixing', 'laycan', ' discharging', 'discharge', ' mt ', 'cbm', 'bulk', 'bagged', 'project cargo', 'fertilizer', 'urea', 'cement', 'grain', 'wheat', 'coal', 'petcoke', 'steel', 'billets', ' ore ', 'phosphate', 'rice', 'freight'];
-                    const vesselKeywords = ['vessel', ' mv ', ' mt ', ' open ', 'position', 'tonnage', 'dwt', 'dwat', 'mpp', 'handy', 'supramax', 'panamax', 'geared', 'gearless', 'cranes', 'open port', 'prompt', 'spot', 'owner', 'manager'];
-                    const charteringKeywords = ['chartering', 'fixture', 'broker', 'shipbroker', 'commission', 'c/p', 'charter party', 'demurrage', 'despatch', 'bdi', 'baltic index', 'bunker', 'tce'];
-
-                    for (const word of cargoKeywords) {
-                      if (textContent.includes(word)) { hasCargo = true; break; }
-                    }
-                    for (const word of vesselKeywords) {
-                      if (textContent.includes(word)) { hasVessel = true; break; }
-                    }
-                    for (const word of charteringKeywords) {
-                      if (textContent.includes(word)) { hasChartering = true; break; }
-                    }
-                  }
-
-                  let relevance = 'irrelevant';
-                  if (!isIrrelevant) {
-                    if (hasCargo && hasVessel) relevance = 'likely_mixed';
-                    else if (hasCargo) relevance = 'likely_cargo';
-                    else if (hasVessel) relevance = 'likely_vessel';
-                    else if (hasChartering) relevance = 'maybe_relevant';
-                  }
-
-                  let classf = 'MARKET INTEL';
-                  if (relevance === 'irrelevant') classf = 'SKIPPED';
-                  else if (relevance === 'likely_cargo') classf = 'CARGO';
-                  else if (relevance === 'likely_vessel') classf = 'VESSEL';
-                  else if (relevance === 'likely_mixed') classf = 'MIXED';
-                  else if (relevance === 'maybe_relevant') classf = 'MAYBE';
-
-                  allEmails.push({
-                    accountId: doc.id,
-                    provider: acc.provider,
-                    subject: subject,
-                    sender: sender,
-                    rawBody: rawBodyStr,
-                    timestamp: parsed.date ? new Date(parsed.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + 'Z' : new Date().toLocaleTimeString() + 'Z',
-                    classification: classf,
-                    relevanceStatus: relevance
-                  });
-                }
-              } finally {
-                lock.release();
-              }
-              await client.logout();
-            } catch (err) {
-              console.warn(`Failed to sync account ${acc.username}:`, err);
-            }
-          }
-          
-          const finalEmails = allEmails.reverse();
-          jobResults.set(jobId, finalEmails);
-          
-          let relCount = 0;
-          let skipCount = 0;
-          for (const e of finalEmails) {
-             if (e.relevanceStatus === 'irrelevant' || e.classification === 'SKIPPED') skipCount++;
-             else relCount++;
-          }
-
-          await jobRef.update({
-            status: 'completed',
-            completedAt: new Date(),
-            scannedCount: finalEmails.length,
-            relevantCount: relCount,
-            skippedCount: skipCount
-          });
-          
-        } catch (err: any) {
-          console.warn('Email Sync Background Failed:', err);
+          await enqueueEmailSyncTask(verifiedUid, jobId, safeLimit);
+        } catch (error) {
           await jobRef.update({
             status: 'failed',
-            completedAt: new Date(),
-            errorCode: 'SYNC_ERROR',
-            safeErrorMessage: err.message || 'Unknown error'
+            errorCode: 'QUEUE_ERROR',
+            safeErrorMessage: 'Unable to queue email sync.',
+            completedAt: FieldValue.serverTimestamp()
           });
-        } finally {
-          syncLocks.delete(userId);
+          await releaseEmailSyncLock(verifiedUid, jobId);
+          throw error;
         }
-      }, 0);
-
-    } catch (err: any) {
-      syncLocks.delete(verifiedUid);
-      console.warn('Email Sync Init Failed (expected if ADC misconfigured or lacking role):', err.message);
-      // Let's only fail if the initial job setup fails. If it responds, client uses jobId.
-      if (!res.headersSent) {
-          res.status(500).json({ error: err.message || "Failed to initialize sync job" });
+        return res.json({ jobId, status: 'queued' });
       }
+
+      // Development/local mode only. Production defaults to Cloud Tasks.
+      setImmediate(() => {
+        runEmailSyncJob(verifiedUid, jobId, safeLimit)
+          .catch(error => console.warn('[Email Sync] In-process worker failed:', error.message || 'unknown'));
+      });
+      return res.json({ jobId, status: 'queued' });
+    } catch (error: any) {
+      console.error('[Email Sync] Failed to initialize job:', error.message || 'unknown');
+      return res.status(500).json({ error: 'Failed to initialize email sync job' });
     }
   });
 
   // Webhook for incoming emails (SendGrid / Mailgun style)
   app.post('/api/email/webhook', async (req, res) => {
-    // Typical webhook payloads have fields like text, subject, from
+    const expectedSecret = process.env.EMAIL_WEBHOOK_SECRET;
+    if (!expectedSecret) {
+      return res.status(503).json({ error: "Email webhook is not configured" });
+    }
+    const providedSecret = req.get('x-email-webhook-secret') || '';
+    if (!constantTimeSecretEquals(providedSecret, expectedSecret)) {
+      return res.status(401).json({ error: "Invalid webhook authentication" });
+    }
+
+    // Typical webhook payloads have fields like text, subject, from.
     const payload = req.body;
-    console.log("Received Email Webhook Request.");
+    console.log("Received authenticated Email Webhook Request.");
 
     if (!firestore) {
       return res.status(500).json({ error: "Firestore not initialized" });
@@ -2217,31 +2932,50 @@ const jobResults = new Map<string, any[]>();
     }
   });
 
-  // Rate Limiter map
-  const aiRateLimits = new Map<string, { count: number, resetTime: number }>();
-
-  function rateLimitMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+  async function rateLimitMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    const now = Date.now();
-    const entry = aiRateLimits.get(ip) || { count: 0, resetTime: now + 60000 };
-    
-    if (now > entry.resetTime) {
-      entry.count = 1;
-      entry.resetTime = now + 60000;
-    } else {
-      entry.count += 1;
+    try {
+      const allowed = await checkRateLimit(ip, 50, 'ai-ip');
+      if (!allowed) {
+        return res.status(429).json({ error: "Too many requests. Please try again later." });
+      }
+      next();
+    } catch (error) {
+      next(error);
     }
-    aiRateLimits.set(ip, entry);
-
-    if (entry.count > 50) {
-      return res.status(429).json({ error: "Too many requests. Please try again later." });
-    }
-    next();
   }
 
   // Unified routing logic
+  const ROUTE_TASK_OPERATION: Record<string, string> = {
+    short_rewrite: 'ai_chat',
+    tone_adjustment: 'ai_chat',
+    quick_summary: 'ai_chat',
+    simple_classification: 'ai_chat',
+    local_ui_assist: 'ai_chat',
+    missing_field_hint: 'ai_chat',
+    extract_cargo: 'parse_email',
+    extract_vessel: 'parse_email',
+    summarize_email: 'parse_email',
+    generate_reply: 'draft_reply',
+    classify_email: 'parse_email',
+    detect_missing_terms: 'analyze_risk',
+    transport_specs: 'analyze_risk',
+    normalize_cargo_json: 'parse_email',
+    normalize_vessel_json: 'parse_email',
+    match_cargo_vessel: 'match_cargo_vessel',
+    analyze_fixture: 'analyze_risk',
+    analyze_risk: 'analyze_risk',
+    compare_vessels: 'cargo_match_review',
+    compare_cargoes: 'cargo_match_review',
+    negotiation_strategy: 'negotiation_strategy',
+    laytime_demurrage_analysis: 'risk_review',
+    commercial_recommendation: 'analyze_risk',
+    parse_market_report: 'market_report_analysis',
+    calculate_voyage: 'freight_calc'
+  };
+
   const routeAITaskBackend = (taskType: string) => {
-    const heavyTasks = ["match_cargo_vessel", "analyze_fixture", "analyze_risk", "compare_vessels", "compare_cargoes", "negotiation_strategy", "laytime_demurrage_analysis"];
+    const heavyTasks = ["match_cargo_vessel", "analyze_fixture", "analyze_risk", "compare_vessels", "compare_cargoes", "negotiation_strategy", "laytime_demurrage_analysis", "commercial_recommendation", "parse_market_report"];
     if (heavyTasks.includes(taskType)) {
       return { model: AI_MODELS.HEAVY_SERVER, preprocessing: false };
     }
@@ -2260,7 +2994,21 @@ const jobResults = new Map<string, any[]>();
       const verifiedUid = decodedIdToken.uid;
 
       const { taskType, payload } = req.body;
+      const operation = ROUTE_TASK_OPERATION[taskType];
+      if (!operation) {
+        return res.status(400).json({ error: "Unsupported AI task type" });
+      }
+      if (!payload || typeof payload !== 'object') {
+        return res.status(400).json({ error: "Invalid AI task payload" });
+      }
+
+      const creditCheck = await checkCredits(verifiedUid, operation);
+      if (!creditCheck.allowed) {
+        return res.status(creditCheck.statusCode || 402).json(creditCheck);
+      }
+
       const routing = routeAITaskBackend(taskType);
+      const reqId = randomUUID();
       
       const ai = getGoogleGenAI();
       let response;
@@ -2288,6 +3036,143 @@ const jobResults = new Map<string, any[]>();
                    shouldFlagRisk: { type: Type.BOOLEAN }
                 },
                 required: ["type", "risk_type", "key_risk", "recommended_action", "severity", "shouldReject", "shouldFlagRisk"]
+             }
+           };
+        } else if (taskType === "calculate_voyage") {
+           const cargo = payload.cargo;
+           const vessel = payload.vessel;
+           const overrides = payload.overrides && typeof payload.overrides === 'object' ? payload.overrides : {};
+           if (!cargo || typeof cargo !== 'object' || !vessel || typeof vessel !== 'object') {
+             return res.status(400).json({ error: "Cargo and vessel objects are required" });
+           }
+           const compactPayload = {
+             cargo: {
+               commodity: cargo.commodity || cargo.rawCommodity || null,
+               quantity: cargo.quantity || cargo.quantityMt || cargo.quantityCbm || null,
+               quantityMt: cargo.quantityMt || null,
+               loadPort: cargo.loadPort || null,
+               dischargePort: cargo.dischargePort || null,
+               laycan: cargo.laycan || null,
+               freightRate: cargo.freightRate || cargo.freightIdea || null,
+               lumpSum: cargo.lumpSum || null,
+               terms: cargo.terms || null,
+             },
+             vessel: {
+               name: vessel.name || null,
+               type: vessel.type || null,
+               dwt: vessel.dwt || null,
+               openPort: vessel.openPort || null,
+               openDate: vessel.openDate || null,
+               speed: vessel.speed || null,
+               consumption: vessel.consumption || null,
+             },
+             overrides
+           };
+           const serialized = JSON.stringify(compactPayload);
+           if (serialized.length > 100000) {
+             return res.status(413).json({ error: "Voyage calculation payload is too large" });
+           }
+           aiConfig.contents = serialized;
+           aiConfig.config = {
+             systemInstruction: VOYAGE_CALC_SYSTEM,
+             responseMimeType: "application/json",
+             responseSchema: {
+               type: Type.OBJECT,
+               properties: {
+                 ballastLeg: { type: Type.STRING },
+                 ladenLeg: { type: Type.STRING },
+                 distanceToLoad: { type: Type.STRING },
+                 distanceVoyage: { type: Type.STRING },
+                 totalDistance: { type: Type.STRING },
+                 distanceStatus: { type: Type.STRING },
+                 seaDays: { type: Type.STRING },
+                 portDays: { type: Type.STRING },
+                 waitingDays: { type: Type.STRING },
+                 daysTotal: { type: Type.STRING },
+                 speedStatus: { type: Type.STRING },
+                 fuelConsumption: { type: Type.STRING },
+                 totalBunkerQuantity: { type: Type.STRING },
+                 fuelCost: { type: Type.STRING },
+                 consumptionStatus: { type: Type.STRING },
+                 bunkerPriceStatus: { type: Type.STRING },
+                 portCosts: { type: Type.STRING },
+                 pdaStatus: { type: Type.STRING },
+                 totalExpenses: { type: Type.STRING },
+                 cargoQuantityStatus: { type: Type.STRING },
+                 estimatedFreight: { type: Type.STRING },
+                 freightStatus: { type: Type.STRING },
+                 profitability: { type: Type.STRING },
+                 tce: { type: Type.STRING },
+                 reasoning: { type: Type.STRING },
+                 commercialStatus: { type: Type.STRING },
+                 completenessScore: { type: Type.NUMBER },
+                 routeIntegrity: { type: Type.STRING },
+                 routeConfidence: { type: Type.STRING },
+                 ballastSeverity: { type: Type.STRING },
+                 commercialRecommendation: { type: Type.STRING },
+                 dwtUtilizationWarning: { type: Type.STRING, nullable: true }
+               },
+               required: [
+                 "ballastLeg","ladenLeg","distanceToLoad","distanceVoyage","totalDistance","distanceStatus",
+                 "seaDays","portDays","waitingDays","daysTotal","speedStatus","fuelConsumption","totalBunkerQuantity",
+                 "fuelCost","consumptionStatus","bunkerPriceStatus","portCosts","pdaStatus","totalExpenses",
+                 "cargoQuantityStatus","estimatedFreight","freightStatus","profitability","tce","reasoning",
+                 "commercialStatus","completenessScore","routeIntegrity","routeConfidence","ballastSeverity",
+                 "commercialRecommendation"
+               ]
+             }
+           };
+        } else if (taskType === "parse_market_report") {
+           const marketText = String(payload.contents || payload.prompt || '');
+           if (marketText.length < 30 || marketText.length > 100000) {
+             return res.status(400).json({ error: "Market report text must be between 30 and 100000 characters" });
+           }
+           aiConfig.config = {
+             systemInstruction: MARKET_REPORT_SYSTEM,
+             responseMimeType: "application/json",
+             responseSchema: {
+               type: Type.OBJECT,
+               properties: {
+                 trend: { type: Type.STRING, description: "firm, soft, sideways, volatile, mixed, or unclear" },
+                 confidence: { type: Type.NUMBER },
+                 sentiment_score: { type: Type.NUMBER },
+                 regions: {
+                   type: Type.ARRAY,
+                   items: {
+                     type: Type.OBJECT,
+                     properties: {
+                       name: { type: Type.STRING },
+                       trend: { type: Type.STRING },
+                       activity: { type: Type.STRING }
+                     }
+                   }
+                 },
+                 cargo_activity: {
+                   type: Type.ARRAY,
+                   items: {
+                     type: Type.OBJECT,
+                     properties: {
+                       commodity: { type: Type.STRING },
+                       trend: { type: Type.STRING },
+                       note: { type: Type.STRING }
+                     }
+                   }
+                 },
+                 vessel_supply: {
+                   type: Type.ARRAY,
+                   items: {
+                     type: Type.OBJECT,
+                     properties: {
+                       segment: { type: Type.STRING },
+                       availability: { type: Type.STRING },
+                       note: { type: Type.STRING }
+                     }
+                   }
+                 },
+                 key_points: { type: Type.ARRAY, items: { type: Type.STRING } },
+                 ai_summary: { type: Type.STRING }
+               },
+               required: ["trend", "confidence", "sentiment_score", "key_points", "ai_summary"]
              }
            };
         }
@@ -2344,6 +3229,11 @@ const jobResults = new Map<string, any[]>();
         // Ignore JSON parse errors for non-JSON outputs
       }
       
+      await chargeCreditsAfterSuccess(verifiedUid, operation, reqId, {
+        provider: response.actualProvider,
+        model: response.actualModel || usedModel
+      });
+
       res.json({
         text: text,
         ...parsedJson,
@@ -2357,6 +3247,539 @@ const jobResults = new Map<string, any[]>();
     } catch (error: any) {
       console.error("AI Route Task Error:", error);
       res.status(500).json({ error: getErrorMsg(error) || "Failed to route AI task." });
+    }
+  });
+
+  const requireFirebaseUser = async (req: express.Request) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) return null;
+    try {
+      return await getAuth().verifyIdToken(authHeader.slice(7));
+    } catch {
+      return null;
+    }
+  };
+
+  app.get('/api/email/accounts', async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
+    if (!(await checkRateLimit(user.uid, 120, 'email-accounts-list'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    try {
+      const snap = await firestore.collection(`users/${user.uid}/emailAccounts`).get();
+      const accounts = snap.docs.map(docSnap => {
+        const data = docSnap.data() || {};
+        const provider = String(data.provider || 'imap');
+        return {
+          id: docSnap.id,
+          email: String(data.email || data.username || docSnap.id),
+          provider: ['gmail', 'outlook', 'icloud', 'imap'].includes(provider) ? provider : 'imap',
+          active: data.active !== false
+        };
+      });
+      return res.json({ accounts });
+    } catch (error: any) {
+      console.error('[Email Accounts] List failed:', error.message);
+      return res.status(500).json({ error: 'Unable to list email accounts' });
+    }
+  });
+
+  app.post('/api/email/accounts/set-active', express.json({ limit: '8kb' }), async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
+    if (!(await checkRateLimit(user.uid, 60, 'email-accounts-update'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    const accountId = String(req.body?.accountId || '').trim();
+    const active = req.body?.active;
+    if (!accountId || accountId.length > 320 || accountId.includes('/') || typeof active !== 'boolean') {
+      return res.status(400).json({ error: 'Invalid account update' });
+    }
+
+    try {
+      const accountRef = firestore.collection(`users/${user.uid}/emailAccounts`).doc(accountId);
+      const snap = await accountRef.get();
+      if (!snap.exists) return res.status(404).json({ error: 'Email account not found' });
+      await accountRef.update({ active, updatedAt: FieldValue.serverTimestamp() });
+      return res.json({ success: true, accountId, active });
+    } catch (error: any) {
+      console.error('[Email Accounts] Update failed:', error.message);
+      return res.status(500).json({ error: 'Unable to update email account' });
+    }
+  });
+
+  app.post('/api/email/accounts/remove', express.json({ limit: '8kb' }), async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
+    if (!(await checkRateLimit(user.uid, 30, 'email-accounts-remove'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    const accountId = String(req.body?.accountId || '').trim();
+    if (!accountId || accountId.length > 320 || accountId.includes('/')) {
+      return res.status(400).json({ error: 'Invalid account id' });
+    }
+
+    try {
+      const accountRef = firestore.collection(`users/${user.uid}/emailAccounts`).doc(accountId);
+      const snap = await accountRef.get();
+      if (!snap.exists) return res.status(404).json({ error: 'Email account not found' });
+      await accountRef.delete();
+      return res.json({ success: true, accountId });
+    } catch (error: any) {
+      console.error('[Email Accounts] Remove failed:', error.message);
+      return res.status(500).json({ error: 'Unable to remove email account' });
+    }
+  });
+
+  app.post('/api/network/invites/accept', express.json({ limit: '8kb' }), async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
+    if (!(await checkRateLimit(user.uid, 30, 'network-invite-accept'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    const inviteId = String(req.body?.inviteId || '').trim();
+    if (!/^[A-Za-z0-9_.:-]{1,240}$/.test(inviteId)) {
+      return res.status(400).json({ error: 'Invalid invite id' });
+    }
+
+    try {
+      const inviteRef = firestore.collection(`users/${user.uid}/networkInvites`).doc(inviteId);
+      let fromUserId = '';
+
+      await firestore.runTransaction(async tx => {
+        const inviteSnap = await tx.get(inviteRef);
+        if (!inviteSnap.exists) throw new Error('INVITE_NOT_FOUND');
+        const invite = inviteSnap.data() || {};
+        fromUserId = String(invite.fromUserId || '');
+        if (!fromUserId || fromUserId === user.uid) throw new Error('INVALID_INVITE_SENDER');
+        if (invite.status === 'declined' || invite.status === 'archived') throw new Error('INVITE_NOT_ACCEPTABLE');
+
+        const now = FieldValue.serverTimestamp();
+        tx.set(
+          firestore.collection(`users/${user.uid}/networkConnections`).doc(fromUserId),
+          { peerUid: fromUserId, connectedAt: now, source: 'invite_accept' },
+          { merge: true }
+        );
+        tx.set(
+          firestore.collection(`users/${fromUserId}/networkConnections`).doc(user.uid),
+          { peerUid: user.uid, connectedAt: now, source: 'invite_accept' },
+          { merge: true }
+        );
+        tx.set(inviteRef, { status: 'accepted', updatedAt: now }, { merge: true });
+      });
+
+      await firestore.collection('auditEvents').add({
+        action: 'network_connection_accepted',
+        uid: user.uid,
+        metadata: { inviteId, peerUid: fromUserId },
+        timestamp: FieldValue.serverTimestamp()
+      });
+
+      return res.json({ success: true, peerUid: fromUserId });
+    } catch (error: any) {
+      const code = String(error?.message || '');
+      if (code === 'INVITE_NOT_FOUND') return res.status(404).json({ error: 'Invite not found' });
+      if (code === 'INVALID_INVITE_SENDER' || code === 'INVITE_NOT_ACCEPTABLE') {
+        return res.status(400).json({ error: 'Invite cannot be accepted' });
+      }
+      console.error('[Network Invite Accept] Failed:', error.message);
+      return res.status(500).json({ error: 'Unable to accept network invite' });
+    }
+  });
+
+  app.post('/api/recaps/notify-created', express.json({ limit: '8kb' }), async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
+    if (!(await checkRateLimit(user.uid, 20, 'recap-created-notify'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    const dealId = String(req.body?.dealId || '').trim();
+    if (!/^[A-Za-z0-9_.:-]{1,240}$/.test(dealId)) {
+      return res.status(400).json({ error: 'Invalid deal id' });
+    }
+
+    try {
+      const dealRef = firestore.collection('deskNetworkUrgentDeals').doc(dealId);
+      const recapRef = dealRef.collection('recaps').doc('draft');
+      const [dealSnap, recapSnap] = await Promise.all([dealRef.get(), recapRef.get()]);
+      if (!dealSnap.exists || !recapSnap.exists) {
+        return res.status(404).json({ error: 'Deal or recap not found' });
+      }
+
+      const deal = dealSnap.data() || {};
+      const recap = recapSnap.data() || {};
+      const cargoOwnerUid = String(deal.cargoOwnerUid || '');
+      const vesselOwnerUid = String(deal.vesselOwnerUid || '');
+      if (user.uid !== cargoOwnerUid && user.uid !== vesselOwnerUid) {
+        return res.status(403).json({ error: 'Not a recap participant' });
+      }
+      if (deal.status !== 'dual_approved' || String(recap.dealId || '') !== dealId) {
+        return res.status(409).json({ error: 'Recap is not backed by a dual-approved deal' });
+      }
+
+      const targetUid = user.uid === cargoOwnerUid ? vesselOwnerUid : cargoOwnerUid;
+      if (!targetUid || targetUid === 'system' || targetUid === user.uid) {
+        return res.json({ success: true, notified: false });
+      }
+
+      const alertId = `recap_created_${createHash('sha256').update(`${dealId}:${targetUid}`).digest('hex').slice(0, 32)}`;
+      const alertRef = firestore.collection('alerts').doc(alertId);
+      const existing = await alertRef.get();
+      if (!existing.exists) {
+        await alertRef.set({
+          id: alertId,
+          recipientUid: targetUid,
+          createdBySystem: true,
+          category: 'recap_draft',
+          priority: 'high',
+          title: 'Recap Draft Created',
+          message: 'A working recap draft was created for a dual-approved Desk Network deal involving you.',
+          sourceType: 'recap',
+          sourceId: dealId,
+          actionLabel: 'Review',
+          actionRoute: '/dashboard',
+          read: false,
+          dismissed: false,
+          createdAt: Date.now(),
+          visibility: 'private'
+        });
+      }
+
+      await firestore.collection('auditEvents').add({
+        action: 'recap_draft_notification',
+        uid: user.uid,
+        metadata: { dealId, targetUid },
+        timestamp: FieldValue.serverTimestamp()
+      });
+
+      return res.json({ success: true, notified: !existing.exists });
+    } catch (error: any) {
+      console.error('[Recap Draft Notify] Failed:', error.message);
+      return res.status(500).json({ error: 'Unable to notify recap participant' });
+    }
+  });
+
+  app.post('/api/recaps/confirm', express.json({ limit: '8kb' }), async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
+    if (!(await checkRateLimit(user.uid, 30, 'recap-confirm'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    const dealId = String(req.body?.dealId || '').trim();
+    const confirm = req.body?.confirm;
+    if (!/^[A-Za-z0-9_.:-]{1,240}$/.test(dealId) || typeof confirm !== 'boolean') {
+      return res.status(400).json({ error: 'Invalid recap confirmation request' });
+    }
+
+    const dealRef = firestore.collection('deskNetworkUrgentDeals').doc(dealId);
+    const recapRef = dealRef.collection('recaps').doc('draft');
+
+    try {
+      let result: {
+        side: 'cargoSide' | 'vesselSide';
+        counterpartUid: string;
+        status: string;
+        recapStatus: string;
+        cargoOwnerUid: string;
+        vesselOwnerUid: string;
+      } | null = null;
+
+      await firestore.runTransaction(async tx => {
+        const [dealSnap, recapSnap] = await Promise.all([tx.get(dealRef), tx.get(recapRef)]);
+        if (!dealSnap.exists) throw new Error('DEAL_NOT_FOUND');
+        if (!recapSnap.exists) throw new Error('RECAP_NOT_FOUND');
+
+        const deal = dealSnap.data() || {};
+        const recap = recapSnap.data() || {};
+        if (deal.status === 'cancelled') throw new Error('DEAL_CANCELLED');
+
+        const cargoOwnerUid = String(deal.cargoOwnerUid || '');
+        const vesselOwnerUid = String(deal.vesselOwnerUid || '');
+        const side: 'cargoSide' | 'vesselSide' =
+          user.uid === cargoOwnerUid ? 'cargoSide' :
+          user.uid === vesselOwnerUid ? 'vesselSide' :
+          (() => { throw new Error('NOT_PARTICIPANT'); })();
+
+        if (recap.status === 'locked' && !confirm) {
+          throw new Error('RECAP_LOCKED');
+        }
+
+        const otherSide: 'cargoSide' | 'vesselSide' = side === 'cargoSide' ? 'vesselSide' : 'cargoSide';
+        const otherConfirmed = recap.confirmations?.[otherSide]?.confirmed === true;
+        const bothConfirmed = confirm && otherConfirmed;
+        const confirmationStatus = bothConfirmed
+          ? 'confirmed_by_both_sides'
+          : confirm
+            ? (side === 'cargoSide' ? 'confirmed_by_cargo_side' : 'confirmed_by_vessel_side')
+            : 'confirmation_revoked';
+        const recapStatus = bothConfirmed ? 'locked' : 'draft';
+
+        const auditEntries: any[] = [{
+          action: confirm ? `recap_confirmed_by_${side === 'cargoSide' ? 'cargo_side' : 'vessel_side'}` : 'recap_confirmation_revoked',
+          timestamp: new Date(),
+          actorUid: user.uid,
+          side: side === 'cargoSide' ? 'cargo' : 'vessel',
+          safeMessage: confirm ? `Recap confirmed by ${side === 'cargoSide' ? 'cargo' : 'vessel'} side` : 'Recap confirmation revoked'
+        }];
+        if (bothConfirmed) {
+          auditEntries.push(
+            { action: 'recap_confirmed_by_both_sides', timestamp: new Date(), actorUid: 'system', safeMessage: 'Recap confirmed by both sides.' },
+            { action: 'recap_locked', timestamp: new Date(), actorUid: 'system', safeMessage: 'Recap locked after both sides confirmed.' }
+          );
+        }
+
+        const updatePayload: Record<string, any> = {
+          [`confirmations.${side}.confirmed`]: confirm,
+          [`confirmations.${side}.confirmedBy`]: confirm ? user.uid : null,
+          [`confirmations.${side}.confirmedAt`]: confirm ? FieldValue.serverTimestamp() : null,
+          [`confirmations.${side}.revokedAt`]: !confirm ? FieldValue.serverTimestamp() : null,
+          confirmationStatus,
+          status: recapStatus,
+          lastConfirmationActionAt: FieldValue.serverTimestamp(),
+          lastConfirmationActionBy: user.uid,
+          updatedAt: FieldValue.serverTimestamp(),
+          auditTrail: FieldValue.arrayUnion(...auditEntries)
+        };
+        if (bothConfirmed) {
+          updatePayload.fullyConfirmedAt = FieldValue.serverTimestamp();
+        }
+
+        tx.update(recapRef, updatePayload);
+
+        result = {
+          side,
+          counterpartUid: side === 'cargoSide' ? vesselOwnerUid : cargoOwnerUid,
+          status: confirmationStatus,
+          recapStatus,
+          cargoOwnerUid,
+          vesselOwnerUid
+        };
+      });
+
+      if (!result) throw new Error('CONFIRMATION_FAILED');
+
+      const pointerData = {
+        updatedAt: FieldValue.serverTimestamp(),
+        status: result.recapStatus,
+        confirmationStatus: result.status
+      };
+      const pointerWrites: Promise<any>[] = [];
+      if (result.cargoOwnerUid && result.cargoOwnerUid !== 'system') {
+        pointerWrites.push(
+          firestore.collection(`users/${result.cargoOwnerUid}/recapDrafts`).doc(dealId).set(pointerData, { merge: true })
+        );
+      }
+      if (result.vesselOwnerUid && result.vesselOwnerUid !== 'system' && result.vesselOwnerUid !== result.cargoOwnerUid) {
+        pointerWrites.push(
+          firestore.collection(`users/${result.vesselOwnerUid}/recapDrafts`).doc(dealId).set(pointerData, { merge: true })
+        );
+      }
+      await Promise.all(pointerWrites);
+
+      const targetUid = result.counterpartUid;
+      if (confirm && targetUid && targetUid !== 'system' && targetUid !== user.uid) {
+        const locked = result.status === 'confirmed_by_both_sides';
+        const alertId = `recap_${createHash('sha256').update(`${dealId}:${locked ? 'locked' : 'pending'}:${targetUid}`).digest('hex').slice(0, 32)}`;
+        await firestore.collection('alerts').doc(alertId).set({
+          id: alertId,
+          recipientUid: targetUid,
+          createdBySystem: true,
+          category: locked ? 'recap_confirmation' : 'broker_confirmation_waiting',
+          priority: 'high',
+          title: locked ? 'Recap Locked' : 'Recap Confirmation Pending',
+          message: locked
+            ? 'Both Desk Network sides have confirmed the working recap. The recap is now locked.'
+            : 'The other Desk Network side confirmed the working recap. Your review and confirmation are pending.',
+          sourceType: 'recap',
+          sourceId: dealId,
+          actionLabel: 'Review',
+          actionRoute: '/dashboard',
+          read: false,
+          dismissed: false,
+          createdAt: Date.now(),
+          visibility: 'private'
+        }, { merge: true });
+      }
+
+      await firestore.collection('auditEvents').add({
+        action: 'recap_confirmation_action',
+        uid: user.uid,
+        metadata: { dealId, side: result.side, confirm, status: result.status },
+        timestamp: FieldValue.serverTimestamp()
+      });
+
+      return res.json({
+        success: true,
+        side: result.side,
+        confirmationStatus: result.status,
+        recapStatus: result.recapStatus
+      });
+    } catch (error: any) {
+      const code = String(error?.message || '');
+      if (code === 'DEAL_NOT_FOUND' || code === 'RECAP_NOT_FOUND') return res.status(404).json({ error: 'Deal or recap not found' });
+      if (code === 'NOT_PARTICIPANT') return res.status(403).json({ error: 'Not a recap participant' });
+      if (code === 'DEAL_CANCELLED') return res.status(409).json({ error: 'Deal is cancelled' });
+      if (code === 'RECAP_LOCKED') return res.status(409).json({ error: 'Locked recap confirmation cannot be revoked' });
+      console.error('[Recap Confirm] Failed:', error.message);
+      return res.status(500).json({ error: 'Unable to update recap confirmation' });
+    }
+  });
+
+  app.post('/api/market/matches/notify', express.json({ limit: '16kb' }), async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
+    if (!(await checkRateLimit(user.uid, 60, 'market-match-notify'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    const matchId = String(req.body?.matchId || '');
+    if (!/^[A-Za-z0-9_.:-]{1,240}$/.test(matchId)) {
+      return res.status(400).json({ error: 'Invalid matchId' });
+    }
+
+    try {
+      const matchRef = firestore.collection('marketMatches').doc(matchId);
+      const matchSnap = await matchRef.get();
+      if (!matchSnap.exists) return res.status(404).json({ error: 'Match not found' });
+
+      const match = matchSnap.data() || {};
+      const vesselOwnerUid = String(match.vesselOwnerUid || '');
+      const cargoOwnerUid = String(match.cargoOwnerUid || '');
+      if (user.uid !== vesselOwnerUid && user.uid !== cargoOwnerUid) {
+        return res.status(403).json({ error: 'Not a participant in this match' });
+      }
+
+      const requestId = String(match.requestId || '');
+      const sharedItemId = String(match.sharedItemId || '');
+      if (!requestId || !sharedItemId) {
+        return res.status(400).json({ error: 'Match provenance is incomplete' });
+      }
+
+      const [requestSnap, sharedItemSnap] = await Promise.all([
+        firestore.collection('marketRequests').doc(requestId).get(),
+        firestore.collection('sharedItems').doc(sharedItemId).get()
+      ]);
+      if (!requestSnap.exists || !sharedItemSnap.exists) {
+        return res.status(400).json({ error: 'Match source records are unavailable' });
+      }
+
+      const marketRequest = requestSnap.data() || {};
+      const sharedItem = sharedItemSnap.data() || {};
+      if (
+        marketRequest.createdByUid !== user.uid ||
+        marketRequest.status !== 'active' ||
+        marketRequest.visibility !== 'network' ||
+        String(match.requestType || '') !== String(marketRequest.type || '')
+      ) {
+        return res.status(403).json({ error: 'Match is not backed by your active network request' });
+      }
+
+      const targetUid = String(sharedItem.ownerId || '');
+      if (!targetUid || targetUid === user.uid || sharedItem.status !== 'active') {
+        return res.status(403).json({ error: 'Shared-item counterpart is invalid' });
+      }
+
+      const requestType = String(marketRequest.type || '');
+      const itemType = String(sharedItem.itemType || '');
+      const ownershipValid =
+        ((requestType === 'cargo_search' || requestType === 'available_vessel') &&
+          itemType === 'cargo' &&
+          vesselOwnerUid === user.uid &&
+          cargoOwnerUid === targetUid) ||
+        (requestType === 'tonnage_search' &&
+          itemType === 'vessel' &&
+          cargoOwnerUid === user.uid &&
+          vesselOwnerUid === targetUid);
+
+      if (!ownershipValid) {
+        return res.status(403).json({ error: 'Match participant mapping is invalid' });
+      }
+
+      const [callerConnection, counterpartConnection] = await Promise.all([
+        firestore.collection(`users/${user.uid}/networkConnections`).doc(targetUid).get(),
+        firestore.collection(`users/${targetUid}/networkConnections`).doc(user.uid).get()
+      ]);
+      if (!callerConnection.exists || !counterpartConnection.exists) {
+        return res.status(403).json({ error: 'Accepted reciprocal network connection required' });
+      }
+
+      const score = Math.max(0, Math.min(100, Number(match.matchScore) || 0));
+      const alertId = `market_match_${createHash('sha256').update(`${matchId}:${targetUid}`).digest('hex').slice(0, 32)}`;
+      const alertRef = firestore.collection('alerts').doc(alertId);
+      const existing = await alertRef.get();
+      if (!existing.exists) {
+        await alertRef.set({
+          id: alertId,
+          recipientUid: targetUid,
+          createdBySystem: true,
+          category: 'market_request_match',
+          priority: score >= 80 ? 'high' : 'info',
+          title: 'New Market Match',
+          message: 'A connected desk market request produced a screening candidate against one of your shared items. Review the underlying facts before any commercial action.',
+          sourceType: 'market_match',
+          sourceId: matchId,
+          actionLabel: 'Review',
+          actionRoute: '/dashboard',
+          read: false,
+          dismissed: false,
+          createdAt: Date.now(),
+          visibility: 'private'
+        });
+      }
+
+      await firestore.collection('auditEvents').add({
+        action: 'market_match_notification',
+        uid: user.uid,
+        metadata: { matchId, requestId, sharedItemId, targetUid, criteriaFitScore: score },
+        timestamp: FieldValue.serverTimestamp()
+      });
+
+      return res.json({ success: true, notified: !existing.exists });
+    } catch (error: any) {
+      console.error('[Market Match Notify] Failed:', error.message);
+      return res.status(500).json({ error: 'Unable to notify market match participant' });
+    }
+  });
+
+  app.get('/api/market/snapshot', async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!(await checkRateLimit(user.uid, 120, 'market-user'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+    try {
+      return res.json(await getMarketSnapshot());
+    } catch (error: any) {
+      console.error('[Market] Snapshot failed:', error.message);
+      return res.status(503).json({ error: 'Market data temporarily unavailable' });
+    }
+  });
+
+  app.get('/api/market/bunkers', async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!(await checkRateLimit(user.uid, 120, 'market-user'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+    try {
+      return res.json(await getBunkerSnapshot());
+    } catch (error: any) {
+      console.error('[Market] Bunker snapshot failed:', error.message);
+      return res.status(503).json({ error: 'Bunker data temporarily unavailable' });
     }
   });
 
@@ -2380,7 +3803,7 @@ const jobResults = new Map<string, any[]>();
       if (firestore) {
          try {
            const currentPeriod = usageDoc.period || getCurrentUsagePeriod();
-           const eventsSnapshot = await firestore.collection(`users/${verifiedUid}/usage_events`)
+           const eventsSnapshot = await firestore.collection(`users/${verifiedUid}/usageEvents`)
              .where('period', '==', currentPeriod)
              .where('status', '==', 'success')
              .get();
@@ -2451,7 +3874,7 @@ const jobResults = new Map<string, any[]>();
 
     // 2. Identify laycan line
     const monthRegex = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)/i;
-    const yearRegex = /202[5678]/;
+    const yearRegex = /20\d{2}/;
     const datePatternRegex = /\d{1,2}[–\/.-]\s*\d{1,2}/;
     for (const line of lines) {
       const isRoute = line.includes('/') && !line.toLowerCase().includes('load/discharge') && !line.toLowerCase().includes('load / discharge') && !line.toLowerCase().includes('rate');
@@ -2517,16 +3940,23 @@ const jobResults = new Map<string, any[]>();
       }
     }
 
+    const missing_fields: string[] = [];
+    if (!raw_commodity) missing_fields.push('commodity');
+    if (!quantity) missing_fields.push('quantity');
+    if (!loadPort) missing_fields.push('loadPort');
+    if (!dischargePort) missing_fields.push('dischargePort');
+    if (!laycan) missing_fields.push('laycan');
+
     return {
-      raw_commodity: raw_commodity || 'coil',
-      quantity: quantity,
-      loadPort: loadPort,
-      dischargePort: dischargePort,
-      laycan: laycan,
-      terms: terms,
-      commission: commission,
-      special_requirements: special_requirements,
-      missing_fields: []
+      ...(raw_commodity ? { raw_commodity } : {}),
+      ...(quantity ? { quantity } : {}),
+      ...(loadPort ? { loadPort } : {}),
+      ...(dischargePort ? { dischargePort } : {}),
+      ...(laycan ? { laycan } : {}),
+      ...(terms ? { terms } : {}),
+      ...(commission ? { commission } : {}),
+      ...(special_requirements ? { special_requirements } : {}),
+      missing_fields
     };
   }
 
@@ -2546,7 +3976,7 @@ const jobResults = new Map<string, any[]>();
       let hasQty = false;
       
       const monthRegex = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)/i;
-      const yearRegex = /202[5678]/;
+      const yearRegex = /20\d{2}/;
       const datePatternRegex = /\d{1,2}[–\/.-]\s*\d{1,2}/;
 
       for (const line of lines) {
@@ -2578,22 +4008,19 @@ const jobResults = new Map<string, any[]>();
     try {
       const { email, userId, expectedType } = req.body;
       const authHeader = req.headers.authorization;
-      if (!userId || (!authHeader && userId !== 'testId123')) {
-        return res.status(400).json({ error: "Missing parameters or auth" });
+      if (!userId || !authHeader?.startsWith('Bearer ')) {
+        return res.status(401).json({ error: "Authentication required" });
       }
-      let verifiedUid = userId;
-      if (authHeader) {
-          const idToken = authHeader.split('Bearer ')[1];
-          let decodedIdToken;
-          try {
-            decodedIdToken = await getAuth().verifyIdToken(idToken);
-            verifiedUid = decodedIdToken.uid;
-          } catch (error) {
-            return res.status(401).json({ error: "Invalid or expired authorization token" });
-          }
+
+      let verifiedUid: string;
+      try {
+        const decodedIdToken = await getAuth().verifyIdToken(authHeader.slice(7));
+        verifiedUid = decodedIdToken.uid;
+      } catch (error) {
+        return res.status(401).json({ error: "Invalid or expired authorization token" });
       }
       
-      if (!checkRateLimit(verifiedUid)) {
+      if (!(await checkRateLimit(verifiedUid))) {
           return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -2697,10 +4124,7 @@ const jobResults = new Map<string, any[]>();
       }
       
       const operationName = email.sender === 'Manual Entry' ? 'manual_text_intake' : 'parse_email';
-      let creditCheck: any = { allowed: true, statusCode: 200 };
-      if (verifiedUid !== 'testId123') {
-        creditCheck = await checkCredits(verifiedUid, operationName);
-      }
+      const creditCheck = await checkCredits(verifiedUid, operationName);
       if (!creditCheck.allowed) {
         return res.status(creditCheck.statusCode || 402).json(creditCheck);
       }
@@ -2714,7 +4138,7 @@ const jobResults = new Map<string, any[]>();
 
       const ai = getGoogleGenAI();
       let response;
-      const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
+      const reqId = randomUUID();
       
       // Deterministic fallback for exceptionally short user inputs that reliably break Gemini schema parsing
       if (operationName === 'manual_text_intake') {
@@ -2988,13 +4412,12 @@ const jobResults = new Map<string, any[]>();
           // P4.4B: Marginal Usage Tracking
           // P4.3: Non-blocking Usage Logging
           const operationName = email.sender === 'Manual Entry' ? 'manual_text_intake' : 'parse_email';
-          const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
-          chargeCreditsAfterSuccess(
+          await chargeCreditsAfterSuccess(
             verifiedUid,
             operationName,
             reqId,
-            { provider: out.actualProvider, model: out.actualModel, inputTokens: unoptimizedTokenEstimate, outputTokens: 0, totalTokens: unoptimizedTokenEstimate } // Best effort metadata
-          ).catch(e => console.warn(`[Usage Logging] Non-blocking tracking failed for ${operationName}:`, e.message));
+            { provider: out.actualProvider, model: out.actualModel, inputTokens: unoptimizedTokenEstimate, outputTokens: 0, totalTokens: unoptimizedTokenEstimate }
+          );
       }
 
       res.json(out);
@@ -3025,7 +4448,7 @@ const jobResults = new Map<string, any[]>();
       }
       const verifiedUid = decodedIdToken.uid;
 
-      if (!checkRateLimit(verifiedUid)) {
+      if (!(await checkRateLimit(verifiedUid))) {
           return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -3033,12 +4456,28 @@ const jobResults = new Map<string, any[]>();
         return res.status(403).json({ error: "Forbidden: userId mismatch" });
       }
 
-      let assumptionsText = "make realistic standard maritime market estimates (e.g. bunker $600/mt, hire $10000/day, port $30000, speed 13kn).";
-      if (assumptions) {
-         assumptionsText = `use the provided market assumptions: Bunker Price: $${assumptions.bunkerPrice}/mt, Daily Hire: $${assumptions.dailyHire}/day, Port Costs: $${assumptions.portCost}, Canal Costs: $${assumptions.canalCost}, Ballast Speed: ${assumptions.ballastSpeed}kn, Laden Speed: ${assumptions.ladenSpeed}kn, Ballast Cons: ${assumptions.ballastConsumption}mt/day, Laden Cons: ${assumptions.ladenConsumption}mt/day, Idle Cons: ${assumptions.idleConsumption}mt/day, Waiting Days: ${assumptions.waitingDays} days.`;
+      let assumptionsText = "No voyage-cost assumptions were supplied. Do not invent bunker prices, hire, port/canal costs, speeds, consumption, distance, freight, or TCE. Score technical/position/laycan fit only from supplied facts and mark commercial fields as pending.";
+      if (assumptions && typeof assumptions === 'object') {
+         const safeAssumptions = Object.fromEntries(
+           Object.entries(assumptions).filter(([, value]) => {
+             if (value === undefined || value === null || value === '') return false;
+             if (typeof value === 'number') return Number.isFinite(value) && value > 0;
+             return true;
+           })
+         );
+         assumptionsText = `Use only these user-provided market assumptions. Missing assumptions remain pending: ${JSON.stringify(safeAssumptions)}`;
       }
 
-      const unoptimizedTokenEstimate = Math.ceil((JSON.stringify(cargo).length + JSON.stringify(vessels).length + 1500) / 4);
+      if (!cargo || typeof cargo !== 'object' || !Array.isArray(vessels) || vessels.length === 0 || vessels.length > 100) {
+        return res.status(400).json({ error: "A cargo object and 1-100 vessels are required" });
+      }
+
+      const serializedInputLength = JSON.stringify(cargo).length + JSON.stringify(vessels).length;
+      if (serializedInputLength > 500_000) {
+        return res.status(413).json({ error: "Matching payload is too large" });
+      }
+
+      const unoptimizedTokenEstimate = Math.ceil((serializedInputLength + 1500) / 4);
 
       const compactCargo = {
         id: cargo.id,
@@ -3055,7 +4494,9 @@ const jobResults = new Map<string, any[]>();
         terms: cargo.terms,
         specialRequirements: cargo.specialRequirements,
         riskFlags: cargo.riskFlags,
-        status: cargo.status
+        status: cargo.status,
+        loadLocation: cargo.loadLocation,
+        dischargeLocation: cargo.dischargeLocation
       };
       
       const compactVessels = vessels.map((v: any) => ({
@@ -3072,7 +4513,13 @@ const jobResults = new Map<string, any[]>();
         consumption: v.consumption,
         flag: v.flag,
         built: v.builtYear || v.built,
-        status: v.status
+        status: v.status,
+        openingLocation: v.openingLocation,
+        currentLocation: v.currentLocation,
+        latitude: v.latitude,
+        longitude: v.longitude,
+        positionSource: v.positionSource,
+        positionUpdatedAt: v.positionUpdatedAt
       }));
 
       const contentsInput = `C:${JSON.stringify(compactCargo)}\nV:${JSON.stringify(compactVessels)}\nCost assumptions: ${assumptionsText}`;
@@ -3095,6 +4542,7 @@ const jobResults = new Map<string, any[]>();
       }
 
       const ai = getGoogleGenAI();
+      const reqId = randomUUID();
       
       let response;
       let degraded = false;
@@ -3120,13 +4568,85 @@ const jobResults = new Map<string, any[]>();
         try {
            response = await generateContentWithFailover(ai, aiConfig);
         } catch (innerErr: any) {
-           const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
            if (verifiedUid) await recordFailedNotCharged(verifiedUid, 'match_cargo_vessel', reqId, innerErr.message || 'ai_error');
            throw innerErr;
         }
       }
 
       const data = await safeAIParseJSON(response.text || '{}');
+
+      const numericCargoQuantity = Number(cargo.quantityMt ?? cargo.quantity_mt ?? cargo.quantity ?? 0);
+      const normalizedMatches = (Array.isArray(data.matches) ? data.matches : []).slice(0, compactVessels.length).map((match: any) => {
+        const vessel = compactVessels.find((item: any) => String(item.id) === String(match.vesselId)) ||
+          compactVessels.find((item: any) => String(item.name || '').toLowerCase() === String(match.vesselName || match.name || '').toLowerCase());
+
+        const clamp = (value: any, min = 0, max = 100) => {
+          const parsed = Number(value);
+          return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : 0;
+        };
+
+        const vesselDwt = Number(vessel?.dwt || 0);
+        const impossibleCapacity = numericCargoQuantity > 0 && vesselDwt > 0 && numericCargoQuantity > vesselDwt;
+        const riskAdjustment = Math.min(0, Math.max(-100, Number(match.riskAdjustment) || 0));
+        let score = clamp(match.score);
+        if (impossibleCapacity) score = Math.min(score, 10);
+
+        const reasoning = Array.isArray(match.reasoning)
+          ? match.reasoning.filter((item: any) => typeof item === 'string' && item.trim()).slice(0, 12)
+          : [];
+        if (impossibleCapacity && !reasoning.some((item: string) => item.toLowerCase().includes('capacity'))) {
+          reasoning.unshift('Capacity check failed: cargo quantity exceeds stated vessel DWT.');
+        }
+
+        const vesselLat = Number(vessel?.openingLocation?.lat ?? vessel?.currentLocation?.lat ?? vessel?.latitude);
+        const vesselLng = Number(vessel?.openingLocation?.lng ?? vessel?.currentLocation?.lng ?? vessel?.longitude);
+        const loadLat = Number(cargo?.loadLocation?.lat);
+        const loadLng = Number(cargo?.loadLocation?.lng);
+        const hasPositionEvidence =
+          Number.isFinite(vesselLat) && Number.isFinite(vesselLng) &&
+          Number.isFinite(loadLat) && Number.isFinite(loadLng);
+
+        const requiredCommercialInputs = [
+          assumptions?.bunkerPrice,
+          assumptions?.dailyHire,
+          assumptions?.ballastSpeed,
+          assumptions?.ladenSpeed,
+          assumptions?.ballastConsumption,
+          assumptions?.ladenConsumption
+        ];
+        const hasCommercialAssumptions = requiredCommercialInputs.every(value => Number(value) > 0);
+        const hasFreightBasis = Number(cargo.freightRate || cargo.freightIdea || cargo.freightLumpSum || cargo.lumpSum || 0) > 0;
+        const missingCommercialData = Boolean(match.missingCommercialData) || !hasCommercialAssumptions || !hasFreightBasis;
+        const normalizedDistance = hasPositionEvidence
+          ? String(match.distance || 'Pending')
+          : (match.distance ? `Indicative ~ ${String(match.distance).replace(/^Indicative\s*~?\s*/i, '')}` : 'Indicative / position data pending');
+        const normalizedEta = hasPositionEvidence
+          ? String(match.eta || 'Pending')
+          : (match.eta ? `Indicative ${String(match.eta).replace(/^Indicative\s*/i, '')}` : 'Indicative / position data pending');
+
+        return {
+          ...match,
+          distance: normalizedDistance,
+          eta: normalizedEta,
+          positionEvidence: hasPositionEvidence ? 'coordinates_supplied' : 'port_name_only',
+          missingPositionData: !hasPositionEvidence,
+          score,
+          technicalFit: clamp(match.technicalFit),
+          positionFit: clamp(match.positionFit),
+          laycanFit: clamp(match.laycanFit),
+          commercialViability: missingCommercialData ? Math.min(clamp(match.commercialViability), 50) : clamp(match.commercialViability),
+          riskAdjustment,
+          reasoning,
+          missingCommercialData,
+          calculatorOutputs: {
+            ...(match.calculatorOutputs || {}),
+            estimatedTCE: missingCommercialData ? null : Number(match.calculatorOutputs?.estimatedTCE || 0),
+            totalVoyageCost: missingCommercialData ? null : Number(match.calculatorOutputs?.totalVoyageCost || 0),
+            isViable: impossibleCapacity ? false : Boolean(match.calculatorOutputs?.isViable),
+            recommendation: impossibleCapacity ? 'Reject / Not Commercial' : (match.calculatorOutputs?.recommendation || 'Conditional Match')
+          }
+        };
+      });
       
       if (verifiedUid && firestore) {
           try {
@@ -3143,13 +4663,12 @@ const jobResults = new Map<string, any[]>();
               
               // P4.4B: Marginal Usage Tracking
               // P4.3: Non-blocking Usage Logging
-              const reqId = req.headers['x-request-id'] as string || `auto-${Date.now()}`;
-              chargeCreditsAfterSuccess(
+              await chargeCreditsAfterSuccess(
                 verifiedUid,
                 'match_cargo_vessel',
                 reqId,
-                { provider: response.actualProvider, model: response.actualModel, inputTokens: unoptimizedTokenEstimate, outputTokens: 0, totalTokens: unoptimizedTokenEstimate } // Best effort metadata
-              ).catch(e => console.warn(`[Usage Logging] Non-blocking tracking failed for match_cargo_vessel:`, e.message));
+                { provider: response.actualProvider, model: response.actualModel, inputTokens: unoptimizedTokenEstimate, outputTokens: 0, totalTokens: unoptimizedTokenEstimate }
+              );
               
           } catch (e: any) {
               console.warn("Metrics update conditionally failed:", e.message);
@@ -3157,7 +4676,7 @@ const jobResults = new Map<string, any[]>();
       }
 
       const responsePayload = { 
-        matches: data.matches || [],
+        matches: normalizedMatches,
         degraded_analysis: degraded || response.degraded || false,
         actualModel: response.actualModel,
         actualProvider: response.actualProvider,
@@ -3199,12 +4718,17 @@ const jobResults = new Map<string, any[]>();
       const verifiedUid = decodedIdToken.uid;
       
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
       // P4.4B: MVP Margin Protection
-      const operation = req.body.operation || 'freight_calc'; // Fallback if not provided
+      const requestedOperation = req.body.operation || 'ai_chat';
+      const allowedOperations = new Set(['ai_chat', 'draft_reply']);
+      if (!allowedOperations.has(requestedOperation)) {
+        return res.status(400).json({ error: "Unsupported operation for generateContent" });
+      }
+      const operation = requestedOperation;
       const creditCheck = await checkCredits(verifiedUid, operation);
       if (!creditCheck.allowed) {
         return res.status(creditCheck.statusCode || 402).json(creditCheck);
@@ -3216,7 +4740,7 @@ const jobResults = new Map<string, any[]>();
       }
       const ai = getGoogleGenAI();
       
-      const reqId = (req.headers['x-request-id'] as string) || `auto-${Date.now()}`;
+      const reqId = randomUUID();
       let response;
       try {
         response = await generateContentWithFailover(ai, { model, contents });
@@ -3228,13 +4752,13 @@ const jobResults = new Map<string, any[]>();
       const inputTokens = Math.ceil((contents || '').length / 4);
       const outputTokens = Math.ceil((response.text || '').length / 4);
       
-      chargeCreditsAfterSuccess(verifiedUid, operation, reqId, {
+      await chargeCreditsAfterSuccess(verifiedUid, operation, reqId, {
          provider: response.actualProvider,
          model: response.actualModel,
          inputTokens,
          outputTokens,
          totalTokens: inputTokens + outputTokens
-      }).catch(e => console.warn(`[Usage Logging] Failed to charge credits for generateContent:`, e.message));
+      });
 
       res.json({ 
         text: response.text, 
@@ -3266,7 +4790,7 @@ const jobResults = new Map<string, any[]>();
 
       const verifiedUid = decodedIdToken.uid;
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -3282,12 +4806,13 @@ const jobResults = new Map<string, any[]>();
       }
 
       const vesselData = vesselDoc.data()!;
-      // Simple access check: owner or visibility
-      // If it's private and not owner, block.
-      // If it's my_desk, check desk matching (omitted for brevity, assume owner check primarily or basic visibility check)
-      const isOwner = vesselData.createdByUid === verifiedUid;
-      // In a real app we'd also check deskId, etc.
-      if (!isOwner && vesselData.visibility === 'private') {
+      const isOwner = vesselData.userId === verifiedUid;
+      let hasWorkspaceAccess = false;
+      if (!isOwner && vesselData.workspaceId) {
+        const membership = await db.collection('users').doc(verifiedUid).collection('memberships').doc(vesselData.workspaceId).get();
+        hasWorkspaceAccess = membership.exists;
+      }
+      if (!isOwner && !hasWorkspaceAccess) {
         // Log audit for denied
         await db.collection("auditEvents").add({
           action: "AIS_ACCESS_DENIED",
@@ -3304,8 +4829,20 @@ const jobResults = new Map<string, any[]>();
         return res.status(403).json({ error: "Access denied" });
       }
 
+      const storedImo = vesselData.imo || vesselData.IMO;
+      const storedMmsi = vesselData.mmsi || vesselData.MMSI;
+      const effectiveImo = storedImo || (isOwner ? imo : undefined);
+      const effectiveMmsi = storedMmsi || (isOwner ? mmsi : undefined);
+      if (!effectiveImo && !effectiveMmsi) {
+        return res.status(400).json({ error: "Vessel has no trusted IMO/MMSI identifier configured" });
+      }
+
       const aisProviderModule = await import('./src/server/aisProvider.js');
-      const position = await aisProviderModule.fetchAISPosition({ vesselId, imo, mmsi });
+      const position = await aisProviderModule.fetchAISPosition({
+        vesselId,
+        imo: effectiveImo,
+        mmsi: effectiveMmsi
+      });
 
       // Audit
       await db.collection("auditEvents").add({
@@ -3340,7 +4877,7 @@ const jobResults = new Map<string, any[]>();
 
       const verifiedUid = decodedIdToken.uid;
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -3403,7 +4940,7 @@ const jobResults = new Map<string, any[]>();
       const verifiedUid = decodedIdToken.uid;
 
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -3421,11 +4958,55 @@ const jobResults = new Map<string, any[]>();
       const normalizedFrom = { lat: fromLat, lng: fromLng };
       const normalizedTo = { lat: toLat, lng: toLng };
 
-      // Very strict basic validation to ensure they relate to a known entity
-      // Not trusting the client purely -> checking that they provided an entity id
       if (!vesselId && !cargoId && !dealRoomId) {
          return res.status(403).json({ error: "Arbitrary public routing unsupported. Internal source required." });
       }
+
+      if (!firestore) {
+        return res.status(503).json({ error: "Database unavailable" });
+      }
+
+      const hasWorkspaceMembership = async (workspaceId: string | undefined) => {
+        if (!workspaceId) return false;
+        const membership = await firestore!.collection('users').doc(verifiedUid).collection('memberships').doc(workspaceId).get();
+        return membership.exists;
+      };
+
+      if (vesselId) {
+        const vesselDoc = await firestore.collection('vessels').doc(vesselId).get();
+        if (!vesselDoc.exists) return res.status(404).json({ error: "Vessel source not found" });
+        const data = vesselDoc.data() || {};
+        if (data.userId !== verifiedUid && !(await hasWorkspaceMembership(data.workspaceId))) {
+          return res.status(403).json({ error: "Access denied to vessel source" });
+        }
+      }
+
+      if (cargoId) {
+        const cargoDoc = await firestore.collection('cargos').doc(cargoId).get();
+        if (!cargoDoc.exists) return res.status(404).json({ error: "Cargo source not found" });
+        const data = cargoDoc.data() || {};
+        if (data.userId !== verifiedUid && !(await hasWorkspaceMembership(data.workspaceId))) {
+          return res.status(403).json({ error: "Access denied to cargo source" });
+        }
+      }
+
+      if (dealRoomId) {
+        const dealRoomDoc = await firestore.collection('dealRooms').doc(dealRoomId).get();
+        if (!dealRoomDoc.exists) return res.status(404).json({ error: "Deal room source not found" });
+        const data = dealRoomDoc.data() || {};
+        const userDoc = await firestore.collection('users').doc(verifiedUid).get();
+        const deskId = userDoc.data()?.deskId;
+        const allowed = data.createdByUid === verifiedUid ||
+          (Array.isArray(data.participantUids) && data.participantUids.includes(verifiedUid)) ||
+          (data.visibility === 'my_desk' && data.createdByDeskId && data.createdByDeskId === deskId);
+        if (!allowed) return res.status(403).json({ error: "Access denied to deal room source" });
+      }
+
+      const routingCredit = await checkCredits(verifiedUid, 'routing_estimate');
+      if (!routingCredit.allowed) {
+        return res.status(routingCredit.statusCode || 402).json(routingCredit);
+      }
+      const routingRequestId = randomUUID();
 
       const cacheKey = `${normalizedFrom.lat}_${normalizedFrom.lng}_${normalizedTo.lat}_${normalizedTo.lng}_${speedKnots || 12}`;
       const cached = routingCache.get(cacheKey);
@@ -3473,6 +5054,10 @@ const jobResults = new Map<string, any[]>();
           });
       }
 
+      await chargeCreditsAfterSuccess(verifiedUid, 'routing_estimate', routingRequestId, {
+        provider: estimateResult.provider
+      });
+
       res.json(estimateResult);
 
     } catch (error: any) {
@@ -3491,7 +5076,7 @@ const jobResults = new Map<string, any[]>();
       const uid = decodedIdToken.uid;
       
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(uid) && !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(uid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests" });
       }
 
@@ -3507,94 +5092,108 @@ const jobResults = new Map<string, any[]>();
       if (!firestore) return res.status(500).json({ error: "Database not configured" });
 
       let itemData: any = null;
-      let hasFullAccess = false; // full access means we can read private notes/vessel names
+      let hasFullAccess = false;
+
+      const hasWorkspaceAccessForBrief = async (workspaceId: string | undefined) => {
+        if (!workspaceId) return false;
+        const membership = await firestore!.collection('users').doc(uid).collection('memberships').doc(workspaceId).get();
+        return membership.exists;
+      };
 
       try {
         if (itemType === 'cargo' || itemType === 'vessel') {
           const colName = itemType === 'cargo' ? 'cargos' : 'vessels';
           const docSnap = await firestore.collection(colName).doc(itemId).get();
-          if (docSnap.exists) {
-            itemData = docSnap.data();
-            // User has full access if they own it, or their workspace owns it
-            const userDoc = await firestore.collection('users').doc(uid).get();
-            const userDeskId = userDoc.exists ? userDoc.data()?.deskId : null;
-            if (itemData.userId === uid || (itemData.workspaceId && userDeskId && itemData.workspaceId === userDeskId)) {
-               hasFullAccess = true;
-            } else {
-               // If they don't own it, check if it's visible to them
-               const isPublicOrNetwork = itemData.visibility === 'public' || itemData.visibility === 'network';
-               // If contextContext indicates it's for an offer candidate, we should allow it but scrub it
-               if (isPublicOrNetwork || (contextContext && contextContext.processOfferAnalysis)) {
-                 hasFullAccess = false;
-                 // Scrub private data
-                 delete itemData.privateNotes;
-                 if (itemData.hideName) {
-                    itemData.name = 'TBN / Name Hidden';
-                 }
-               } else {
-                 return res.status(403).json({ error: "Access denied or item not public" });
-               }
-            }
+          if (!docSnap.exists) {
+            return res.status(404).json({ error: "Item not found" });
           }
-        } 
+
+          itemData = docSnap.data();
+          hasFullAccess = itemData.userId === uid || await hasWorkspaceAccessForBrief(itemData.workspaceId);
+          if (!hasFullAccess) {
+            // Core cargo/vessel collections are private. Network exposure must go through sharedItems.
+            return res.status(403).json({ error: "Access denied" });
+          }
+        }
         else if (itemType === 'sharedItem') {
           const docSnap = await firestore.collection('sharedItems').doc(itemId).get();
-          if (docSnap.exists) {
-             itemData = docSnap.data();
-             if (itemData.ownerId === uid) {
-               hasFullAccess = true;
-             } else {
-               hasFullAccess = false;
-               // If it's shared, hide private notes / hidden names
-               if (itemData.config?.hideVesselName) {
-                  itemData.name = 'TBN / Name Hidden';
-               }
-               delete itemData.privateNotes;
-               delete itemData.contactDetails; // simplistic protection
-             }
+          if (!docSnap.exists) return res.status(404).json({ error: "Item not found" });
+
+          itemData = docSnap.data();
+          if (itemData.ownerId === uid) {
+            hasFullAccess = true;
+          } else {
+            if (itemData.status !== 'active' || !itemData.ownerId) {
+              return res.status(403).json({ error: "Access denied" });
+            }
+
+            const [ownerConnection, currentUserDoc] = await Promise.all([
+              firestore.collection('users').doc(itemData.ownerId).collection('networkConnections').doc(uid).get(),
+              firestore.collection('users').doc(uid).get()
+            ]);
+            const connectedTo = currentUserDoc.data()?.connectedTo;
+            const hasNetworkAccess = ownerConnection.exists ||
+              (Array.isArray(connectedTo) && connectedTo.includes(itemData.ownerId));
+
+            if (!hasNetworkAccess) {
+              return res.status(403).json({ error: "Access denied" });
+            }
+
+            delete itemData.privateNotes;
+            delete itemData.contactDetails;
+            delete itemData.rawBody;
+            delete itemData.rawText;
           }
         }
         else if (itemType === 'marketRequest') {
           const docSnap = await firestore.collection('marketRequests').doc(itemId).get();
-          if (docSnap.exists) {
-             itemData = docSnap.data();
-             if (itemData.ownerId === uid) hasFullAccess = true;
+          if (!docSnap.exists) return res.status(404).json({ error: "Item not found" });
+
+          itemData = docSnap.data();
+          hasFullAccess = itemData.createdByUid === uid;
+          if (!hasFullAccess && itemData.visibility !== 'network') {
+            return res.status(403).json({ error: "Access denied" });
           }
         }
         else if (itemType === 'radarMatch') {
           const docSnap = await firestore.collection('watchlistMatches').doc(itemId).get();
-          if (docSnap.exists) {
-             itemData = docSnap.data();
-             if (itemData.createdByUid === uid) hasFullAccess = true;
-             else return res.status(403).json({ error: "Access denied" });
+          if (!docSnap.exists) return res.status(404).json({ error: "Item not found" });
+
+          itemData = docSnap.data();
+          if (itemData.createdByUid !== uid) {
+            return res.status(403).json({ error: "Access denied" });
           }
+          hasFullAccess = true;
         }
         else if (itemType === 'hotOpp') {
           const docSnap = await firestore.collection(`users/${uid}/urgentNotifications`).doc(itemId).get();
-          if (docSnap.exists) {
-             itemData = docSnap.data();
-             hasFullAccess = true; // since it's in their own collection
-          } else {
+          if (!docSnap.exists) {
              return res.status(404).json({ error: "Opportunity not found" });
           }
+          itemData = docSnap.data();
+          hasFullAccess = true;
+        }
+        else {
+          return res.status(400).json({ error: "Unsupported deal brief item type" });
         }
       } catch (err: any) {
         console.error('[DealBrief] Error fetching item data from Firestore:', err);
         return res.status(500).json({ error: "Error fetching item data" });
       }
 
-      if (!itemData && !contextContext) {
+      if (!itemData) {
          return res.status(404).json({ error: "Item not found" });
       }
 
-      const reqId = (req.headers['x-request-id'] as string) || `auto-${Date.now()}`;
+      const reqId = randomUUID();
       
       const ai = getGoogleGenAI();
+      const safeAdditionalContext = JSON.stringify(contextContext || {}).slice(0, 4000);
       const prompt = `You are an expert dry bulk shipbroker assistant. Generate a concise, professional AI Deal Brief for the following item.
       Context Type: ${itemType} (${dealType || 'Opportunity'})
       Item Data:
       ` + JSON.stringify(itemData, null, 2) + `
-      Additional context: ${JSON.stringify(contextContext || {})}`;
+      Additional context: ${safeAdditionalContext}`;
 
       const systemInstruction = `Analyze the provided data and return a strictly formatted JSON object matching the requested schema.
       Do not invent missing data. If laycan, freight, demurrage or commercial details are missing or vague, mark riskLevel 'medium' or 'high' and state why in riskReasons.
@@ -3658,14 +5257,8 @@ const jobResults = new Map<string, any[]>();
       const inputTokens = Math.ceil(prompt.length / 4);
       const outputTokens = Math.ceil(aiResponse.text.length / 4);
       
-      await chargeCreditsAfterSuccess(uid, operation, reqId, {
-         provider: aiResponse.actualProvider,
-         model: aiResponse.actualModel,
-         inputTokens, outputTokens, totalTokens: inputTokens + outputTokens
-      });
-
-      // Save to Firestore
-      const briefId = uuidv4();
+      // Save to Firestore first. A failed persistence step must not consume a user credit.
+      const briefId = randomUUID();
       const briefDoc = {
          id: briefId,
          createdByUid: uid,
@@ -3690,6 +5283,14 @@ const jobResults = new Map<string, any[]>();
         console.error('Failed to save deal brief to backend Firestore', err);
         return res.status(500).json({ error: "Failed to save deal brief." });
       }
+
+      await chargeCreditsAfterSuccess(uid, operation, reqId, {
+         provider: aiResponse.actualProvider,
+         model: aiResponse.actualModel,
+         inputTokens,
+         outputTokens,
+         totalTokens: inputTokens + outputTokens
+      });
 
       res.json({ brief: briefDoc, metrics: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens } });
 
@@ -3733,10 +5334,26 @@ const jobResults = new Map<string, any[]>();
 
   app.get('/api/ai/models', async (req, res) => {
     try {
-      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models?key=" + process.env.GEMINI_API_KEY);
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith('Bearer ')) {
+        return res.status(401).json({ error: "Missing or invalid authorization header" });
+      }
+      const decoded = await getAuth().verifyIdToken(authHeader.slice(7));
+      if (!(await checkIsAdmin(decoded.uid, decoded.email))) {
+        return res.status(403).json({ error: "Forbidden: Admin only" });
+      }
+      if (!process.env.GEMINI_API_KEY) {
+        return res.status(503).json({ error: "AI provider is not configured" });
+      }
+      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models?key=" + encodeURIComponent(process.env.GEMINI_API_KEY));
+      if (!response.ok) {
+        return res.status(502).json({ error: "AI provider model lookup failed" });
+      }
       const data = await response.json();
       res.json(data);
-    } catch(e:any) { res.status(500).json({error: e.message}); }
+    } catch(e:any) {
+      res.status(500).json({ error: "Failed to list AI models" });
+    }
   });
 
   app.post('/api/ai/negotiateCopilot', async (req, res) => {
@@ -3747,7 +5364,7 @@ const jobResults = new Map<string, any[]>();
       const decodedIdToken = await getAuth().verifyIdToken(idToken);
       const verifiedUid = decodedIdToken.uid;
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
@@ -3833,7 +5450,7 @@ const jobResults = new Map<string, any[]>();
         return res.status(creditCheck.statusCode || 403).json({ error: creditCheck.error, safeMessage: creditCheck.safeMessage, needsUpgrade: true });
       }
 
-      const requestId = 'nego-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+      const requestId = randomUUID();
       const ai = getGoogleGenAI();
 
       let systemPrompt = `You are an expert AI Negotiation Copilot for Shipbrokers.
@@ -3951,11 +5568,38 @@ Custom Context: {CONTEXT}`;
       }
       if (!hasAccess) return res.status(403).json({ error: 'Unauthorized to use this cargo' });
 
-      // Verify selected vessel exists
+      // Verify selected vessel exists and is actually available to this user.
       const vesselDoc = await firestore.collection('vessels').doc(vesselId).get();
       if (!vesselDoc.exists) return res.status(404).json({ error: 'Vessel not found or unavailable' });
       const vesselData = vesselDoc.data()!;
       if (vesselData.status !== 'OPEN') return res.status(400).json({ error: 'Selected vessel is no longer available' });
+
+      let vesselAccess = vesselData.userId === userId;
+      if (!vesselAccess && vesselData.workspaceId) {
+        const membershipDoc = await firestore.collection(`users/${userId}/memberships`).doc(vesselData.workspaceId).get();
+        const role = membershipDoc.exists ? membershipDoc.data()?.role : null;
+        vesselAccess = role === 'admin' || role === 'broker';
+      }
+
+      if (!vesselAccess && vesselData.sharedItemId) {
+        const sharedDoc = await firestore.collection('sharedItems').doc(vesselData.sharedItemId).get();
+        if (sharedDoc.exists) {
+          const sharedData = sharedDoc.data() || {};
+          if (sharedData.status === 'active' && sharedData.ownerId === vesselData.userId) {
+            const [ownerConnection, currentUserDoc] = await Promise.all([
+              firestore.collection('users').doc(sharedData.ownerId).collection('networkConnections').doc(userId).get(),
+              firestore.collection('users').doc(userId).get()
+            ]);
+            const connectedTo = currentUserDoc.data()?.connectedTo;
+            vesselAccess = ownerConnection.exists ||
+              (Array.isArray(connectedTo) && connectedTo.includes(sharedData.ownerId));
+          }
+        }
+      }
+
+      if (!vesselAccess) {
+        return res.status(403).json({ error: 'Unauthorized to use this vessel' });
+      }
 
       // Create match/deal server-side (Urgent Deal)
       const dealId = `${vesselId}_${cargoId}`;
@@ -3968,12 +5612,13 @@ Custom Context: {CONTEXT}`;
       const auditTrail = existingDeal.exists ? existingDeal.data()!.auditTrail || [] : [];
       auditTrail.push({
         action: 'process_offer',
-        timestamp: FieldValue.serverTimestamp(),
+        timestamp: new Date().toISOString(),
         actorUid: userId,
         safeMessage: 'Offer processed and deal created.'
       });
 
-      const dealData = {
+      const existingDealData = existingDeal.exists ? existingDeal.data()! : null;
+      const dealData: any = {
         dealId,
         vesselItemId: vesselId,
         cargoItemId: cargoId,
@@ -3982,16 +5627,18 @@ Custom Context: {CONTEXT}`;
         vesselSharedItemId: vesselData.sharedItemId || null,
         cargoSharedItemId: cargoData.sharedItemId || null,
         status: 'contacted',
-        urgencyScore: 80,
-        matchScore: 90,
         region: cargoData.loadPort || vesselData.openPort || 'Unknown',
-        reason: 'User manually processed offer from Matching Engine.',
-        createdAt: existingDeal.exists ? existingDeal.data()!.createdAt : FieldValue.serverTimestamp(),
+        reason: 'User manually processed offer from Matching Engine. No synthetic match or urgency score assigned.',
+        createdAt: existingDealData?.createdAt || FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
-        expiresAt: existingDeal.exists ? existingDeal.data()!.expiresAt : expiresAt,
+        expiresAt: existingDealData?.expiresAt || expiresAt,
         createdBySystem: false,
         auditTrail
       };
+
+      // Preserve previously computed scores, but never fabricate scores for a manual action.
+      if (typeof existingDealData?.urgencyScore === 'number') dealData.urgencyScore = existingDealData.urgencyScore;
+      if (typeof existingDealData?.matchScore === 'number') dealData.matchScore = existingDealData.matchScore;
 
       await dealRef.set(dealData, { merge: true });
 
@@ -3999,15 +5646,15 @@ Custom Context: {CONTEXT}`;
       // Note: we're acting as Admin here so rules don't block this!
       await firestore.collection('cargos').doc(cargoId).update({
         assignedVesselId: vesselId,
-        vesselETA: eta,
-        updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + 'Z'
+        vesselETA: typeof eta === 'string' ? eta.slice(0, 100) : null,
+        updatedAt: FieldValue.serverTimestamp()
       });
 
       return res.json({ success: true, dealId });
     } catch (err: any) {
       console.error("Process offer failed:", err);
       // Let's send 200 with an error object instead of 500 when it's safe
-      return res.status(500).json({ error: 'Internal server error while processing offer', message: err.message });
+      return res.status(500).json({ error: 'Internal server error while processing offer' });
     }
   });
 
@@ -4027,12 +5674,12 @@ Custom Context: {CONTEXT}`;
       const verifiedUid = decodedIdToken.uid;
       
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      if (!checkRateLimit(verifiedUid) && !checkRateLimit(ip)) {
+      if (!(await checkRateLimit(verifiedUid)) || !(await checkRateLimit(ip))) {
          return res.status(429).json({ error: "Too many requests. Please wait a minute." });
       }
 
       // P4.4B: MVP Margin Protection
-      const operation = req.body.operation || 'ai_chat';
+      const operation = 'ai_chat';
       const creditCheck = await checkCredits(verifiedUid, operation);
       if (!creditCheck.allowed) {
         return res.status(creditCheck.statusCode || 402).json(creditCheck);
@@ -4049,7 +5696,7 @@ Custom Context: {CONTEXT}`;
         history: history || []
       });
 
-      const reqId = (req.headers['x-request-id'] as string) || `auto-${Date.now()}`;
+      const reqId = randomUUID();
       let response;
       try {
         response = await chat.sendMessage({ message });
@@ -4061,13 +5708,13 @@ Custom Context: {CONTEXT}`;
       const inputTokens = Math.ceil(((systemInstruction || '').length + (message || '').length) / 4);
       const outputTokens = Math.ceil((response.text || '').length / 4);
       
-      chargeCreditsAfterSuccess(verifiedUid, operation, reqId, {
+      await chargeCreditsAfterSuccess(verifiedUid, operation, reqId, {
          provider: 'google',
          model,
          inputTokens,
          outputTokens,
          totalTokens: inputTokens + outputTokens
-      }).catch(e => console.warn(`[Usage Logging] Failed to charge credits for chat:`, e.message));
+      });
 
       res.json({ text: response.text });
     } catch (error: any) {
@@ -4076,50 +5723,9 @@ Custom Context: {CONTEXT}`;
     }
   });
 
-  // Background task to send trial expiration notifications
-  const trialCheckInterval = setInterval(async () => {
-    if (!firestore) return;
-    try {
-      const now = new Date();
-      const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
-      
-      // Note: Firestore requires an index if we use compound queries, 
-      // so we might need a simpler query and filter in memory if index not present.
-      const workspacesSnapshot = await firestore.collection('workspaces')
-        .where('trialEndsAt', '<=', threeDaysFromNow)
-        .where('trialEndsAt', '>', now)
-        .get();
+  // Trial access is account-bound and evaluated from server-only billingState.
+  // Workspace creation never renews trial eligibility.
 
-      for (const doc of workspacesSnapshot.docs) {
-        const workspaceData = doc.data();
-        if (workspaceData.trialWarningSent) continue;
-        
-        console.log(`[Scheduled Task] Sending trial expiration warning for workspace ${doc.id}`);
-        
-        // 1. Mark as sent
-        await doc.ref.update({
-          trialWarningSent: true
-        });
-
-        // 2. Create in-app notification for the owner
-        if (workspaceData.ownerId) {
-          await firestore.collection('users').doc(workspaceData.ownerId).collection('notifications').add({
-            title: 'Trial Expiring Soon',
-            message: `Your free trial for workspace "${workspaceData.name || 'Cargo Desk'}" expires in less than 3 days. Upgrade your plan to avoid interruption.`,
-            type: 'warning',
-            createdAt: FieldValue.serverTimestamp(),
-            read: false
-          });
-        }
-      }
-    } catch (e: any) {
-      if (e.message && e.message.includes('PERMISSION_DENIED')) {
-        // Ignore in preview environment
-        return;
-      }
-      console.error("Error in trial expiration background task:", e);
-    }
-  }, 10 * 60 * 1000); // Run every 10 minutes for testing/demo purposes
 
   // Serve static files in production or use Vite middleware in development
   if (process.env.NODE_ENV !== "production") {
@@ -4185,7 +5791,12 @@ Custom Context: {CONTEXT}`;
         'routing_estimate_used_in_voyage_estimate',
         'routing_estimate_used_in_smart_radar',
         'routing_estimate_used_in_ai_deal_brief',
-        'routing_estimate_used_in_copilot'
+        'routing_estimate_used_in_copilot',
+        'preferences_updated',
+        'alert_created',
+        'alert_read',
+        'alert_dismissed',
+        'daily_digest_generated'
       ];
 
       if (!ALLOWED_ACTIONS.includes(action)) {
@@ -4210,7 +5821,7 @@ Custom Context: {CONTEXT}`;
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (err && err.type === 'entity.too.large') {
       console.warn(`[Payload Too Large] Route: ${req.path}, IP: ${req.ip}`);
-      return res.status(413).json({ error: "The provided data is too large. Please limit input size to 10MB." });
+      return res.status(413).json({ error: "The provided data is too large for this service." });
     }
     console.error(`[Unhandled Error] Route: ${req.path}`, err.message);
     res.status(500).json({ error: "Internal Server Error" });
@@ -4226,8 +5837,7 @@ Custom Context: {CONTEXT}`;
     server.close(() => {
       console.log('HTTP server closed.');
       // Cleanup AI queue / IMAP sync connections if exist
-      clearInterval(trialCheckInterval);
-      process.exit(0);
+        process.exit(0);
     });
     
     // Force close after 10 seconds

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Ship, Package2, ArrowRight, Zap, Loader2, Info, TrendingUp, DollarSign, Fuel, Map, Navigation as NavIcon, Calendar } from 'lucide-react';
-import { Cargo, Vessel, INITIAL_CARGO, INITIAL_VESSELS, cn } from '../lib/utils';
+import { Cargo, Vessel, cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { DocumentEditor } from './DocumentEditor';
 import { useNotification } from '../lib/NotificationContext';
@@ -67,18 +67,11 @@ export const SelectionDesk: React.FC<{
   const [overrides, setOverrides] = useState<any>({});
 
   const calculateVoyage = async (cargo: Cargo, vessel: Vessel, currentOverrides = overrides) => {
-    if (!process.env.GEMINI_API_KEY) {
-      setError("AI API Key not configured.");
-      notify({ title: 'AI Configuration', message: 'API Key is missing.', type: 'error' });
-      return;
-    }
-
     setIsLoading(true);
     setError(null);
     setCalculation(null);
-    // Switch to intelligence tab when calculation starts if on mobile
     setActiveMobileTab('intelligence');
-    
+
     notify({
       title: 'Calculating Voyage',
       message: `Analyzing route for ${vessel.name} and ${cargo.commodity}...`,
@@ -87,80 +80,56 @@ export const SelectionDesk: React.FC<{
 
     try {
       const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-      const overridesStr = JSON.stringify(currentOverrides);
-      const resp = await fetch('/api/ai/generateContent', {
+      if (!idToken) throw new Error('Authentication required');
+
+      const resp = await fetch('/api/ai/routeTask', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
+          'Authorization': `Bearer ${idToken}`
         },
         body: JSON.stringify({
-          model: "gemini-1.5-flash",
-          operation: "freight_calc",
-          contents: `Voyage Calculation Request:
-Vessel: ${vessel.name} (${vessel.type}, ${vessel.dwt} DWT) Open: ${vessel.openPort}
-Cargo: ${cargo.commodity} (${cargo.quantity}) ${cargo.loadPort} -> ${cargo.dischargePort}
-Manual Overrides: ${overridesStr}
-
-CRITICAL RULES FOR CALCULATION & LABELS:
-1. Missing Freight: If freight rate or lump sum is NOT explicitly in cargo details or overrides, DO NOT invent a rate. Set estimatedFreight to "Pending", freightStatus to "Missing / Pending", profitability to "Indicative only — missing freight input", and tce to "Pending". Do not output "Profitable" or "Above Market".
-2. Cargo MT: If in CBM and NO weight in MT is confirmed, warn user. Set cargoQuantityStatus to "Confirmed from cargo", "Manual override", or "Assumed default" as appropriate.
-3. Distance & Route: Calculate realistic ballast leg (open to load) and laden leg (load to discharge). Do not output 0 for ballast if ports are different. Set distanceStatus to "Estimated route". Set routeConfidence to "Low / Medium" or "High".
-4. Speed: Default speed is 12.5 knots unless overridden. Set speedStatus.
-5. Duration Formula: seaDays = distanceNm / speedKnots / 24. Calculate portDays (default 2 days per port if not overridden), waitingDays. totalDuration = seaDays + portDays + waitingDays.
-6. Bunker Formula: Default consumption 21 mt/day (idle 3 mt/day). Default price $650/mt.
-   totalBunkerQuantity = (seaDays * seaConsumptionMtPerDay) + (portDays * idleConsumptionMtPerDay).
-   fuelCost = totalBunkerQuantity * bunkerPricePerMt.
-   Set consumptionStatus and bunkerPriceStatus (e.g. "Assumed default" or "Manual override").
-7. Port PDA: Default $30,000 per port. Set pdaStatus.
-8. Total OPEX: totalExpenses = fuelCost + Port PDA + Canal Costs (if any) + Other Costs. NEVER USE one-day bunker cost as total bunker cost.
-9. DWT Margin: If Cargo MT > 85% of Vessel DWT, set dwtUtilizationWarning.
-10. All status keys must be labeled as one of: "Confirmed from cargo", "Confirmed from vessel", "Manual override", "Assumed default", "Missing / Pending", or "Estimated route".
-
-Respond ONLY in JSON matching this schema:
-{
-  "ballastLeg":"str", "ladenLeg":"str",
-  "distanceToLoad":"str", "distanceVoyage":"str", "totalDistance":"str", "distanceStatus":"str",
-  "seaDays":"number/str", "portDays":"number/str", "waitingDays":"number/str", "daysTotal":"str", "speedStatus":"str",
-  "fuelConsumption":"str", "totalBunkerQuantity":"str", "fuelCost":"str", "consumptionStatus":"str", "bunkerPriceStatus":"str",
-  "portCosts":"str", "pdaStatus":"str", "totalExpenses":"str",
-  "cargoQuantityStatus":"str", "estimatedFreight":"str", "freightStatus":"str",
-  "profitability":"str", "tce":"str",
-  "commercialStatus":"str", "completenessScore": number,
-  "routeIntegrity":"str", "routeConfidence":"str", "ballastSeverity":"str", "commercialRecommendation":"str",
-  "dwtUtilizationWarning":"str or null", "reasoning":"str"
-}`
+          taskType: 'calculate_voyage',
+          payload: {
+            cargo,
+            vessel,
+            overrides: currentOverrides
+          }
         })
       });
 
-      if (!resp.ok) {
-        const errorData = await resp.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to communicate with AI");
-      }
+      const result = await resp.json().catch(() => ({}));
 
       if (resp.status === 402) {
-         const errorData = await resp.json();
-         setError(`Credit Limit: ${errorData.safeMessage}`);
-         return;
+        throw new Error(result.safeMessage || 'Credit limit reached.');
       }
-      const result = await resp.json();
-      const text = result.text;
-      if (!text) throw new Error("No response from AI");
-      
-      const jsonStr = text.replace(/```(json)?|```/g, '').trim();
-      const data = JSON.parse(jsonStr) as VoyageCalculation;
+      if (!resp.ok) {
+        throw new Error(result.error || result.safeMessage || 'Failed to calculate voyage');
+      }
+
+      const requiredFields = ['commercialStatus', 'completenessScore', 'tce', 'estimatedFreight', 'reasoning'];
+      const missingResponseFields = requiredFields.filter(field => result[field] === undefined || result[field] === null);
+      if (missingResponseFields.length > 0) {
+        throw new Error(`Voyage calculation response incomplete: ${missingResponseFields.join(', ')}`);
+      }
+
+      const data = result as VoyageCalculation;
+      data.completenessScore = Math.max(0, Math.min(100, Number(data.completenessScore) || 0));
       setCalculation(data);
+
       notify({
-        title: 'Intelligence Ready',
-        message: 'Voyage calculation and TCE analysis complete.',
-        type: 'success'
+        title: result.degraded_analysis ? 'Intelligence Ready (Fallback)' : 'Intelligence Ready',
+        message: result.degraded_analysis
+          ? 'Voyage scenario calculated with fallback AI. Review assumptions before use.'
+          : 'Voyage calculation and TCE analysis complete.',
+        type: result.degraded_analysis ? 'warning' : 'success'
       });
     } catch (err: any) {
       console.error("Calculation error:", err);
-      setError("Failed to generate voyage intelligence. Please verify coordinates.");
+      setError(err.message || "Failed to generate voyage intelligence.");
       notify({
         title: 'Calculation Failed',
-        message: 'AI failed to process the voyage plan.',
+        message: err.message || 'Failed to process the voyage plan.',
         type: 'error'
       });
     } finally {

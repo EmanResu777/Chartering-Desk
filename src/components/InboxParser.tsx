@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Brain, CheckCircle, Mail, RotateCw, Trash2, FileSearch, LogIn, Package2, Zap, Ship, Plus, Globe, Cloud, Layout, Check, MoreVertical, MessageSquare, X, Info } from 'lucide-react';
-import { Email, INITIAL_EMAILS, Cargo, Vessel, cn, determineRelevanceStatus } from '../lib/utils';
+import { Email, Cargo, Vessel, cn, determineRelevanceStatus } from '../lib/utils';
 import { parseEmail } from '../lib/geminiService';
 import { fetchGmailEmails } from '../lib/gmailService';
 import { isAuthenticated, getAccessToken } from '../lib/googleAuth';
-import { connectImapAccount, fetchImapEmails } from '../lib/imapService';
+import { connectImapAccount, fetchImapEmails, fetchEmailAccounts, setEmailAccountActive, removeEmailAccount } from '../lib/imapService';
 import { useConfig } from '../lib/ConfigContext';
 
 import { motion, AnimatePresence } from 'motion/react';
@@ -42,6 +42,12 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
   const { currentWorkspace } = useWorkspace();
   const isViewer = currentWorkspace?.myRole === 'viewer';
   const { t } = useConfig();
+  const demoDataEnabled = import.meta.env.DEV && import.meta.env.VITE_ALLOW_DEMO_DATA === 'true';
+  const loadDevelopmentDemoEmails = async () => {
+    if (!demoDataEnabled) return [] as Email[];
+    const { DEV_DEMO_EMAILS } = await import('../dev/demoEmails');
+    return DEV_DEMO_EMAILS;
+  };
   const [parsingId, setParsingId] = useState<string | null>(null);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [extractionResult, setExtractionResult] = useState<any>(null);
@@ -67,9 +73,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
   const [selectedCargos, setSelectedCargos] = useState<Set<number>>(new Set());
   const [selectedVessels, setSelectedVessels] = useState<Set<number>>(new Set());
 
-  const [accounts, setAccounts] = useState<Account[]>([
-    { id: 'acc-1', email: 'vessels@gmail.com', provider: 'gmail', active: true }
-  ]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
 
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
 
@@ -100,41 +104,22 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
     return () => window.removeEventListener('SELECT_EMAIL', handleSelectEmail);
   }, []);
 
+  const refreshAccounts = React.useCallback(async () => {
+    try {
+      const loadedAccounts = await fetchEmailAccounts();
+      setAccounts(loadedAccounts);
+      setIsLoggedIn(isAuthenticated() || loadedAccounts.some(account => account.active));
+      return loadedAccounts;
+    } catch (error) {
+      console.error("Error fetching email accounts:", error);
+      setAccounts([]);
+      return [];
+    }
+  }, []);
+
   useEffect(() => {
-    if (!isLoggedIn) return;
-    import('firebase/firestore').then(({ collection, query, onSnapshot }) => {
-      import('../lib/firebase').then(({ db, auth }) => {
-        if (!auth.currentUser) return;
-        const q = query(collection(db, `users/${auth.currentUser.uid}/emailAccounts`));
-        const unsub = onSnapshot(q, (snapshot) => {
-          const loadedAccounts: Account[] = [];
-          snapshot.forEach(doc => {
-            const data = doc.data();
-            loadedAccounts.push({
-              id: doc.id,
-              email: data.email || data.username,
-              provider: data.provider,
-              active: data.active !== false
-            });
-          });
-          // Merge with any demo accounts or default
-          setAccounts(prev => {
-            const defaults = prev.filter(a => a.id === 'acc-1');
-            const merged = [...defaults];
-            loadedAccounts.forEach(acc => {
-              if (!merged.find(m => m.email === acc.email)) {
-                merged.push(acc);
-              }
-            });
-            return merged;
-          });
-        }, (error) => {
-          console.error("Error fetching email accounts:", error);
-        });
-        return unsub;
-      });
-    });
-  }, [isLoggedIn]);
+    refreshAccounts();
+  }, [refreshAccounts]);
 
   const handleConnectNew = async () => {
     if (!newAccForm.email) return;
@@ -152,7 +137,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
             port = '993';
         }
 
-        const result = await connectImapAccount(
+        await connectImapAccount(
           host, 
           port, 
           newAccForm.email, 
@@ -160,28 +145,11 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
           connectingProvider
         );
         notify({ title: 'Account Connected', message: `Connected to ${newAccForm.email} successfully!`, type: 'success' });
-        
-        const newAcc: Account = {
-          id: `acc-${Date.now()}`,
-          email: newAccForm.email,
-          provider: connectingProvider || 'imap',
-          active: true
-        };
-        setAccounts(prev => [...prev, newAcc]);
-        
+        await refreshAccounts();
+        setIsLoggedIn(true);
         await handleFetchEmails();
       } else {
-        // Fallback for others
-        setTimeout(() => {
-          const newAcc: Account = {
-            id: `acc-${Date.now()}`,
-            email: newAccForm.email,
-            provider: connectingProvider || 'imap',
-            active: true
-          };
-          setAccounts(prev => [...prev, newAcc]);
-          notify({ title: 'Account Added', message: `Account ${newAccForm.email} added (mocked).`, type: 'info' });
-        }, 1000);
+        throw new Error('Unsupported email provider.');
       }
     } catch (e: any) {
       notify({ title: 'Connection Failed', message: e.message || 'Failed to verify account', type: 'error' });
@@ -207,37 +175,32 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
   const [viewMode, setViewMode] = useState<'LIST' | 'SECTIONS'>('LIST');
   const [inboxView, setInboxView] = useState<'FEED' | 'NETWORK'>('FEED');
 
-  const toggleAccount = async (id: string, email: string) => {
-    // Optimistic update
-    setAccounts(prev => prev.map(acc => 
-      acc.id === id ? { ...acc, active: !acc.active } : acc
-    ));
+  const toggleAccount = async (id: string, _email: string) => {
+    const accTarget = accounts.find(a => a.id === id);
+    if (!accTarget) return;
+    const nextActive = !accTarget.active;
+    setAccounts(prev => prev.map(acc => acc.id === id ? { ...acc, active: nextActive } : acc));
     try {
-      const { doc, updateDoc } = await import('firebase/firestore');
-      const { db, auth } = await import('../lib/firebase');
-      if (auth.currentUser && id !== 'acc-1') {
-        const accTarget = accounts.find(a => a.id === id);
-        if (accTarget) {
-          await updateDoc(doc(db, `users/${auth.currentUser.uid}/emailAccounts/${email}`), {
-            active: !accTarget.active
-          });
-        }
-      }
+      await setEmailAccountActive(id, nextActive);
+      setIsLoggedIn(isAuthenticated() || accounts.some(acc => acc.id === id ? nextActive : acc.active));
     } catch (err) {
       console.error("Failed to toggle:", err);
+      await refreshAccounts();
+      notify({ title: 'Account Update Failed', message: err instanceof Error ? err.message : 'Unable to update email source', type: 'error' });
     }
   };
 
-  const removeAccount = async (id: string, email: string) => {
+  const removeAccount = async (id: string, _email: string) => {
+    const previous = accounts;
     setAccounts(prev => prev.filter(acc => acc.id !== id));
     try {
-      const { doc, deleteDoc } = await import('firebase/firestore');
-      const { db, auth } = await import('../lib/firebase');
-      if (auth.currentUser && id !== 'acc-1') {
-        await deleteDoc(doc(db, `users/${auth.currentUser.uid}/emailAccounts/${email}`));
-      }
+      await removeEmailAccount(id);
+      const remaining = previous.filter(acc => acc.id !== id);
+      setIsLoggedIn(isAuthenticated() || remaining.some(acc => acc.active));
     } catch (err) {
       console.error("Failed to delete:", err);
+      await refreshAccounts();
+      notify({ title: 'Account Removal Failed', message: err instanceof Error ? err.message : 'Unable to remove email source', type: 'error' });
     }
   };
 
@@ -296,7 +259,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
         )}
       >
         <div className="flex justify-between items-start mb-2 gap-4">
-          <div className="flex flex-wrap items-center gap-2 md:gap-4 shrink-0 max-w-[60%]">
+          <div className="flex flex-wrap items-center gap-2 md:gap-4 min-w-0 max-w-[70%] sm:max-w-[60%]">
              {!isCompact && (
                <input 
                  type="checkbox" 
@@ -403,42 +366,47 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
         console.warn("Webhook fetch skipped:", err);
       }
 
-      // Try IMAP first with background worker
-      try {
-        const fetchLimit = isBackground ? 10 : scanLimit;
-        const imapEmails = await fetchImapEmails(fetchLimit, (status, data) => {
-           setSyncStatus(status as any);
-           if (data) setSyncStats(data);
-        });
-        const mappedImap = imapEmails.map((im: any) => ({
-          id: `msg-${Date.now()}-${Math.random().toString(36).substring(7)}`,
-          accountId: im.accountId,
-          sender: im.sender,
-          subject: im.subject,
-          rawBody: im.rawBody,
-          summary: im.subject,
-          timestamp: im.timestamp,
-          classification: im.classification || 'MARKET INTEL',
-          confidence: 85,
-          provider: im.provider || 'imap',
-          relevanceStatus: determineRelevanceStatus(im.subject, im.sender, (im.rawBody || '').substring(0, 500))
-        }));
-        allFetchedEmails = [...allFetchedEmails, ...mappedImap];
-      } catch (err: any) {
-        console.warn('IMAP fetch skipped or failed:', err);
-        setSyncStatus('failed');
-        setSyncStats({ safeErrorMessage: err.message });
+      // Sync only sources that are actually enabled by the user.
+      const hasActiveImap = accounts.some(account => account.active && account.provider !== 'gmail');
+      if (hasActiveImap) {
+        try {
+          const fetchLimit = isBackground ? 10 : scanLimit;
+          const imapEmails = await fetchImapEmails(fetchLimit, (status, data) => {
+             setSyncStatus(status as any);
+             if (data) setSyncStats(data);
+          });
+          const mappedImap = imapEmails.map((im: any) => ({
+            id: im.id ? String(im.id) : `msg-${crypto.randomUUID()}`,
+            accountId: im.accountId,
+            sender: im.sender,
+            subject: im.subject,
+            rawBody: im.rawBody,
+            summary: im.subject,
+            timestamp: im.timestamp,
+            classification: im.classification || 'MARKET INTEL',
+            confidence: 85,
+            provider: im.provider || 'imap',
+            relevanceStatus: determineRelevanceStatus(im.subject, im.sender, (im.rawBody || '').substring(0, 500))
+          }));
+          allFetchedEmails = [...allFetchedEmails, ...mappedImap];
+        } catch (err: any) {
+          console.warn('IMAP fetch failed:', err);
+          setSyncStatus('failed');
+          setSyncStats({ safeErrorMessage: err.message });
+        }
       }
       
-      // Then Gmail
-      try {
-        if (import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+      const hasActiveGmail = accounts.some(account => account.active && account.provider === 'gmail');
+      if (hasActiveGmail && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+        try {
           const fetchLimit = isBackground ? 10 : scanLimit;
           const gmailEmails = await fetchGmailEmails(fetchLimit);
           allFetchedEmails = [...allFetchedEmails, ...gmailEmails];
+        } catch (err: any) {
+          console.warn('Gmail fetch failed:', err);
+          setSyncStatus('failed');
+          setSyncStats({ safeErrorMessage: err.message });
         }
-      } catch (err: any) {
-        console.warn('Gmail fetch skipped or failed:', err);
       }
       
       if (allFetchedEmails.length > 0) {
@@ -451,34 +419,22 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
         setIsLoggedIn(true);
         if (syncStatus !== 'failed') setSyncStatus('completed');
       } else {
-        // Fallback to mock data for demo purposes directly
-        console.warn("Using mock data because OAuth/IMAP is not configured or results were empty.");
-        const mockEmails: Email[] = [
-          {
-            id: `msg-${Date.now()}-1`,
-            accountId: accounts.find(a => a.provider === 'gmail')?.id || 'acc-1',
-            sender: 'charter@pacific-materials.com',
-            subject: 'URGENT: 50,000 MT COAL IDO/N.D.A',
-            rawBody: 'Please offer firm for 50,000 MT +/- 10% MOLOO Coal in bulk from Richards Bay to Kandla. Laycan 15-25 May. 15,000 SHINC / 15,000 SHINC. Freight idea: Try mid 20s.',
-            summary: '50k MT Coal from Richards Bay to Kandla. Laycan May 15-25.',
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + 'Z',
-            classification: 'CARGO',
-            confidence: 98,
-            category: 'DRY BULK',
-            provider: 'gmail',
-            relevanceStatus: 'likely_cargo'
-          },
-          ...INITIAL_EMAILS
-        ];
-        
         setLastChecked(new Date());
-        setEmails(prev => {
-          const uniqueExisting = prev.filter(e => !mockEmails.some(ne => ne.id === e.id));
-          return [...mockEmails, ...uniqueExisting];
-        });
-        setIsLoggedIn(true);
-        setSyncStatus('completed');
-        if (!isBackground) notify({ title: 'Demo Mode', message: "Running in Demo Mode: Check email settings.", type: 'info' });
+        if (demoDataEnabled) {
+          const demoEmails: Email[] = [...(await loadDevelopmentDemoEmails())];
+          setEmails(prev => {
+            const uniqueExisting = prev.filter(e => !demoEmails.some(ne => ne.id === e.id));
+            return [...demoEmails, ...uniqueExisting];
+          });
+          setIsLoggedIn(true);
+          setSyncStatus('completed');
+          if (!isBackground) notify({ title: 'Development Demo Data', message: 'No live messages returned; explicit dev demo data loaded.', type: 'info' });
+        } else {
+          setSyncStatus('completed');
+          if (!isBackground) {
+            notify({ title: 'Inbox Checked', message: 'No new messages were returned by the configured email sources.', type: 'info' });
+          }
+        }
       }
     } catch (error: any) {
       console.warn('Fetch operation failed:', error.message);
@@ -499,38 +455,18 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
       }
       await getAccessToken();
       setIsLoggedIn(true);
+      await refreshAccounts();
       handleFetchEmails();
     } catch (error: any) {
       console.error('Auth error:', error);
-      if (error.message?.includes('VITE_GOOGLE_CLIENT_ID') || error.message?.includes('Client Secret') || error.message?.includes('Authentication window closed')) {
-        // Option to show guide or fallback
-        if (!accounts.find(a => a.provider === 'gmail')) {
-            setAccounts(prev => [...prev, { id: `acc-${Date.now()}`, email: 'demo@gmail.com', provider: 'gmail', active: true }]);
-        }
-        
-        // Use demo mode
-        console.warn("Using mock data because OAuth is not configured or failed.");
-        const mockEmails: Email[] = [
-          {
-            id: `msg-${Date.now()}-1`,
-            accountId: accounts.find(a => a.provider === 'gmail')?.id || 'acc-1',
-            sender: 'charter@pacific-materials.com',
-            subject: 'URGENT: 50,000 MT COAL IDO/N.D.A',
-            rawBody: 'Please offer firm for 50,000 MT +/- 10% MOLOO Coal in bulk from Richards Bay to Kandla. Laycan 15-25 May. 15,000 SHINC / 15,000 SHINC. Freight idea: Try mid 20s.',
-            summary: '50k MT Coal from Richards Bay to Kandla. Laycan May 15-25.',
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + 'Z',
-            classification: 'CARGO',
-            confidence: 98,
-            category: 'DRY BULK',
-            provider: 'gmail',
-            relevanceStatus: 'likely_cargo'
-          },
-          ...INITIAL_EMAILS
-        ];
-        setEmails(mockEmails as any);
+      if (demoDataEnabled) {
+        setEmails([...(await loadDevelopmentDemoEmails())]);
         setIsLoggedIn(true);
+        notify({ title: 'Development Demo Data', message: 'OAuth failed; explicit dev demo data loaded.', type: 'info' });
       } else {
+        setIsLoggedIn(false);
         setGlobalError(error.message || "Authentication failed.");
+        setShowSetupGuide(true);
       }
     }
   };
@@ -612,8 +548,10 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
 
       let createdCargos = 0;
       let skippedCargos = 0;
+      let rejectedCargos = 0;
       let createdVessels = 0;
       let skippedVessels = 0;
+      let rejectedVessels = 0;
 
       // Handle CARGO or CARGO_LIST
       if (extractionResult.type === 'CARGO' || extractionResult.type === 'CARGO_LIST' || extractionResult.type === 'MIXED_LIST') {
@@ -622,6 +560,24 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
         
         for (let i = 0; i < cargosToPublish.length; i++) {
           const item = cargosToPublish[i];
+          const commodity = String(item.commodity || item.cargo_type || '').trim();
+          const quantity = String(item.quantity || '').trim();
+          const loadPort = String(item.loadPort || '').trim();
+          const dischargePort = String(item.dischargePort || '').trim();
+          const laycan = String(item.laycan || '').trim();
+          const missingRequired = [
+            !commodity && 'commodity',
+            !quantity && 'quantity',
+            !loadPort && 'load port',
+            !dischargePort && 'discharge port',
+            !laycan && 'laycan'
+          ].filter(Boolean);
+
+          if (missingRequired.length > 0) {
+            rejectedCargos++;
+            continue;
+          }
+
           const dedupeKey = [
              selectedEmail?.id || '',
              item.entry_no || String(i),
@@ -646,10 +602,10 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
             dedupeKey,
             sourceEmailId: selectedEmail?.id || null,
             entry_no: item.entry_no || String(i),
-            raw_commodity: String(item.raw_commodity || item.commodity || item.cargo_type || 'Unknown').substring(0, 100),
-            commodity: String(item.commodity || item.cargo_type || 'Unknown').substring(0, 100),
+            raw_commodity: String(item.raw_commodity || commodity).substring(0, 100),
+            commodity: commodity.substring(0, 100),
             normalized_commodity: item.normalized_commodity ? String(item.normalized_commodity).substring(0, 100) : null,
-            quantity: String(item.quantity || 'TBN').substring(0, 100),
+            quantity: quantity.substring(0, 100),
             quantity_mt: item.quantity_mt ? String(item.quantity_mt).substring(0, 50) : null,
             quantity_cbm: item.quantity_cbm ? String(item.quantity_cbm).substring(0, 50) : null,
             plus_minus: item.plus_minus ? String(item.plus_minus).substring(0, 50) : null,
@@ -659,10 +615,11 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
             waiting_clause: item.waiting_clause ? String(item.waiting_clause).substring(0, 100) : null,
             unit_weight: item.unit_weight ? String(item.unit_weight).substring(0, 100) : null,
             stowage: item.stowage ? String(item.stowage).substring(0, 100) : null,
-            loadPort: String(item.loadPort || 'TBN').substring(0, 100),
-            dischargePort: String(item.dischargePort || 'TBN').substring(0, 100),
-            laycan: String(item.laycan || 'TBD').substring(0, 100),
-            charterer: String(selectedEmail?.sender || 'Unknown').substring(0, 150),
+            loadPort: loadPort.substring(0, 100),
+            dischargePort: dischargePort.substring(0, 100),
+            laycan: laycan.substring(0, 100),
+            charterer: item.charterer ? String(item.charterer).substring(0, 150) : '',
+            sourceContact: selectedEmail?.sender ? String(selectedEmail.sender).substring(0, 150) : '',
             category: String(selectedEmail?.category || 'DRY BULK').substring(0, 100),
             status: 'ACTIVE',
             description: String(extractionResult.summary || '').substring(0, 1000),
@@ -690,7 +647,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
           }
         }
         
-        if (createdCargos > 0 || skippedCargos > 0) {
+        if (createdCargos > 0 || skippedCargos > 0 || rejectedCargos > 0) {
           if (createdCargos === 1) {
             addNotification({
               title: settings?.mode === 'broker_humor' 
@@ -727,9 +684,9 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
           }
 
           notify({
-            title: 'Cargo Published',
-            message: `${createdCargos} Cargo(es) added. ${skippedCargos > 0 ? `(${skippedCargos} skipped as duplicates)` : ''}`,
-            type: 'success'
+            title: rejectedCargos > 0 ? 'Cargo Publish Review' : 'Cargo Published',
+            message: `${createdCargos} added, ${skippedCargos} duplicate(s), ${rejectedCargos} rejected as incomplete.`,
+            type: rejectedCargos > 0 ? 'warning' : 'success'
           });
         }
       } 
@@ -741,6 +698,16 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
         
         for (let i = 0; i < vesselsToPublish.length; i++) {
           const item = vesselsToPublish[i];
+          const vesselName = String(item.name || item.vessel_name || '').trim();
+          const vesselDwt = Number(String(item.dwt || '').replace(/[^0-9.]/g, '')) || 0;
+          const openPort = String(item.openPort || '').trim();
+          const openDate = String(item.openDate || '').trim();
+
+          if (!vesselName || vesselDwt <= 0 || !openPort || !openDate) {
+            rejectedVessels++;
+            continue;
+          }
+
           const dedupeKey = [
              selectedEmail?.id || '',
              item.entry_no || String(i),
@@ -765,14 +732,15 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
             sourceEmailId: selectedEmail?.id || null,
             entry_no: item.entry_no || String(i),
             section_region: item.section_region ? String(item.section_region).substring(0, 100) : null,
-            name: String(item.name || item.vessel_name || 'TBN').substring(0, 100),
-            dwt: Number(String(item.dwt || '').replace(/[^0-9.]/g, '')) || 0,
-            openPort: String(item.openPort || 'TBN').substring(0, 100),
-            openDate: String(item.openDate || 'TBD').substring(0, 50),
+            name: vesselName.substring(0, 100),
+            dwt: vesselDwt,
+            openPort: openPort.substring(0, 100),
+            openDate: openDate.substring(0, 50),
             gear: String(item.gear || '').substring(0, 100),
             direction: String(item.direction || '').substring(0, 100),
-            type: String(item.type || item.vessel_type || 'Bulk Carrier').substring(0, 100),
-            owner: String(selectedEmail?.sender || 'Unknown').substring(0, 150),
+            type: String(item.type || item.vessel_type || '').substring(0, 100),
+            owner: item.owner ? String(item.owner).substring(0, 150) : '',
+            sourceContact: selectedEmail?.sender ? String(selectedEmail.sender).substring(0, 150) : '',
             holds: item.holds ? String(item.holds).substring(0, 100) : null,
             cranes: item.cranes ? String(item.cranes).substring(0, 100) : null,
             last_cargo: item.last_cargo ? String(item.last_cargo).substring(0, 100) : null,
@@ -791,7 +759,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
           createdVessels++;
         }
         
-        if (createdVessels > 0 || skippedVessels > 0) {
+        if (createdVessels > 0 || skippedVessels > 0 || rejectedVessels > 0) {
           if (createdVessels === 1) {
             addNotification({
               title: settings?.mode === 'broker_humor' 
@@ -828,9 +796,9 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
           }
 
           notify({
-            title: 'Vessel Published',
-            message: `${createdVessels} Vessel(s) added. ${skippedVessels > 0 ? `(${skippedVessels} skipped as duplicates)` : ''}`,
-            type: 'success'
+            title: rejectedVessels > 0 ? 'Vessel Publish Review' : 'Vessel Published',
+            message: `${createdVessels} added, ${skippedVessels} duplicate(s), ${rejectedVessels} rejected as incomplete.`,
+            type: rejectedVessels > 0 ? 'warning' : 'success'
           });
         }
       }
@@ -904,7 +872,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
                       initial={{ opacity: 0, scale: 0.95, y: 10 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                      className="absolute right-0 mt-2 w-72 bg-surface-container border border-primary shadow-[0_0_50px_rgba(29,155,240,0.15)] z-50 p-6 space-y-6 overflow-hidden"
+                      className="absolute right-0 mt-2 w-[calc(100vw-2rem)] max-w-72 bg-surface-container border border-primary shadow-[0_0_50px_rgba(29,155,240,0.15)] z-50 p-6 space-y-6 overflow-hidden"
                     >
                       {/* Header with back button if connecting */}
                       <div className="flex items-center justify-between mb-2">
@@ -972,7 +940,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
                                   <button 
                                     key={key}
                                     className="p-3 border border-outline hover:border-primary hover:bg-primary/5 transition-all flex flex-col items-center gap-2 group"
-                                    onClick={() => {
+                                    onClick={async () => {
                                       if (key === 'gmail') handleSignIn();
                                       else setConnectingProvider(key);
                                     }}
@@ -983,22 +951,21 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
                                 );
                               })}
                             </div>
-                            <div className="mt-4">
-                              <button
-                                onClick={() => {
-                                  if (!accounts.find(a => a.provider === 'gmail')) {
-                                      setAccounts(prev => [...prev, { id: `acc-${Date.now()}`, email: 'demo@gmail.com', provider: 'gmail', active: true }]);
-                                  }
-                                  setGlobalError(null);
-                                  setIsLoggedIn(true);
-                                  handleFetchEmails();
-                                  setShowSetupGuide(false);
-                                }}
-                                className="w-full flex items-center justify-center gap-2 p-3 bg-surface-container-high hover:bg-surface-container-highest border border-outline text-[10px] font-bold text-[#b4c6e4] hover:text-on-surface uppercase tracking-widest transition-all"
-                              >
-                                🚀 Load Demo Data (Bypass Auth)
-                              </button>
-                            </div>
+                            {demoDataEnabled && (
+                              <div className="mt-4">
+                                <button
+                                  onClick={async () => {
+                                    setGlobalError(null);
+                                    setEmails([...(await loadDevelopmentDemoEmails())]);
+                                    setIsLoggedIn(true);
+                                    setShowSetupGuide(false);
+                                  }}
+                                  className="w-full flex items-center justify-center gap-2 p-3 bg-surface-container-high hover:bg-surface-container-highest border border-outline text-[10px] font-bold text-[#b4c6e4] hover:text-on-surface uppercase tracking-widest transition-all"
+                                >
+                                  Load Development Demo Data
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </>
                       ) : (
@@ -1508,13 +1475,13 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
               className="fixed inset-0 z-[100] flex items-center justify-center bg-surface-dim/80 p-4 backdrop-blur-sm"
             >
               <div className="bg-surface-container border border-primary max-w-lg w-full p-8 font-mono relative text-center">
-                <h3 className="text-primary font-bold uppercase tracking-widest mb-4">Fallback Mode</h3>
-                <p className="text-on-surface-variant font-sans text-sm mb-6">Running in Mock Data mode because VITE_GOOGLE_CLIENT_ID is not configured in the platform settings. This ensures the UI remains accessible for testing.</p>
+                <h3 className="text-primary font-bold uppercase tracking-widest mb-4">Email Integration Required</h3>
+                <p className="text-on-surface-variant font-sans text-sm mb-6">Gmail OAuth is not available or authorization failed. Configure the Google OAuth client or connect an IMAP mailbox. Production mode does not substitute demo messages.</p>
                 <button 
                   onClick={() => setShowSetupGuide(false)}
                   className="bg-primary text-on-primary py-2 px-8 font-bold uppercase tracking-widest hover:opacity-90 transition-opacity"
                 >
-                  Continue in Demo Mode
+                  Close
                 </button>
               </div>
             </motion.div>

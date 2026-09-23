@@ -1,0 +1,78 @@
+name: Production CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GEMINI_API_KEY: CI_SECRET_MUST_NEVER_REACH_BROWSER_9d7f1a
+      APP_BASE_URL: https://example.invalid
+      TRUST_PROXY_HOPS: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Security regression gates
+        run: node scripts/security-regression.cjs
+
+      - name: Commercial production regression gates
+        run: node scripts/production-regression.cjs
+
+      - name: Focused production tests
+        run: |
+          node --test tests/security/*.test.cjs
+          npx tsx --test tests/unit/*.test.ts
+
+      - name: Production build
+        run: npm run build
+
+      - name: Assert server secret is absent from browser bundle
+        shell: bash
+        run: |
+          if grep -R --binary-files=without-match -n "CI_SECRET_MUST_NEVER_REACH_BROWSER_9d7f1a" dist/assets; then
+            echo "::error::GEMINI_API_KEY leaked into the client bundle"
+            exit 1
+          fi
+
+      - name: High and critical dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Production container build
+        run: docker build -t chartering-desk-ci .
+
+      - name: Server boot smoke test
+        shell: bash
+        run: |
+          npm start > /tmp/chartering-desk-server.log 2>&1 &
+          pid=$!
+          trap 'kill $pid 2>/dev/null || true' EXIT
+          for i in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:3000/healthz > /tmp/healthz.json; then
+              cat /tmp/healthz.json
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/chartering-desk-server.log
+          exit 1

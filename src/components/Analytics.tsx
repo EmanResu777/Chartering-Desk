@@ -10,30 +10,6 @@ import {
 import { cn } from '../lib/utils';
 import { motion } from 'motion/react';
 
-const FREIGHT_DATA = [
-  { name: 'Jan', rate: 12500, volume: 45 },
-  { name: 'Feb', rate: 13200, volume: 52 },
-  { name: 'Mar', rate: 14800, volume: 48 },
-  { name: 'Apr', rate: 14100, volume: 61 },
-  { name: 'May', rate: 15500, volume: 55 },
-  { name: 'Jun', rate: 16200, volume: 67 },
-];
-
-const CARGO_DISTRIBUTION = [
-  { name: 'Iron Ore', value: 400, color: '#d4af37' }, // Gold
-  { name: 'Coal', value: 300, color: '#f0f0f0' },     // White/Silver
-  { name: 'Grains', value: 200, color: '#16a34a' },   // Green
-  { name: 'Fertilizers', value: 100, color: '#888888' }, // Slate
-];
-
-const REGIONAL_STRENGTH = [
-  { region: 'Far East', deals: 85, trend: '+12%' },
-  { region: 'SE Asia', deals: 64, trend: '+5%' },
-  { region: 'US Gulf', deals: 42, trend: '-2%' },
-  { region: 'Black Sea', deals: 28, trend: '+15%' },
-  { region: 'Continent', deals: 53, trend: '+8%' },
-];
-
 const StatCard = ({ title, value, change, icon: Icon, color }: any) => (
   <div className="bg-surface-container-high border border-outline p-4 flex flex-col gap-2 group hover:border-primary/50 transition-all">
     <div className="flex justify-between items-center">
@@ -118,18 +94,47 @@ export const Analytics: React.FC<{
     .map(([region, deals]) => ({
       region,
       deals: deals as number,
-      trend: `+${Math.floor(Math.random() * 20)}%`
+      trend: '—'
     }));
 
-  // Market Trends mock (since we lack time-series in simple data model)
-  const MARKET_TRENDS = [
-    { name: 'Jan', rate: 12500, volume: 45 },
-    { name: 'Feb', rate: 13200, volume: 52 },
-    { name: 'Mar', rate: 14800, volume: 48 },
-    { name: 'Apr', rate: 14100, volume: 61 },
-    { name: 'May', rate: 15500, volume: 55 },
-    { name: 'Jun', rate: Math.max(16200, 15000 + (totalFixtures * 10)), volume: 67 + Math.floor(totalFixtures / 2) },
-  ];
+  const toJsDate = (value: any): Date | null => {
+    if (!value) return null;
+    if (typeof value.toDate === 'function') return value.toDate();
+    if (typeof value.seconds === 'number') return new Date(value.seconds * 1000);
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const monthBuckets = Array.from({ length: 6 }, (_, index) => {
+    const d = new Date();
+    d.setUTCDate(1);
+    d.setUTCHours(0, 0, 0, 0);
+    d.setUTCMonth(d.getUTCMonth() - (5 - index));
+    return {
+      key: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`,
+      name: d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
+      cargoes: 0,
+      vessels: 0,
+      volume: 0
+    };
+  });
+
+  const bucketByKey = new Map(monthBuckets.map(bucket => [bucket.key, bucket]));
+  for (const cargo of cargoList) {
+    const d = toJsDate(cargo.createdAt || cargo.updatedAt);
+    if (!d) continue;
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    const bucket = bucketByKey.get(key);
+    if (bucket) { bucket.cargoes += 1; bucket.volume += 1; }
+  }
+  for (const vessel of vesselList) {
+    const d = toJsDate(vessel.createdAt || vessel.updatedAt);
+    if (!d) continue;
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    const bucket = bucketByKey.get(key);
+    if (bucket) { bucket.vessels += 1; bucket.volume += 1; }
+  }
+  const MARKET_TRENDS = monthBuckets;
 
   return (
     <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-surface">
@@ -137,14 +142,14 @@ export const Analytics: React.FC<{
         <div>
           <h2 className="font-display text-[18px] text-on-surface uppercase tracking-widest font-bold flex items-center gap-2">
             Broker_Intelligence_Center
-            <span className="text-[9px] bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 font-mono">LIVE FEED</span>
+            <span className="text-[9px] bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 font-mono">WORKSPACE DATA</span>
           </h2>
         </div>
         
         <div className="flex gap-2">
           <button className="bg-surface-container-high border border-outline text-on-surface px-3 py-1.5 font-sans text-[10px] font-semibold tracking-[0.15em] uppercase text-[10px] font-bold flex items-center gap-2 hover:border-primary transition-all">
             <Calendar className="h-3.5 w-3.5" />
-            Live Feed
+            Current Data
           </button>
         </div>
       </div>
@@ -189,12 +194,12 @@ export const Analytics: React.FC<{
             <div className="flex justify-between items-center">
               <h3 className="text-[12px] text-on-surface font-bold uppercase tracking-widest flex items-center gap-2">
                 <Activity className="h-4 w-4 text-primary" />
-                Freight_Index_Volatility
+                Listing_Activity_Trend
               </h3>
               <div className="flex items-center gap-4 text-[10px] font-bold">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-primary" />
-                  <span className="text-on-surface-variant">AVG RATE ($/DAY)</span>
+                  <span className="text-on-surface-variant">CARGO + TONNAGE RECORDS</span>
                 </div>
               </div>
             </div>
@@ -221,7 +226,6 @@ export const Analytics: React.FC<{
                     fontSize={10} 
                     tickLine={false} 
                     axisLine={false}
-                    tickFormatter={(value) => `$${value/1000}k`}
                   />
                   <Tooltip 
                     contentStyle={{ backgroundColor: '#1a2332', border: '1px solid #2d3f5a', fontSize: '10px' }}
@@ -351,11 +355,11 @@ export const Analytics: React.FC<{
                     <div className="text-right w-16">
                       <span className={cn(
                         "text-[12px] font-mono font-bold",
-                        row.trend.startsWith('+') ? "text-tertiary" : "text-[#ffb4ab]"
+                        "text-on-surface-variant"
                       )}>
                         {row.trend}
                       </span>
-                      <p className="text-[8px] text-on-surface-variant font-bold uppercase">MoM</p>
+                      <p className="text-[8px] text-on-surface-variant font-bold uppercase">Change</p>
                     </div>
                   </div>
                 </div>
@@ -367,7 +371,7 @@ export const Analytics: React.FC<{
           <div className="bg-surface-container-high border border-outline p-6">
              <h3 className="text-[12px] text-on-surface font-bold uppercase tracking-widest mb-6 flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-primary" />
-              Fixing_Volume_Velocity
+              Monthly_Workspace_Activity
             </h3>
             <div className="h-[250px] w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -391,7 +395,8 @@ export const Analytics: React.FC<{
                     contentStyle={{ backgroundColor: '#1a2332', border: '1px solid #2d3f5a', fontSize: '10px' }}
                     itemStyle={{ color: '#dfe3ea' }}
                   />
-                  <Bar dataKey="volume" fill="#1d9bf0" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="cargoes" name="Cargoes" fill="#1d9bf0" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="vessels" name="Vessels" fill="#7856ff" radius={[2, 2, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

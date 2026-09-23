@@ -16,6 +16,7 @@ import { ArchitectureStack } from './components/ArchitectureStack';
 import { SmartRadar } from './components/SmartRadar';
 import { DealRoomMain } from './components/DealRooms/DealRoomMain';
 import { Dashboard } from './components/Dashboard';
+import { MarketIntel } from './components/MarketIntel';
 import { Ticker } from './components/Ticker';
 import { Pricing } from './components/Pricing';
 import { GlobalSearch } from './components/GlobalSearch';
@@ -24,7 +25,7 @@ import { AlertsCenter } from './components/AlertsCenter';
 import { AuthScreen } from './components/AuthScreen';
 import { OnboardingChecklist } from './components/OnboardingChecklist';
 import { Cargo, Vessel, Contact, Email, cn } from './lib/utils';
-import { Package2, Ship, Mail, Settings as SettingsIcon, Users, BarChart3, Zap, Bot, X, FileText } from 'lucide-react';
+import { Package2, Ship, Mail, Settings as SettingsIcon, Users, BarChart3, Zap, Bot, X, FileText, LayoutDashboard, LineChart, Briefcase } from 'lucide-react';
 import { ConfigProvider, useConfig, Language } from './lib/ConfigContext';
 import { NotificationProvider, useNotification } from './lib/NotificationContext';
 import { AlertProvider, useAlerts } from './lib/AlertContext';
@@ -34,7 +35,7 @@ import { useAuth, loginWithGoogle, logout, handleFirestoreError, OperationType, 
 import { collection, onSnapshot, query, where, setDoc, doc, deleteDoc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { shareItem, unshareItem, updateSharedItem } from './lib/networkService';
 
-type Tab = 'dashboard' | 'cargo' | 'vessel' | 'selection' | 'inbox' | 'analytics' | 'settings' | 'match' | 'contacts' | 'ai' | 'architecture' | 'docs' | 'documents' | 'radar' | 'deal-rooms';
+type Tab = 'dashboard' | 'cargo' | 'vessel' | 'selection' | 'inbox' | 'analytics' | 'settings' | 'match' | 'contacts' | 'ai' | 'architecture' | 'docs' | 'documents' | 'radar' | 'deal-rooms' | 'market';
 
 import { FeedbackWidget } from './components/FeedbackWidget';
 
@@ -66,15 +67,64 @@ function AppContent() {
   const [lastFocusedContext, setLastFocusedContext] = useState<'cargo' | 'vessel' | null>(null);
   const [notifications, setNotifications] = useState<Record<string, boolean>>({});
   const [showTrialWelcome, setShowTrialWelcome] = useState(false);
+  const [usageAccess, setUsageAccess] = useState<{ planId: string; billingStatus: string; resetAt?: string; loading: boolean }>({
+    planId: 'unknown',
+    billingStatus: 'loading',
+    loading: true,
+  });
 
   useEffect(() => {
-    if (currentWorkspace && currentWorkspace.trialEndsAt) {
-      const hasSeenTrialWelcome = localStorage.getItem(`trial_welcome_seen_${currentWorkspace.id}`);
-      if (!hasSeenTrialWelcome) {
-        setShowTrialWelcome(true);
-      }
+    if (!user) {
+      setUsageAccess({ planId: 'unknown', billingStatus: 'signed_out', loading: false });
+      return;
     }
-  }, [currentWorkspace]);
+
+    let cancelled = false;
+    const loadUsageAccess = async () => {
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch('/api/usage/summary', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || 'Unable to resolve account access');
+        if (!cancelled) {
+          setUsageAccess({
+            planId: String(body.planId || 'unknown'),
+            billingStatus: String(body.billingStatus || 'unknown'),
+            resetAt: body.resetAt,
+            loading: false,
+          });
+          if (body.planId === 'desk') setSubscription('maximum');
+          else if (body.planId === 'solo') setSubscription('premium');
+          else if (body.planId === 'free' || body.billingStatus === 'trial_expired' || body.billingStatus === 'past_due') setSubscription('basic');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setUsageAccess({ planId: 'unknown', billingStatus: 'unavailable', loading: false });
+        }
+      }
+    };
+
+    loadUsageAccess();
+    const timer = window.setInterval(loadUsageAccess, 2 * 60 * 1000);
+    window.addEventListener('focus', loadUsageAccess);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', loadUsageAccess);
+    };
+  }, [user, setSubscription]);
+
+  useEffect(() => {
+    const trialActive = usageAccess.planId === 'trial' && usageAccess.billingStatus === 'trial';
+    if (trialActive && user) {
+      const key = `trial_welcome_seen_${user.uid}`;
+      if (!localStorage.getItem(key)) setShowTrialWelcome(true);
+    } else {
+      setShowTrialWelcome(false);
+    }
+  }, [usageAccess.planId, usageAccess.billingStatus, user]);
 
   useEffect(() => {
     const handleShowPricing = () => setShowPricing(true);
@@ -83,8 +133,8 @@ function AppContent() {
   }, []);
 
   const handleCloseTrialWelcome = () => {
-    if (currentWorkspace) {
-      localStorage.setItem(`trial_welcome_seen_${currentWorkspace.id}`, 'true');
+    if (user) {
+      localStorage.setItem(`trial_welcome_seen_${user.uid}`, 'true');
     }
     setShowTrialWelcome(false);
   };
@@ -96,6 +146,7 @@ function AppContent() {
        if (path === '/cargo') setActiveTab('cargo');
        if (path === '/vessel') setActiveTab('vessel');
        if (path === '/radar') setActiveTab('radar');
+       if (path === '/market') setActiveTab('market');
        if (path === '/dashboard') setActiveTab('dashboard');
        if (path === '/settings') setActiveTab('settings');
     };
@@ -114,13 +165,10 @@ function AppContent() {
   useEffect(() => {
     // Check for Stripe success URL parameters
     const queryStr = new URLSearchParams(window.location.search);
-    if (queryStr.get('success') === 'true') {
-      const tier = queryStr.get('tier');
-      if (tier === 'basic' || tier === 'premium' || tier === 'maximum') {
-        setSubscription(tier);
-        // Clean up URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
+    if (queryStr.get('success') === 'true' || queryStr.get('canceled') === 'true') {
+      // Entitlements are server-controlled via Stripe webhook + Firestore.
+      // Never unlock paid UI solely from redirect query parameters.
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [setSubscription]);
 
@@ -233,7 +281,7 @@ function AppContent() {
          const batch = writeBatch(db);
 
          if (!userSnap.exists()) {
-             deskId = `CDP-${Math.floor(Math.random()*1000000).toString(16).toUpperCase()}`;
+             deskId = `CDP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
              batch.set(userRef, {
                  deskId,
                  displayName: user.displayName || '',
@@ -246,7 +294,7 @@ function AppContent() {
              const data = userSnap.data();
              deskId = data.deskId;
              if (!deskId) {
-                 deskId = `CDP-${Math.floor(Math.random()*1000000).toString(16).toUpperCase()}`;
+                 deskId = `CDP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
                  batch.update(userRef, { deskId });
                  needsBatch = true;
              }
@@ -295,9 +343,6 @@ function AppContent() {
       const unsubUser = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          if (data.subscription && (data.subscription === 'basic' || data.subscription === 'premium' || data.subscription === 'maximum')) {
-            setSubscription(data.subscription);
-          }
           if (data.onboardingCompleted === undefined || data.onboardingCompleted === false) {
              setShowOnboarding(true);
           } else {
@@ -406,19 +451,17 @@ function AppContent() {
     };
   }, [user, currentWorkspace]);
 
-  // User Identity
-  const [userProfile] = useState({
-    id: `#DSK-${Math.floor(1000 + Math.random() * 8999)}`,
-    name: 'You (Me)',
-    role: 'Senior Broker'
-  });
+  // User identity shown in legacy network UI. Use authenticated data only.
+  const userProfile = {
+    id: user.uid,
+    name: user.displayName || user.email || 'Broker',
+    role: currentWorkspace?.myRole || 'broker'
+  };
 
   // Network State
   const [networkMessages, setNetworkMessages] = useState<any[]>([]);
   const [selectedContact, setSelectedContact] = useState<any>(null);
-  const [pendingInvites, setPendingInvites] = useState<any[]>([
-    { id: '3', name: 'Dimitris Papadopoulos', role: 'Owner Rep', online: false, status: 'pending_received' },
-  ]);
+  const [pendingInvites, setPendingInvites] = useState<any[]>([]);
 
   // Set initial contact
   useEffect(() => {
@@ -614,23 +657,32 @@ function AppContent() {
 
     const handleImportCargoAsync = async (e: any) => {
       if (!user) return;
-      const data = e.detail;
+      const data = e.detail || {};
+      if (!data.commodity || !data.quantity || !data.loadPort || !data.dischargePort) {
+        notify({
+          type: 'error',
+          title: 'Network Import Rejected',
+          message: 'Cargo import requires commodity, quantity, load port and discharge port.'
+        });
+        return;
+      }
+
       const newCargo: Cargo = {
-        id: `NET-${Math.floor(1000 + Math.random() * 9000)}`,
-        commodity: data.commodity || 'UNNAMED_CARGO',
-        quantity: data.quantity || 'TBN',
-        loadPort: data.loadPort || 'TBN',
-        dischargePort: data.dischargePort || 'TBN',
-        laycan: data.laycan || 'PTLY',
-        charterer: data.charterer || 'NETWORK_CONTACT',
+        id: `NET-${crypto.randomUUID()}`,
+        commodity: String(data.commodity),
+        quantity: String(data.quantity),
+        loadPort: String(data.loadPort),
+        dischargePort: String(data.dischargePort),
+        laycan: data.laycan ? String(data.laycan) : 'TBD',
+        charterer: data.charterer ? String(data.charterer) : 'NETWORK_CONTACT',
         category: data.category || 'DRY BULK',
         status: data.status || 'ACTIVE',
         priority: data.priority || 'NORMAL',
-        confidence: 90
+        confidence: Number.isFinite(Number(data.confidence)) ? Number(data.confidence) : 0
       };
       await handleCargoCreate(newCargo);
       
-      const title = settings?.mode === 'broker_humor'
+      const title = settings?.mode === 'broker_humor' 
         ? "🤝 New Desk Network interest received — someone’s knocking on your cargo."
         : "Desk Network Proposal Received";
         
@@ -643,7 +695,6 @@ function AppContent() {
         source: 'desk_network'
       });
       
-      // Set notification if not on cargo tab
       if (activeTab !== 'cargo') {
         setNotifications(prev => ({ ...prev, cargo: true }));
       }
@@ -651,28 +702,38 @@ function AppContent() {
 
     const handleImportVesselAsync = async (e: any) => {
       if (!user || !currentWorkspace) return;
-      const data = e.detail;
+      const data = e.detail || {};
+      const parsedDwt = Number(data.dwt);
+
+      if (!data.name || !Number.isFinite(parsedDwt) || parsedDwt <= 0) {
+        notify({
+          type: 'error',
+          title: 'Network Import Rejected',
+          message: 'Vessel import requires a vessel name and valid DWT.'
+        });
+        return;
+      }
+
       const newVessel: Vessel = {
-        id: `NET-V-${Math.floor(1000 + Math.random() * 9000)}`,
-        name: data.name || 'UNKNOWN_SHIP',
-        type: data.type || 'Handymax',
-        dwt: data.dwt || 50000,
-        grt: data.grt || 30000,
-        nrt: data.nrt || 18000,
-        builtYear: data.builtYear || 2020,
+        id: `NET-V-${crypto.randomUUID()}`,
+        name: String(data.name),
+        type: data.type ? String(data.type) : 'Bulk Carrier',
+        dwt: parsedDwt,
+        grt: Number.isFinite(Number(data.grt)) ? Number(data.grt) : 0,
+        nrt: Number.isFinite(Number(data.nrt)) ? Number(data.nrt) : 0,
+        builtYear: Number.isFinite(Number(data.builtYear)) ? Number(data.builtYear) : 0,
         status: data.status || 'OPEN',
-        openPort: data.openPort || 'TBN',
-        openDate: data.openDate || 'PTLY',
-        owner: data.owner || 'PRIVATE_OWNER',
-        updatedAt: 'LIVE_NOW',
-        confidence: 95
+        openPort: data.openPort ? String(data.openPort) : 'TBD',
+        openDate: data.openDate ? String(data.openDate) : 'TBD',
+        owner: data.owner ? String(data.owner) : 'NETWORK_CONTACT',
+        updatedAt: new Date().toISOString(),
+        confidence: Number.isFinite(Number(data.confidence)) ? Number(data.confidence) : 0
       };
       
       await safeFirestoreCall(async () => {
         await setDoc(doc(db, 'vessels', newVessel.id), { ...newVessel, workspaceId: currentWorkspace.id, userId: user.uid });
       }, OperationType.CREATE, 'vessels', `Vessel ${newVessel.name} imported successfully`);
 
-      // Set notification if not on vessel tab
       if (activeTab !== 'vessel') {
         setNotifications(prev => ({ ...prev, vessel: true }));
       }
@@ -750,18 +811,10 @@ function AppContent() {
   }
 
   const renderContent = () => {
-    const isTrialExpired = (() => {
-      if (!currentWorkspace || !currentWorkspace.trialEndsAt) return false;
-      let trialEnds;
-      if (typeof currentWorkspace.trialEndsAt.toDate === 'function') {
-        trialEnds = currentWorkspace.trialEndsAt.toDate();
-      } else {
-        trialEnds = new Date(currentWorkspace.trialEndsAt);
-      }
-      return new Date() > trialEnds;
-    })();
-
-    const isBasicAndTrialExpired = subscription === 'basic' && isTrialExpired;
+    const trialActive = usageAccess.planId === 'trial' && usageAccess.billingStatus === 'trial';
+    const trialExpired = usageAccess.billingStatus === 'trial_expired';
+    const accessSuspended = usageAccess.planId === 'free' || usageAccess.billingStatus === 'past_due' || usageAccess.billingStatus === 'cancelled';
+    const isBasicAndTrialExpired = subscription === 'basic' && (trialExpired || accessSuspended);
 
     if (isBasicAndTrialExpired && activeTab !== 'settings' && activeTab !== 'docs') {
       return (
@@ -780,7 +833,7 @@ function AppContent() {
     }
     
     // Override subscription level if in trial
-    const effectiveSubscription = isTrialExpired ? subscription : 'maximum';
+    const effectiveSubscription = trialActive ? 'maximum' : subscription;
 
     switch (activeTab) {
       case 'dashboard':
@@ -802,6 +855,8 @@ function AppContent() {
         return <SmartRadar />;
       case 'deal-rooms':
         return <DealRoomMain />;
+      case 'market':
+        return <MarketIntel />;
       case 'documents':
         return <DraftList />;
       case 'cargo':
@@ -1027,10 +1082,19 @@ function AppContent() {
         </main>
 
         {/* Mobile Navbar */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 w-full z-50 flex justify-around items-stretch h-[calc(4.5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-surface-container-highest border-t border-outline/30 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+        <nav aria-label="Mobile navigation" className="md:hidden fixed bottom-0 left-0 right-0 w-full z-50 flex justify-start items-stretch overflow-x-auto no-scrollbar h-[calc(4.5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-surface-container-highest border-t border-outline/30 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            aria-label="Dashboard"
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'dashboard' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
+          >
+            <LayoutDashboard strokeWidth={activeTab === 'dashboard' ? 2 : 1.5} className="h-5 w-5" />
+            <span className="text-[9px] tracking-widest uppercase font-medium">Home</span>
+            {activeTab === 'dashboard' && <motion.div layoutId="mobileNavIndicator" className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-primary rounded-b-full" />}
+          </button>
           <button 
             onClick={() => setActiveTab('cargo')}
-            className={cn("flex-1 flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'cargo' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'cargo' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
           >
             <div className="relative">
               <Package2 strokeWidth={activeTab === 'cargo' ? 2 : 1.5} className="h-5 w-5" />
@@ -1043,7 +1107,7 @@ function AppContent() {
           </button>
           <button 
             onClick={() => setActiveTab('vessel')}
-            className={cn("flex-1 flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'vessel' ? "text-primary flex-1" : "text-on-surface-variant hover:text-on-surface")}
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'vessel' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
           >
             <div className="relative">
               <Ship strokeWidth={activeTab === 'vessel' ? 2 : 1.5} className="h-5 w-5" />
@@ -1056,7 +1120,7 @@ function AppContent() {
           </button>
           <button 
             onClick={() => setActiveTab('selection')}
-            className={cn("flex-1 flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'selection' ? "text-primary flex-1" : "text-on-surface-variant hover:text-on-surface")}
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'selection' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
           >
             <div className="relative">
               <Zap strokeWidth={activeTab === 'selection' ? 2 : 1.5} className="h-5 w-5" />
@@ -1069,7 +1133,7 @@ function AppContent() {
           </button>
           <button 
             onClick={() => setActiveTab('inbox')}
-            className={cn("flex-1 flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'inbox' ? "text-primary flex-1" : "text-on-surface-variant hover:text-on-surface")}
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'inbox' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
           >
             <div className="relative">
               <Mail strokeWidth={activeTab === 'inbox' ? 2 : 1.5} className="h-5 w-5" />
@@ -1082,7 +1146,7 @@ function AppContent() {
           </button>
           <button 
             onClick={() => setActiveTab('radar')}
-            className={cn("flex-1 px-1 flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'radar' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
+            className={cn("min-w-[68px] flex-none px-1 flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'radar' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
           >
             <div className="relative">
               <Bot strokeWidth={activeTab === 'radar' ? 2 : 1.5} className="h-5 w-5" />
@@ -1094,7 +1158,7 @@ function AppContent() {
           </button>
           <button 
             onClick={() => setActiveTab('documents')}
-            className={cn("flex-1 hidden sm:flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'documents' ? "text-primary flex-1" : "text-on-surface-variant hover:text-on-surface")}
+            className={cn("min-w-[68px] flex-none hidden sm:flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'documents' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
           >
             <div className="relative">
               <FileText strokeWidth={activeTab === 'documents' ? 2 : 1.5} className="h-5 w-5" />
@@ -1104,9 +1168,27 @@ function AppContent() {
               <motion.div layoutId="mobileNavIndicator" className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-primary rounded-b-full shadow-[0_0_8px_rgba(212,175,55,0.8)]" />
             )}
           </button>
+          <button
+            onClick={() => setActiveTab('market')}
+            aria-label="Market intelligence"
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'market' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
+          >
+            <LineChart strokeWidth={activeTab === 'market' ? 2 : 1.5} className="h-5 w-5" />
+            <span className="text-[9px] tracking-widest uppercase font-medium">Market</span>
+            {activeTab === 'market' && <motion.div layoutId="mobileNavIndicator" className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-primary rounded-b-full" />}
+          </button>
+          <button
+            onClick={() => setActiveTab('deal-rooms')}
+            aria-label="Deal rooms"
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'deal-rooms' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
+          >
+            <Briefcase strokeWidth={activeTab === 'deal-rooms' ? 2 : 1.5} className="h-5 w-5" />
+            <span className="text-[9px] tracking-widest uppercase font-medium">Deals</span>
+            {activeTab === 'deal-rooms' && <motion.div layoutId="mobileNavIndicator" className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-primary rounded-b-full" />}
+          </button>
           <button 
             onClick={() => setActiveTab('settings')}
-            className={cn("flex-1 flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'settings' ? "text-primary flex-1" : "text-on-surface-variant hover:text-on-surface")}
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'settings' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
           >
             <SettingsIcon strokeWidth={activeTab === 'settings' ? 2 : 1.5} className="h-5 w-5" />
             <span className="text-[9px] tracking-widest uppercase font-medium">{t('settings')}</span>

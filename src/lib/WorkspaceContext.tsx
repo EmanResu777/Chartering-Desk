@@ -139,14 +139,11 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       
       const workspaceRef = doc(collection(db, 'workspaces'));
       
-      const trialEndsAt = new Date();
-      trialEndsAt.setDate(trialEndsAt.getDate() + 30);
 
       batch.set(workspaceRef, {
         name,
         ownerId: user.uid,
-        createdAt: serverTimestamp(),
-        trialEndsAt: trialEndsAt
+        createdAt: serverTimestamp()
       });
 
       // Add user to workspace members

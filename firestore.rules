@@ -27,18 +27,29 @@ service cloud.firestore {
 
     match /userEmails/{email} {
       allow get: if isSignedIn();
-      allow write: if isSignedIn();
+      allow create, update: if isSignedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true
+        && email == request.auth.token.email.lower()
+        && incoming().uid == request.auth.uid
+        && incoming().keys().hasOnly(['uid']);
+      allow delete: if isSignedIn()
+        && request.auth.token.email != null
+        && email == request.auth.token.email.lower()
+        && existing().uid == request.auth.uid;
     }
 
     // Workspaces
     match /workspaces/{workspaceId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && (
-        resource.data.ownerId == request.auth.uid ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
-      );
+      allow get: if isSignedIn() && (resource.data.ownerId == request.auth.uid || isWorkspaceMember(workspaceId));
+      allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || isWorkspaceMember(workspaceId));
+      allow create: if isSignedIn() && incoming().ownerId == request.auth.uid;
+      allow update: if isSignedIn()
+        && incoming().ownerId == existing().ownerId
+        && (
+          resource.data.ownerId == request.auth.uid ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
+        );
       
       match /members/{memberId} {
         allow read: if isSignedIn() && isWorkspaceMember(workspaceId);
@@ -53,19 +64,32 @@ service cloud.firestore {
     // Public Profiles
     match /publicProfiles/{deskId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() 
-        && incoming().uid == request.auth.uid 
+      allow create: if isSignedIn()
+        && incoming().uid == request.auth.uid
         && deskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId
         && deskId == incoming().deskId
-        && (!exists(/databases/$(database)/documents/publicProfiles/$(deskId)) || get(/databases/$(database)/documents/publicProfiles/$(deskId)).data.uid == request.auth.uid)
+        && (!incoming().keys().hasAny(['verifiedCompany']) || incoming().verifiedCompany == false)
+        && incoming().keys().hasOnly(['uid', 'deskId', 'displayName', 'companyName', 'role', 'region', 'verifiedCompany', 'updatedAt', 'createdAt']);
+      allow update: if isSignedIn()
+        && existing().uid == request.auth.uid
+        && incoming().uid == existing().uid
+        && incoming().deskId == existing().deskId
+        && deskId == existing().deskId
+        && incoming().get('verifiedCompany', false) == existing().get('verifiedCompany', false)
         && incoming().keys().hasOnly(['uid', 'deskId', 'displayName', 'companyName', 'role', 'region', 'verifiedCompany', 'updatedAt', 'createdAt']);
     }
     
     // Users
     match /users/{userId} {
       allow get: if isOwner(userId);
-      allow create: if isOwner(userId) && (!('subscription' in incoming()) && !('grants' in incoming()) && !('connectedTo' in incoming()));
-      allow update: if isOwner(userId) && (!incoming().diff(existing()).affectedKeys().hasAny(['subscription', 'grants', 'stripeCustomerId', 'stripeSubscriptionId', 'connectedTo', 'deskId']));
+      allow create: if isOwner(userId) && !incoming().keys().hasAny([
+        'subscription', 'grants', 'connectedTo', 'stripeCustomerId', 'stripeSubscriptionId',
+        'planId', 'billingStatus', 'admin', 'isAdmin'
+      ]);
+      allow update: if isOwner(userId) && (!incoming().diff(existing()).affectedKeys().hasAny([
+        'subscription', 'grants', 'stripeCustomerId', 'stripeSubscriptionId', 'connectedTo',
+        'planId', 'billingStatus', 'admin', 'isAdmin', 'deskId'
+      ]));
       
       match /networkConnections/{viewerId} {
         allow read: if isOwner(userId) || request.auth.uid == viewerId;
@@ -88,7 +112,11 @@ service cloud.firestore {
       
       match /usage/{usageId} {
         allow read: if isOwner(userId);
-        allow write: if isOwner(userId);
+        allow write: if false; // Billing/usage counters are server-authoritative.
+      }
+
+      match /billingState/{stateId} {
+        allow read, write: if false; // Subscription/trial state is server-authoritative.
       }
 
       match /emailSyncJobs/{jobId} {
@@ -98,10 +126,24 @@ service cloud.firestore {
 
       match /memberships/{workspaceId} {
         allow read: if isOwner(userId);
-        allow write: if isSignedIn() && (
-          request.auth.uid == userId ||
-          get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid ||
-          get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
+        allow create: if isSignedIn()
+          && incoming().role in ['admin', 'broker', 'viewer']
+          && (
+            (request.auth.uid == userId
+              && getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid)
+            || get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid
+            || get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
+          );
+        allow update: if isSignedIn()
+          && incoming().role in ['admin', 'broker', 'viewer']
+          && (
+            get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid
+            || get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
+          );
+        allow delete: if isSignedIn() && (
+          request.auth.uid == userId
+          || get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid
+          || get(/databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(workspaceId)).data.role == 'admin'
         );
       }
       
@@ -119,7 +161,7 @@ service cloud.firestore {
       }
 
       match /emailAccounts/{accountId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if false; // Contains OAuth/IMAP secrets; server only.
       }
 
       match /settings/{settingId} {
@@ -158,8 +200,8 @@ service cloud.firestore {
     match /vessels/{vesselId} {
       allow get: if isSignedIn() && isValidId(vesselId) && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
       allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
-      allow create: if isSignedIn() && isValidId(vesselId) && isValidVessel(incoming()) && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
-      allow update: if isSignedIn() && isValidId(vesselId) && isValidVessel(incoming()) && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
+      allow create: if isSignedIn() && isValidId(vesselId) && isValidVessel(incoming()) && incoming().userId == request.auth.uid && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
+      allow update: if isSignedIn() && isValidId(vesselId) && isValidVessel(incoming()) && incoming().userId == existing().userId && incoming().workspaceId == existing().workspaceId && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
       allow delete: if isSignedIn() && isValidId(vesselId) && (resource.data.userId == request.auth.uid || isWorkspaceWriter(resource.data.workspaceId));
     }
 
@@ -177,8 +219,8 @@ service cloud.firestore {
     match /cargos/{cargoId} {
       allow get: if isSignedIn() && isValidId(cargoId) && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
       allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
-      allow create: if isSignedIn() && isValidId(cargoId) && isValidCargo(incoming()) && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
-      allow update: if isSignedIn() && isValidId(cargoId) && isValidCargo(incoming()) && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
+      allow create: if isSignedIn() && isValidId(cargoId) && isValidCargo(incoming()) && incoming().userId == request.auth.uid && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
+      allow update: if isSignedIn() && isValidId(cargoId) && isValidCargo(incoming()) && incoming().userId == existing().userId && incoming().workspaceId == existing().workspaceId && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
       allow delete: if isSignedIn() && isValidId(cargoId) && (resource.data.userId == request.auth.uid || isWorkspaceWriter(resource.data.workspaceId));
     }
 
@@ -195,8 +237,8 @@ service cloud.firestore {
     match /contacts/{contactId} {
       allow get: if isSignedIn() && isValidId(contactId) && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
       allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
-      allow create: if isSignedIn() && isValidId(contactId) && isValidContact(incoming()) && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
-      allow update: if isSignedIn() && isValidId(contactId) && isValidContact(incoming()) && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
+      allow create: if isSignedIn() && isValidId(contactId) && isValidContact(incoming()) && incoming().userId == request.auth.uid && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
+      allow update: if isSignedIn() && isValidId(contactId) && isValidContact(incoming()) && incoming().userId == existing().userId && incoming().workspaceId == existing().workspaceId && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
       allow delete: if isSignedIn() && isValidId(contactId) && (resource.data.userId == request.auth.uid || isWorkspaceWriter(resource.data.workspaceId));
     }
 
@@ -214,8 +256,8 @@ service cloud.firestore {
     match /emails/{emailId} {
       allow get: if isSignedIn() && isValidId(emailId) && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
       allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isWorkspaceMember(resource.data.workspaceId));
-      allow create: if isSignedIn() && isValidId(emailId) && isValidEmail(incoming()) && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
-      allow update: if isSignedIn() && isValidId(emailId) && isValidEmail(incoming()) && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
+      allow create: if isSignedIn() && isValidId(emailId) && isValidEmail(incoming()) && incoming().userId == request.auth.uid && (incoming().workspaceId == null || isWorkspaceWriter(incoming().workspaceId));
+      allow update: if isSignedIn() && isValidId(emailId) && isValidEmail(incoming()) && incoming().userId == existing().userId && incoming().workspaceId == existing().workspaceId && (existing().userId == request.auth.uid || isWorkspaceWriter(existing().workspaceId));
       allow delete: if isSignedIn() && isValidId(emailId) && (resource.data.userId == request.auth.uid || isWorkspaceWriter(resource.data.workspaceId));
     }
 
@@ -264,8 +306,7 @@ service cloud.firestore {
     }
 
     match /incoming_webhooks/{webhookId} {
-      allow read: if isSignedIn();
-      allow write: if false; // Only written via fast-server webhook API
+      allow read, write: if false; // Backend-only operational payloads.
     }
 
     function getCargoApproval(data) {
@@ -335,6 +376,27 @@ service cloud.firestore {
            : true
         )
         && (
+          incoming().get('confirmations', {}).get('cargoSide', {}).get('confirmed', false) != true ||
+          incoming().get('confirmations', {}).get('cargoSide', {}).get('confirmedBy', null) ==
+            get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(dealId)).data.cargoOwnerUid
+        )
+        && (
+          incoming().get('confirmations', {}).get('vesselSide', {}).get('confirmed', false) != true ||
+          incoming().get('confirmations', {}).get('vesselSide', {}).get('confirmedBy', null) ==
+            get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(dealId)).data.vesselOwnerUid
+        )
+        && (
+          (
+            incoming().get('confirmations', {}).get('cargoSide', {}).get('confirmed', false) == true &&
+            incoming().get('confirmations', {}).get('vesselSide', {}).get('confirmed', false) == true
+          )
+          ? (
+              incoming().status == 'locked' &&
+              incoming().get('confirmationStatus', '') == 'confirmed_by_both_sides'
+            )
+          : incoming().status != 'locked'
+        )
+        && (
            (
              existing().get('confirmations', {}).get('cargoSide', {}).get('confirmed', false) == true || 
              existing().get('confirmations', {}).get('vesselSide', {}).get('confirmed', false) == true
@@ -361,19 +423,58 @@ service cloud.firestore {
       allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
     }
 
+    function isValidMarketMatchCreate(data) {
+      let requestData = get(/databases/$(database)/documents/marketRequests/$(data.requestId)).data;
+      let sharedData = get(/databases/$(database)/documents/sharedItems/$(data.sharedItemId)).data;
+      let counterpartUid = sharedData.ownerId;
+      return data.keys().hasOnly([
+          'id', 'requestId', 'sharedItemId', 'requestType',
+          'vesselOwnerUid', 'cargoOwnerUid', 'matchScore', 'scoreType',
+          'label', 'reasons', 'status', 'createdAt', 'audit'
+        ])
+        && data.id is string
+        && data.id.size() <= 240
+        && data.requestId is string
+        && data.sharedItemId is string
+        && data.requestType is string
+        && data.matchScore is number
+        && data.matchScore >= 0
+        && data.matchScore <= 100
+        && data.scoreType == 'deterministic_criteria_fit_not_probability'
+        && data.label == 'screening candidate'
+        && data.status == 'active'
+        && requestData.createdByUid == request.auth.uid
+        && requestData.status == 'active'
+        && requestData.visibility == 'network'
+        && data.requestType == requestData.type
+        && sharedData.status == 'active'
+        && counterpartUid != request.auth.uid
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid)/networkConnections/$(counterpartUid))
+        && exists(/databases/$(database)/documents/users/$(counterpartUid)/networkConnections/$(request.auth.uid))
+        && (
+          (
+            (data.requestType == 'cargo_search' || data.requestType == 'available_vessel')
+            && sharedData.itemType == 'cargo'
+            && data.vesselOwnerUid == request.auth.uid
+            && data.cargoOwnerUid == counterpartUid
+          )
+          ||
+          (
+            data.requestType == 'tonnage_search'
+            && sharedData.itemType == 'vessel'
+            && data.cargoOwnerUid == request.auth.uid
+            && data.vesselOwnerUid == counterpartUid
+          )
+        );
+    }
+
     match /marketMatches/{matchId} {
       allow read: if isSignedIn() && (
         resource.data.vesselOwnerUid == request.auth.uid || 
         resource.data.cargoOwnerUid == request.auth.uid
       );
-      allow create: if isSignedIn() && (
-        incoming().vesselOwnerUid == request.auth.uid || 
-        incoming().cargoOwnerUid == request.auth.uid
-      );
-      allow update: if isSignedIn() && (
-        existing().vesselOwnerUid == request.auth.uid || 
-        existing().cargoOwnerUid == request.auth.uid
-      );
+      allow create: if isSignedIn() && isValidMarketMatchCreate(incoming());
+      allow update: if false;
       allow delete: if isSignedIn() && (
         existing().vesselOwnerUid == request.auth.uid || 
         existing().cargoOwnerUid == request.auth.uid
@@ -410,15 +511,21 @@ service cloud.firestore {
         resource.data.createdByUid == request.auth.uid || 
         (resource.data.visibility == 'my_desk' && resource.data.createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
       );
-      allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid;
-      allow update: if isSignedIn() && (
-        existing().createdByUid == request.auth.uid || 
-        (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
-      );
-      allow delete: if isSignedIn() && (
-        existing().createdByUid == request.auth.uid || 
-        (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
-      );
+      allow create: if isSignedIn()
+        && incoming().createdByUid == request.auth.uid
+        && (!('createdByDeskId' in incoming()) || incoming().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId);
+      allow update: if isSignedIn()
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().get('createdByDeskId', null) == existing().get('createdByDeskId', null)
+        && (
+          existing().createdByUid == request.auth.uid ||
+          (
+            existing().visibility == 'my_desk'
+            && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId
+            && !incoming().diff(existing()).affectedKeys().hasAny(['createdByUid', 'createdByDeskId', 'visibility'])
+          )
+        );
+      allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
     }
 
     match /counterpartyNotes/{noteId} {
@@ -439,12 +546,23 @@ service cloud.firestore {
         (resource.data.visibility == 'my_desk' && resource.data.participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in resource.data.participantDeskIds)
       );
       allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid && (!('createdByDeskId' in incoming()) || incoming().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId);
-      allow update: if isSignedIn() && (
-        existing().createdByUid == request.auth.uid || 
-        (existing().participantUids != null && request.auth.uid in existing().participantUids) ||
-        (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
-        (existing().visibility == 'my_desk' && existing().participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in existing().participantDeskIds)
-      );
+      allow update: if isSignedIn()
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().get('createdByDeskId', null) == existing().get('createdByDeskId', null)
+        && (
+          existing().createdByUid == request.auth.uid ||
+          (
+            (
+              (existing().participantUids != null && request.auth.uid in existing().participantUids) ||
+              (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
+              (existing().visibility == 'my_desk' && existing().participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in existing().participantDeskIds)
+            )
+            && !incoming().diff(existing()).affectedKeys().hasAny([
+              'createdByUid', 'createdByDeskId', 'participantUids', 'participantDeskIds',
+              'visibility', 'linkedCargoId', 'linkedVesselId'
+            ])
+          )
+        );
       allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
     }
 
@@ -470,10 +588,13 @@ service cloud.firestore {
         incoming().recipientUid == request.auth.uid || 
         (incoming().recipientDeskId != null && incoming().recipientDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
       );
-      allow update: if isSignedIn() && (
-        existing().recipientUid == request.auth.uid || 
-        (existing().recipientDeskId != null && existing().recipientDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
-      );
+      allow update: if isSignedIn()
+        && incoming().get('recipientUid', null) == existing().get('recipientUid', null)
+        && incoming().get('recipientDeskId', null) == existing().get('recipientDeskId', null)
+        && (
+          existing().recipientUid == request.auth.uid || 
+          (existing().recipientDeskId != null && existing().recipientDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+        );
       allow delete: if isSignedIn() && (
         existing().recipientUid == request.auth.uid || 
         (existing().recipientDeskId != null && existing().recipientDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
@@ -503,13 +624,27 @@ service cloud.firestore {
         (resource.data.visibility == 'my_desk' && resource.data.createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
         (resource.data.visibility == 'my_desk' && resource.data.participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in resource.data.participantDeskIds)
       );
-      allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid;
-      allow update: if isSignedIn() && (
-        existing().createdByUid == request.auth.uid || 
-        (existing().participantUids != null && request.auth.uid in existing().participantUids) ||
-        (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
-        (existing().visibility == 'my_desk' && existing().participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in existing().participantDeskIds)
-      );
+      allow create: if isSignedIn()
+        && incoming().createdByUid == request.auth.uid
+        && incoming().visibility in ['private', 'my_desk', 'participants']
+        && (!('createdByDeskId' in incoming()) || incoming().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId);
+      allow update: if isSignedIn()
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().get('createdByDeskId', null) == existing().get('createdByDeskId', null)
+        && (
+          existing().createdByUid == request.auth.uid ||
+          (
+            (
+              (existing().participantUids != null && request.auth.uid in existing().participantUids) ||
+              (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId) ||
+              (existing().visibility == 'my_desk' && existing().participantDeskIds != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId in existing().participantDeskIds)
+            )
+            && !incoming().diff(existing()).affectedKeys().hasAny([
+              'createdByUid', 'createdByDeskId', 'participantUids', 'participantDeskIds',
+              'visibility', 'sourceType', 'sourceId', 'dealRoomId', 'cargoId', 'vesselId'
+            ])
+          )
+        );
       allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
     }
     match /negotiationSuggestions/{suggestionId} {
@@ -519,10 +654,17 @@ service cloud.firestore {
         (resource.data.visibility == 'my_desk' && resource.data.createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
       );
       allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid;
-      allow update: if isSignedIn() && (
-        existing().createdByUid == request.auth.uid || 
-        (existing().participantUids != null && request.auth.uid in existing().participantUids)
-      );
+      allow update: if isSignedIn()
+        && incoming().createdByUid == existing().createdByUid
+        && (
+          existing().createdByUid == request.auth.uid ||
+          (
+            existing().participantUids != null && request.auth.uid in existing().participantUids
+            && !incoming().diff(existing()).affectedKeys().hasAny([
+              'createdByUid', 'createdByDeskId', 'participantUids', 'participantDeskIds', 'visibility'
+            ])
+          )
+        );
       allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
     }
   }

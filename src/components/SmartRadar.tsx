@@ -9,7 +9,6 @@ import { AIDealBriefCard } from './AIDealBriefCard';
 import { CounterpartyLinker } from './CounterpartyLinker';
 import { VoyageEstimateSection } from './VoyageEstimateSection';
 import { OpportunityMap } from './OpportunityMap';
-import { calculateProximity } from '../lib/proximityIntelligence';
 
 interface Watchlist {
   id: string;
@@ -303,98 +302,131 @@ const MatchEngineView = ({ watchlists }: { watchlists: Watchlist[] }) => {
    const [loading, setLoading] = useState(true);
 
    useEffect(() => {
-      // Simulation of generating matches based on active watchlists.
-      // In a real scenario, this would query marketMatches or pull sharedItems 
-      // and do intersection.
       if (!user) return;
-      
+
+      let cancelled = false;
+
+      const normalize = (value: unknown) => String(value || '').trim().toLowerCase();
+      const includesTerm = (value: unknown, term: unknown) => {
+        const needle = normalize(term);
+        return !needle || normalize(value).includes(needle);
+      };
+
+      const scoreSharedItem = (watchlist: Watchlist, item: any) => {
+        if (watchlist.status !== 'active') return null;
+        const filters = watchlist.filters || {};
+        const reasons: string[] = [];
+        let score = 55;
+
+        const wantsCargo = watchlist.type === 'cargo' || watchlist.type === 'route' || watchlist.type === 'commodity';
+        const wantsVessel = watchlist.type === 'tonnage';
+        if (wantsCargo && item.itemType !== 'cargo') return null;
+        if (wantsVessel && item.itemType !== 'vessel') return null;
+        if (watchlist.type === 'urgent' && !item.isUrgent) return null;
+
+        if (filters.commodity) {
+          if (item.itemType !== 'cargo' || !includesTerm(item.commodity, filters.commodity)) return null;
+          reasons.push(`Commodity: ${item.commodity}`);
+          score += 12;
+        }
+        if (filters.vesselType) {
+          if (item.itemType !== 'vessel' || !includesTerm(item.vessel_type || item.type, filters.vesselType)) return null;
+          reasons.push(`Vessel type: ${item.vessel_type || item.type}`);
+          score += 12;
+        }
+        if (filters.loadArea) {
+          if (item.itemType !== 'cargo' || !includesTerm(item.loadPort, filters.loadArea)) return null;
+          reasons.push(`Load area: ${item.loadPort}`);
+          score += 10;
+        }
+        if (filters.dischargeArea) {
+          if (item.itemType !== 'cargo' || !includesTerm(item.dischargePort, filters.dischargeArea)) return null;
+          reasons.push(`Discharge area: ${item.dischargePort}`);
+          score += 10;
+        }
+        if (item.isUrgent) {
+          reasons.push('Marked urgent by source desk');
+          score += 8;
+        }
+
+        const hasAnyFilter = Boolean(filters.commodity || filters.vesselType || filters.loadArea || filters.dischargeArea || watchlist.type === 'urgent');
+        if (!hasAnyFilter) return null;
+
+        return {
+          score: Math.min(100, score),
+          reasons: reasons.length ? reasons : ['Watchlist criteria matched']
+        };
+      };
+
       const fetchMatches = async () => {
          setLoading(true);
          try {
+            const connectionsSnap = await getDocs(collection(db, `users/${user.uid}/networkConnections`));
+            const connectedOwnerIds = connectionsSnap.docs.map(d => d.id).filter(Boolean);
+
+            const sharedItems: any[] = [];
+            for (const ownerId of connectedOwnerIds) {
+              const sharedQuery = query(
+                collection(db, 'sharedItems'),
+                where('ownerId', '==', ownerId),
+                where('status', '==', 'active')
+              );
+              const sharedSnap = await getDocs(sharedQuery);
+              sharedSnap.forEach(d => sharedItems.push({ id: d.id, ...d.data() }));
+            }
+
+            const activeWatchlists = watchlists.filter(w => w.status === 'active');
+            const currentDerivedMatchIds = new Set<string>();
+            for (const watchlist of activeWatchlists) {
+              for (const item of sharedItems) {
+                const scored = scoreSharedItem(watchlist, item);
+                if (!scored) continue;
+
+                const matchId = `${watchlist.id}__${item.id}`;
+                currentDerivedMatchIds.add(matchId);
+                const isCargo = item.itemType === 'cargo';
+                const title = isCargo
+                  ? `${item.quantity || ''} ${item.commodity || 'Cargo'}`.trim()
+                  : `${item.name || item.vessel_name || 'Vessel'} ${item.dwt ? `(${Number(item.dwt).toLocaleString()} DWT)` : ''}`.trim();
+
+                await setDoc(doc(db, 'watchlistMatches', matchId), {
+                  id: matchId,
+                  watchlistId: watchlist.id,
+                  createdByUid: user.uid,
+                  sourceItemId: item.id,
+                  sourceOwnerId: item.ownerId,
+                  matchedItemType: item.itemType,
+                  source: 'Desk Network',
+                  score: scored.score,
+                  label: scored.score >= 90 ? 'excellent' : scored.score >= 75 ? 'good' : 'candidate',
+                  reasons: scored.reasons,
+                  suggestedActions: ['View', 'Save', 'Dismiss'],
+                  itemDetails: {
+                    title,
+                    route: isCargo ? `${item.loadPort || 'TBD'} - ${item.dischargePort || 'TBD'}` : item.openPort || 'TBD',
+                    laycan: isCargo ? item.laycan || 'TBD' : item.openDate || 'TBD'
+                  },
+                  updatedAt: serverTimestamp()
+                }, { merge: true });
+              }
+            }
+
             const matchesQuery = query(collection(db, 'watchlistMatches'), where('createdByUid', '==', user.uid));
             const snap = await getDocs(matchesQuery);
-            let loadedMatches = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-            // For presentation, if empty let's mock one locally but save it
-            if (loadedMatches.length === 0 && watchlists.length > 0) {
-                const w = watchlists[0];
-                const mockID = `mock-${Date.now()}`;
-                const mockVessel = { id: 'mock-v', name: 'Mock Vessel', latitude: 45.0, longitude: -10.0, positionSource: 'system', aisStale: false };
-                const mockCargo = { id: 'mock-c', commodity: w.filters?.commodity || 'Commodity', loadLocation: { latitude: 48.0, longitude: -5.0 } };
-                
-                // Get routing estimate
-                let routeExt = null;
-                try {
-                   const { getRouteEstimate } = await import('../lib/routingClient');
-                   const r = await getRouteEstimate({
-                       fromCoordinates: { lat: mockVessel.latitude, lng: mockVessel.longitude },
-                       toCoordinates: mockCargo.loadLocation,
-                       vesselId: mockVessel.id,
-                       cargoId: mockCargo.id,
-                       speedKnots: 12
-                   });
-                   if (r && !r.stale) routeExt = r;
-                } catch(e) {}
-
-                const prox = calculateProximity(mockVessel, mockCargo);
-                
-                // Override proximity distance if we have route distance
-                if (routeExt && routeExt.routeDistanceNm != null) {
-                    prox.distanceNm = routeExt.routeDistanceNm;
-                    prox.distanceConfidence = routeExt.confidence as any;
-                    prox.explanation = `Routing: ${routeExt.sanitizedPreview}. ${prox.explanation}`;
-                }
-
-                import('../lib/proximityIntelligence').then(({ logProximityAudit }) => {
-                    logProximityAudit('proximity_used_in_smart_radar', {
-                        vesselId: mockVessel.id,
-                        cargoId: mockCargo.id,
-                        proximityScore: prox.proximityScore,
-                        proximityLabel: prox.proximityLabel,
-                        sourceModule: 'smart_radar'
-                    });
-                });
-
-                const m = {
-                   id: mockID,
-                   watchlistId: w.id,
-                   createdByUid: user.uid,
-                   matchedItemType: w.type === 'cargo' ? 'vessel' : 'cargo',
-                   source: 'Desk Network',
-                   score: Math.min(100, 80 + prox.proximityScore),
-                   label: prox.proximityScore > 30 ? 'excellent' : 'good',
-                   reasons: [`Commodity match (${w.filters?.commodity || 'Grain'})`, `Load area match (${w.filters?.loadArea || 'Continent'})`, prox.explanation],
-                   proximity: prox,
-                   suggestedActions: ['View', 'Interest', 'Dismiss'],
-                   itemDetails: { title: `35,000t ${w.filters?.commodity || 'Commodity'}`, route: 'Med - Cont', laycan: 'Mid May' },
-                   createdAt: new Date().toISOString()
-                };
-                await setDoc(doc(db, 'watchlistMatches', mockID), m);
-                
-                // Trigger Smart Alert for strong match
-                if (m.score >= 80) { // Default strong match threshold
-                   import('../lib/alertService').then(({ createAlert }) => {
-                      createAlert({
-                         recipientUid: user.uid,
-                         title: `Strong Match Detected`,
-                         message: `Smart Radar found an excellent match for your "${w.name}" watchlist: ${m.itemDetails.title} (${m.score}%).`,
-                         priority: 'high',
-                         category: 'smart_radar_match',
-                         actionRoute: `/radar`
-                      }).catch(console.error);
-                   });
-                }
-                loadedMatches.push(m);
-            }
-            setMatches(loadedMatches);
+            const loadedMatches = snap.docs
+              .map(d => ({ id: d.id, ...d.data() } as any))
+              .filter(match => !match.sourceItemId || currentDerivedMatchIds.has(match.id));
+            if (!cancelled) setMatches(loadedMatches);
          } catch (err) {
-            console.error(err);
+            console.error('Smart Radar scan failed', err);
+            if (!cancelled) setMatches([]);
          } finally {
-            setLoading(false);
+            if (!cancelled) setLoading(false);
          }
       };
       
       fetchMatches();
+      return () => { cancelled = true; };
    }, [user, watchlists]);
 
    const handleAction = async (id: string, action: string) => {

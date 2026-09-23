@@ -54,9 +54,9 @@ export function VoyageEstimateModal({
   const [assumptions, setAssumptions] = useState<VoyageEstimateAssumptions>({
     loadPort: '', dischargePort: '', cargoQuantity: 0, freightIdea: 0, isLumpSum: false,
     vesselDWT: 0, vesselIntakeEstimate: 0, ballastDistance: 0, ladenDistance: 0,
-    speedBallast: 13, speedLaden: 12.5, bunkerConsumptionBallast: 25, bunkerConsumptionLaden: 28,
-    idlePortConsumption: 3, bunkerPrice: 600, loadPortDays: 3, dischargePortDays: 3, waitingDays: 1,
-    canalCost: 0, portCost: 50000, commissionPercentage: 3.75, addressCommissionPercentage: 0, otherCost: 0,
+    speedBallast: 0, speedLaden: 0, bunkerConsumptionBallast: 0, bunkerConsumptionLaden: 0,
+    idlePortConsumption: 0, bunkerPrice: 0, loadPortDays: 0, dischargePortDays: 0, waitingDays: 0,
+    canalCost: 0, portCost: 0, commissionPercentage: 0, addressCommissionPercentage: 0, otherCost: 0,
     ...initialAssumptions
   });
 
@@ -118,14 +118,14 @@ export function VoyageEstimateModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm sm:p-6 lg:p-8 overflow-y-auto">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-full flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 bg-black/50 backdrop-blur-sm sm:p-6 lg:p-8 overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] flex flex-col overflow-hidden">
         
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b shrink-0 bg-gray-50">
+        <div className="flex items-center justify-between p-3 sm:p-4 border-b shrink-0 bg-gray-50 gap-3">
           <div>
             <h2 className="text-lg font-bold text-gray-900">Commercial Estimate / TCE Lite</h2>
-            <p className="text-sm text-gray-500">Internal decision-support tool. Not a final calculation.</p>
+            <p className="text-sm text-gray-500">Internal decision-support tool. Missing assumptions remain zero/pending until explicitly supplied.</p>
           </div>
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-6 h-6" />
@@ -133,14 +133,14 @@ export function VoyageEstimateModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col lg:flex-row gap-6">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4 flex flex-col lg:flex-row gap-4 sm:gap-6">
           
           {/* Left Column - Inputs */}
           <div className="flex-1 space-y-6">
             <div className="space-y-4">
               <h3 className="text-md font-semibold border-b pb-2">Voyage Assumptions</h3>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-700">Cargo Qty (MT)</label>
                   <input type="number" value={assumptions.cargoQuantity} onChange={e => handleChange('cargoQuantity', Number(e.target.value))} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" />
@@ -151,7 +151,7 @@ export function VoyageEstimateModal({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                    <label className="block text-xs font-medium text-gray-700">Freight Idea</label>
                    <div className="flex mt-1">
@@ -167,7 +167,7 @@ export function VoyageEstimateModal({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-700">Ballast Dist (nm)</label>
                   <input type="number" value={assumptions.ballastDistance} onChange={e => handleChange('ballastDistance', Number(e.target.value))} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" />
@@ -178,7 +178,7 @@ export function VoyageEstimateModal({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-700">Ballast Speed (kts) / Cons (mt/d)</label>
                   <div className="flex space-x-2 mt-1">
@@ -195,7 +195,7 @@ export function VoyageEstimateModal({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div>
                   <label className="block text-xs font-medium text-gray-700">Load Days</label>
                   <input type="number" value={assumptions.loadPortDays} onChange={e => handleChange('loadPortDays', Number(e.target.value))} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm" />
@@ -210,7 +210,7 @@ export function VoyageEstimateModal({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-700">Total Comm (%)</label>
                   <input type="number" value={assumptions.commissionPercentage + assumptions.addressCommissionPercentage} onChange={e => handleChange('commissionPercentage', Number(e.target.value))} step="0.25" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm" />

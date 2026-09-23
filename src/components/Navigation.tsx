@@ -1,5 +1,5 @@
 import React from 'react';
-import { Package2, Ship, Mail, BarChart3, Settings as SettingsIcon, Users, Zap, Bot, BookOpen, ChevronDown, Plus, Search, Plug, Bell, FileText, Briefcase, LayoutDashboard } from 'lucide-react';
+import { Package2, Ship, Mail, BarChart3, Settings as SettingsIcon, Users, Zap, Bot, BookOpen, ChevronDown, Plus, Search, Plug, Bell, FileText, Briefcase, LayoutDashboard, LineChart } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useConfig } from '../lib/ConfigContext';
 import { motion, AnimatePresence } from 'motion/react';
@@ -24,6 +24,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, notif
     { id: 'vessel', icon: Ship, label: t('vessel_monitor') },
     { id: 'selection', icon: Zap, label: t('selection_desk') },
     { id: 'radar', icon: Bot, label: 'Smart Radar' },
+    { id: 'market', icon: LineChart, label: 'Market Intel' },
     { id: 'deal-rooms', icon: Briefcase, label: 'Deal Rooms' },
     { id: 'documents', icon: FileText, label: 'Drafts' },
     { id: 'inbox', icon: Mail, label: t('inbox_parser') },
@@ -126,6 +127,12 @@ export const TopBar: React.FC<{ activeTabLabel: string, onUpgradeClick: () => vo
   const [showNewWorkspaceModal, setShowNewWorkspaceModal] = React.useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = React.useState('');
   const [userProfile, setUserProfile] = React.useState<any>(null);
+  const [clock, setClock] = React.useState(() => new Date());
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setClock(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   React.useEffect(() => {
      if (!user) return;
@@ -261,7 +268,9 @@ export const TopBar: React.FC<{ activeTabLabel: string, onUpgradeClick: () => vo
       </div>
       
       <div className="flex items-center gap-2 sm:gap-6 text-[11px] font-mono">
-        <div className="hidden md:block text-on-surface-variant tracking-widest opacity-80">2026-04-27 14:52 GMT</div>
+        <div className="hidden md:block text-on-surface-variant tracking-widest opacity-80">
+          {clock.toLocaleString('en-GB', { timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })} UTC
+        </div>
         
         <div className="relative">
           <button 

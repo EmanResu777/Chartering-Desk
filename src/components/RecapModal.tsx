@@ -27,10 +27,12 @@ export const RecapModal = ({ deal, user, onClose }: any) => {
       } else {
         // Create initial draft
         try {
-           const cargoDoc = await getDoc(doc(db, 'cargos', deal.cargoItemId || 'placeholder_cargo'));
-           const vesselDoc = await getDoc(doc(db, 'vessels', deal.vesselItemId || 'placeholder_vessel'));
-           const c = cargoDoc.exists() ? cargoDoc.data() : {};
-           const v = vesselDoc.exists() ? vesselDoc.data() : {};
+           const [cargoDoc, vesselDoc] = await Promise.all([
+             deal.cargoItemId ? getDoc(doc(db, 'cargos', deal.cargoItemId)) : Promise.resolve(null),
+             deal.vesselItemId ? getDoc(doc(db, 'vessels', deal.vesselItemId)) : Promise.resolve(null)
+           ]);
+           const c = cargoDoc?.exists() ? cargoDoc.data() : {};
+           const v = vesselDoc?.exists() ? vesselDoc.data() : {};
            
            const initialData = {
                recapId: 'draft',
@@ -44,47 +46,47 @@ export const RecapModal = ({ deal, user, onClose }: any) => {
                updatedAt: serverTimestamp(),
                status: 'draft',
                version: 1,
-               templateName: 'OceanPact Fixture Recap',
-               templateVersion: '1.0',
-               refNo: `OPC/FR/${new Date().getFullYear()}/${Math.floor(Math.random() * 10000)}`,
+               templateName: 'Fixture Recap Draft',
+               templateVersion: '1.1',
+               refNo: `REC/${new Date().getFullYear()}/${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
                recapData: {
-                   subjects: 'SUB STEM / SHIPPER / RECEIVERS / MANAGEMENT APPROVAL',
-                   subsLiftLatest: 'TBD',
-                   fixtureStatus: 'ON SUBS',
-                   cpForm: 'GENCON 1994',
-                   charterers: 'TBA',
-                   owners: 'TBA',
-                   commercialOperator: 'TBA',
-                   broker: 'OceanPact Chartering',
-                   brokerage: '5% TTL',
-                   freightBeneficiary: 'TBA',
-                   vesselName: v.name || 'TBA',
-                   dwtDraft: `${v.dwt || 'TBA'} / TBA`,
-                   gearHolds: `${v.gear || 'TBA'} / ${v.cranes || 'TBA'}`,
-                   openPosition: `${v.openPort || 'TBA'} / ${v.openDate || 'TBA'}`,
-                   itinerary: 'TBA',
-                   certificates: 'Owners confirm vessel certificates valid for intended voyage and cargo.',
-                   suitability: 'Owners confirm vessel suitable in all respects for cargo and ports named herein.',
-                   cargo: c.commodity || 'TBA',
-                   quantity: `${c.quantity || 'TBA'} CHOPT MOLOO`,
-                   stowageFactor: 'TBA',
-                   cargoCondition: 'TBA',
-                   cargoDocuments: 'TBA',
-                   loadPort: c.loadPort || 'TBA',
-                   dischargePort: c.dischargePort || 'TBA',
-                   laycan: c.laycan || 'TBA',
-                   nor: 'WIPON WIBON',
-                   loadingRate: 'CQD',
-                   dischargingRate: 'CQD',
-                   stevedores: 'FIOS',
-                   agents: 'BENDS',
-                   freight: 'TBA PMT',
-                   freightPayable: '100% within 3 banking days after signing/releasing Bs/L',
-                   taxesDues: 'Cargo taxes for Charterers account; vessel taxes/dues for Owners account unless otherwise stated.',
-                   laytime: 'SHINC REVERSIBLE',
-                   demurrage: 'TBA PDPR',
-                   despatch: 'HALF DEMURRAGE',
-                   detentionWaiting: 'TO COUNT AS LAYTIME OR DEMURRAGE',
+                   subjects: 'TBA / EXPRESSLY AGREE SUBJECTS',
+                   subsLiftLatest: 'TBA / EXPRESSLY AGREE',
+                   fixtureStatus: 'DRAFT / NOT CONFIRMED',
+                   cpForm: 'TBA / EXPRESSLY AGREE CP FORM',
+                   charterers: c.charterer || 'TBA / CONFIRM CHARTERER',
+                   owners: v.owner || 'TBA / CONFIRM REGISTERED OWNER',
+                   commercialOperator: 'TBA / CONFIRM',
+                   broker: user.displayName || user.email || 'TBA / CONFIRM BROKER',
+                   brokerage: c.commission || 'TBA / EXPRESSLY AGREE',
+                   freightBeneficiary: 'TBA / CONFIRM',
+                   vesselName: v.name || 'TBA / CONFIRM VESSEL',
+                   dwtDraft: v.dwt ? `${v.dwt} DWT / DRAFT TBA` : 'TBA / CONFIRM DWT AND DRAFT',
+                   gearHolds: [v.gear, v.cranes].filter(Boolean).join(' / ') || 'TBA / CONFIRM GEAR/HOLDS',
+                   openPosition: [v.openPort, v.openDate].filter(Boolean).join(' / ') || 'TBA / CONFIRM OPEN POSITION',
+                   itinerary: 'TBA / CONFIRM',
+                   certificates: 'TBA / EXPRESS OWNER CONFIRMATION REQUIRED',
+                   suitability: 'TBA / EXPRESS OWNER CONFIRMATION REQUIRED',
+                   cargo: c.commodity || 'TBA / CONFIRM CARGO',
+                   quantity: c.quantity || 'TBA / CONFIRM QUANTITY AND MARGIN',
+                   stowageFactor: c.stowageFactor || 'TBA / CONFIRM',
+                   cargoCondition: 'TBA / CONFIRM',
+                   cargoDocuments: 'TBA / CONFIRM',
+                   loadPort: c.loadPort || 'TBA / CONFIRM LOAD PORT',
+                   dischargePort: c.dischargePort || 'TBA / CONFIRM DISCHARGE PORT',
+                   laycan: c.laycan || 'TBA / CONFIRM LAYCAN',
+                   nor: 'TBA / EXPRESSLY AGREE NOR TERMS',
+                   loadingRate: 'TBA / EXPRESSLY AGREE',
+                   dischargingRate: 'TBA / EXPRESSLY AGREE',
+                   stevedores: 'TBA / EXPRESSLY AGREE',
+                   agents: 'TBA / EXPRESSLY AGREE',
+                   freight: c.freightRate || c.freightIdea || 'TBA / EXPRESSLY AGREE FREIGHT',
+                   freightPayable: 'TBA / EXPRESSLY AGREE PAYMENT TERMS',
+                   taxesDues: 'TBA / EXPRESSLY AGREE TAXES AND DUES',
+                   laytime: 'TBA / EXPRESSLY AGREE LAYTIME',
+                   demurrage: 'TBA / EXPRESSLY AGREE DEMURRAGE',
+                   despatch: 'TBA / EXPRESSLY AGREE DESPATCH',
+                   detentionWaiting: 'TBA / EXPRESSLY AGREE WAITING/DETENTION',
                    includeBrokerChecklist: true
                },
                confirmations: {
@@ -118,28 +120,22 @@ export const RecapModal = ({ deal, user, onClose }: any) => {
              await setDoc(doc(db, 'users', deal.vesselOwnerUid, 'recapDrafts', (deal.dealId || deal.id)), draftPointer, { merge: true });
            }
 
-           import('../lib/alertService').then(({ createAlert }) => {
-              if (deal.cargoOwnerUid && deal.cargoOwnerUid !== 'system') {
-                  createAlert({
-                      recipientUid: deal.cargoOwnerUid,
-                      title: 'Recap Draft Created',
-                      message: `A recap draft has been generated for a deal involving you.`,
-                      priority: 'high',
-                      category: 'recap_draft',
-                      actionRoute: '/dashboard'
-                  }).catch(console.error);
-              }
-              if (deal.vesselOwnerUid && deal.vesselOwnerUid !== 'system' && deal.vesselOwnerUid !== deal.cargoOwnerUid) {
-                  createAlert({
-                      recipientUid: deal.vesselOwnerUid,
-                      title: 'Recap Draft Created',
-                      message: `A recap draft has been generated for a deal involving you.`,
-                      priority: 'high',
-                      category: 'recap_draft',
-                      actionRoute: '/dashboard'
-                  }).catch(console.error);
-              }
-           });
+           try {
+             const token = await user.getIdToken();
+             const notificationResponse = await fetch('/api/recaps/notify-created', {
+               method: 'POST',
+               headers: {
+                 'Content-Type': 'application/json',
+                 'Authorization': `Bearer ${token}`
+               },
+               body: JSON.stringify({ dealId: deal.dealId || deal.id })
+             });
+             if (!notificationResponse.ok) {
+               console.warn(`Recap draft notification rejected: HTTP ${notificationResponse.status}`);
+             }
+           } catch (notificationError) {
+             console.warn('Recap draft notification failed:', notificationError);
+           }
            
         } catch (err: any) {
            console.log("Recap init blocked:", err.message);
@@ -178,84 +174,37 @@ export const RecapModal = ({ deal, user, onClose }: any) => {
     setSaving(false);
   };
 
-  const handleToggleConfirmation = async (side: 'cargoSide' | 'vesselSide', confirm: boolean) => {
+  const handleToggleConfirmation = async (_side: 'cargoSide' | 'vesselSide', confirm: boolean) => {
     if (!recapData || !user) return;
     try {
-      const recapRef = doc(db, 'deskNetworkUrgentDeals', deal.dealId || deal.id, 'recaps', 'draft');
-      const otherSide = side === 'cargoSide' ? 'vesselSide' : 'cargoSide';
-      const isOtherSideConfirmed = recapData.confirmations?.[otherSide]?.confirmed;
-
-      let status = 'pending';
-      if (confirm && isOtherSideConfirmed) status = 'confirmed_by_both_sides';
-      else if (confirm && side === 'cargoSide') status = 'confirmed_by_cargo_side';
-      else if (confirm && side === 'vesselSide') status = 'confirmed_by_vessel_side';
-      else if (!confirm) status = 'confirmation_revoked';
-
-      const updatePayload: any = {
-        [`confirmations.${side}.confirmed`]: confirm,
-        [`confirmations.${side}.confirmedBy`]: confirm ? user.uid : null,
-        [`confirmations.${side}.confirmedAt`]: confirm ? serverTimestamp() : null,
-        [`confirmations.${side}.revokedAt`]: !confirm ? serverTimestamp() : null,
-        confirmationStatus: status,
-        lastConfirmationActionAt: serverTimestamp(),
-        lastConfirmationActionBy: user.uid,
-        updatedAt: serverTimestamp(),
-        auditTrail: arrayUnion({ 
-          action: confirm ? `recap_confirmed_by_${side.replace('Side', '_side')}` : 'recap_confirmation_revoked', 
-          timestamp: new Date(), 
-          actorUid: user.uid, 
-          side: side.replace('Side', ''),
-          safeMessage: confirm ? `Recap confirmed by ${side.replace('Side', ' side')}` : `Confirmation revoked by ${side.replace('Side', ' side')}`
+      const token = await user.getIdToken();
+      const response = await fetch('/api/recaps/confirm', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          dealId: deal.dealId || deal.id,
+          confirm
         })
-      };
-
-      if (status === 'confirmed_by_both_sides') {
-        updatePayload.status = 'locked';
-        updatePayload.fullyConfirmedAt = serverTimestamp();
-        updatePayload.auditTrail.push({ action: 'recap_confirmed_by_both_sides', timestamp: new Date(), actorUid: 'system', safeMessage: 'Recap confirmed by both sides.' });
-        updatePayload.auditTrail.push({ action: 'recap_locked', timestamp: new Date(), actorUid: 'system', safeMessage: 'Recap locked after both sides confirmed.' });
-      } else if (!confirm && recapData.status === 'locked') {
-         updatePayload.status = 'draft';
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body.error || 'Unable to update recap confirmation');
       }
 
-      await updateDoc(recapRef, updatePayload);
-      
-      const draftPointer = {
-        updatedAt: serverTimestamp(),
-        status: status === 'confirmed_by_both_sides' ? 'locked' : 'draft',
-        confirmationStatus: status
-      };
-      // Optimistically update pointers, safely ignore if fails
-      try {
-        if (deal.cargoOwnerUid && deal.cargoOwnerUid !== 'system') {
-          await setDoc(doc(db, 'users', deal.cargoOwnerUid, 'recapDrafts', (deal.dealId || deal.id)), draftPointer, { merge: true });
-        }
-        if (deal.vesselOwnerUid && deal.vesselOwnerUid !== 'system') {
-          await setDoc(doc(db, 'users', deal.vesselOwnerUid, 'recapDrafts', (deal.dealId || deal.id)), draftPointer, { merge: true });
-        }
-
-        const counterpartUid = side === 'cargoSide' ? deal.vesselOwnerUid : deal.cargoOwnerUid;
-        if (confirm) {
-           import('../lib/alertService').then(({ createAlert }) => {
-              if (status === 'confirmed_by_both_sides') {
-                 // Alert both
-                 if (deal.cargoOwnerUid && deal.cargoOwnerUid !== 'system') {
-                    createAlert({ recipientUid: deal.cargoOwnerUid, title: 'Recap Locked', message: 'Both sides have confirmed the recap.', priority: 'high', category: 'recap_confirmation', actionRoute: '/dashboard' }).catch(console.error);
-                 }
-                 if (deal.vesselOwnerUid && deal.vesselOwnerUid !== 'system' && deal.vesselOwnerUid !== deal.cargoOwnerUid) {
-                    createAlert({ recipientUid: deal.vesselOwnerUid, title: 'Recap Locked', message: 'Both sides have confirmed the recap.', priority: 'high', category: 'recap_confirmation', actionRoute: '/dashboard' }).catch(console.error);
-                 }
-              } else if (counterpartUid && counterpartUid !== 'system') {
-                 // Counterpart is pending
-                 createAlert({ recipientUid: counterpartUid, title: 'Recap Confirmation Pending', message: `Broker confirmed the recap on ${side}. Awaiting your confirmation.`, priority: 'high', category: 'broker_confirmation_waiting', actionRoute: '/dashboard' }).catch(console.error);
-              }
-           });
-        }
-      } catch (e) {}
-      
-      notify({ title: "Confirmation Updated", message: confirm ? "You have confirmed the recap." : "Your confirmation was revoked.", type: "success" });
+      notify({
+        title: "Confirmation Updated",
+        message: body.recapStatus === 'locked'
+          ? "Both sides have confirmed. The recap is now locked."
+          : confirm
+            ? "Your recap confirmation was recorded."
+            : "Your recap confirmation was revoked.",
+        type: "success"
+      });
     } catch (err: any) {
-       notify({ title: "Update Error", message: err.message, type: "error" });
+      notify({ title: "Update Error", message: err.message, type: "error" });
     }
   };
 
@@ -299,19 +248,7 @@ export const RecapModal = ({ deal, user, onClose }: any) => {
          auditTrail: arrayUnion({ action: 'recap_exported_docx', timestamp: new Date(), actorUid: user.uid, safeMessage: 'Recap exported to DOCX.' })
        });
 
-       import('../lib/alertService').then(({ createAlert }) => {
-          const counterpartUid = (deal.cargoOwnerUid === user.uid) ? deal.vesselOwnerUid : deal.cargoOwnerUid;
-          if (counterpartUid && counterpartUid !== 'system' && counterpartUid !== user.uid) {
-             createAlert({
-                 recipientUid: counterpartUid,
-                 title: 'Recap Exported',
-                 message: `The recap was exported to DOCX format by a counterpart.`,
-                 priority: 'info',
-                 category: 'recap_draft',
-                 actionRoute: '/dashboard'
-             }).catch(console.error);
-          }
-       });
+
     } catch(err: any) {
         notify({ title: "Export Error", message: err.message, type: "error" });
     }
@@ -337,19 +274,7 @@ export const RecapModal = ({ deal, user, onClose }: any) => {
         auditTrail: arrayUnion({ action: 'recap_exported_pdf', timestamp: new Date(), actorUid: user.uid, safeMessage: 'Recap exported to PDF.' })
       });
 
-      import('../lib/alertService').then(({ createAlert }) => {
-          const counterpartUid = (deal.cargoOwnerUid === user.uid) ? deal.vesselOwnerUid : deal.cargoOwnerUid;
-          if (counterpartUid && counterpartUid !== 'system' && counterpartUid !== user.uid) {
-             createAlert({
-                 recipientUid: counterpartUid,
-                 title: 'Recap Exported',
-                 message: `The recap was exported to PDF format by a counterpart.`,
-                 priority: 'info',
-                 category: 'recap_draft',
-                 actionRoute: '/dashboard'
-             }).catch(console.error);
-          }
-       });
+
     } catch (err: any) {
        notify({ title: "Export Error", message: err.message, type: "error" });
     }

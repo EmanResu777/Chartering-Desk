@@ -14,6 +14,7 @@ export function OpportunityMap({ items, itemType = 'mixed' }: MapProps) {
   const { t } = useConfig();
   const [filterType, setFilterType] = useState('all');
   const [filterVis, setFilterVis] = useState('all');
+  const [selectedMapItem, setSelectedMapItem] = useState<any | null>(null);
 
   useEffect(() => {
     if (items.length > 0) {
@@ -32,6 +33,39 @@ export function OpportunityMap({ items, itemType = 'mixed' }: MapProps) {
     }
     if (filterVis !== 'all' && item.visibility && item.visibility !== filterVis) return false;
     return true;
+  });
+
+  const getCoordinates = (item: any): { latitude: number; longitude: number; source: string } | null => {
+    const candidates = [
+      { latitude: item.latitude, longitude: item.longitude, source: item.positionSource || 'position' },
+      { latitude: item.openingLocation?.latitude, longitude: item.openingLocation?.longitude, source: item.openingLocation?.positionSource || 'opening' },
+      { latitude: item.loadLocation?.latitude, longitude: item.loadLocation?.longitude, source: item.loadLocation?.positionSource || 'load' },
+      { latitude: item.geography?.vesselOpeningLocation?.latitude, longitude: item.geography?.vesselOpeningLocation?.longitude, source: 'deal-vessel' },
+      { latitude: item.geography?.cargoLoadLocation?.latitude, longitude: item.geography?.cargoLoadLocation?.longitude, source: 'deal-cargo' }
+    ];
+
+    for (const candidate of candidates) {
+      const latitude = Number(candidate.latitude);
+      const longitude = Number(candidate.longitude);
+      if (
+        Number.isFinite(latitude) &&
+        Number.isFinite(longitude) &&
+        latitude >= -90 && latitude <= 90 &&
+        longitude >= -180 && longitude <= 180
+      ) {
+        return { latitude, longitude, source: candidate.source };
+      }
+    }
+    return null;
+  };
+
+  const positionedItems = visibleItems
+    .map(item => ({ item, coordinates: getCoordinates(item) }))
+    .filter((entry): entry is { item: any; coordinates: { latitude: number; longitude: number; source: string } } => Boolean(entry.coordinates));
+
+  const mapPoint = (latitude: number, longitude: number) => ({
+    x: ((longitude + 180) / 360) * 100,
+    y: ((90 - latitude) / 180) * 100
   });
 
   return (
@@ -58,24 +92,90 @@ export function OpportunityMap({ items, itemType = 'mixed' }: MapProps) {
       <div className="flex-1 flex flex-col md:flex-row min-h-0 bg-background relative">
          <div className="absolute inset-0 bg-secondary/10 opacity-30 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(var(--color-primary-rgb), 0.1) 1px, transparent 1px)', backgroundSize: '16px 16px' }} />
          
-         <div className="flex-1 p-8 flex flex-col items-center justify-center text-center relative z-10 border-r border-outline border-dashed">
-            <div className="bg-surface-container-low border border-outline p-6 rounded-2xl shadow-xl max-w-sm mb-6 relative overflow-hidden">
-               <div className="absolute top-0 right-0 p-2 opacity-10">
-                  <Navigation className="w-24 h-24" />
+         <div className="flex-1 p-3 sm:p-5 relative z-10 border-r border-outline border-dashed min-h-[300px]">
+            <div className="h-full min-h-[280px] bg-surface-container-low border border-outline rounded-xl overflow-hidden relative">
+               <div className="absolute top-3 left-3 z-20 flex flex-wrap gap-2">
+                 <span className="text-[9px] uppercase tracking-widest font-bold bg-surface/90 border border-outline px-2 py-1 text-on-surface">
+                   Geographic Position Plot
+                 </span>
+                 <span className="text-[9px] uppercase tracking-widest bg-surface/90 border border-outline px-2 py-1 text-on-surface-variant">
+                   {positionedItems.length}/{visibleItems.length} geocoded
+                 </span>
                </div>
-               <MapPin className="w-8 h-8 text-primary mx-auto mb-3" />
-               <h4 className="font-display text-lg text-on-surface">Map View Placeholder</h4>
-               <p className="text-sm text-on-surface-variant mt-2">
-                 Map markers are processed safely. Live interactive map integration is pending.
-               </p>
-               <div className="mt-4 flex items-center justify-center space-x-1 text-[10px] uppercase font-bold text-primary bg-primary/10 tracking-wider py-1 px-3 rounded-full w-fit mx-auto">
-                 <AlertTriangle className="w-3 h-3 mr-1" />
-                 No Live Default AIS Allowed
+
+               <svg viewBox="0 0 1000 500" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" aria-label="Geographic position plot">
+                 <rect x="0" y="0" width="1000" height="500" fill="transparent" />
+                 {[125, 250, 375, 500, 625, 750, 875].map(x => (
+                   <line key={`v-${x}`} x1={x} y1="0" x2={x} y2="500" stroke="currentColor" className="text-outline/20" strokeWidth="1" />
+                 ))}
+                 {[83, 166, 250, 333, 416].map(y => (
+                   <line key={`h-${y}`} x1="0" y1={y} x2="1000" y2={y} stroke="currentColor" className="text-outline/20" strokeWidth="1" />
+                 ))}
+                 <line x1="500" y1="0" x2="500" y2="500" stroke="currentColor" className="text-outline/40" strokeWidth="1.5" />
+                 <line x1="0" y1="250" x2="1000" y2="250" stroke="currentColor" className="text-outline/40" strokeWidth="1.5" />
+
+                 {positionedItems.map(({ item, coordinates }, index) => {
+                   const point = mapPoint(coordinates.latitude, coordinates.longitude);
+                   const x = point.x * 10;
+                   const y = point.y * 5;
+                   const isCargo = Boolean(item.commodity);
+                   const selected = selectedMapItem === item;
+                   return (
+                     <g
+                       key={item.id || index}
+                       role="button"
+                       tabIndex={0}
+                       onClick={() => setSelectedMapItem(item)}
+                       onKeyDown={(event) => {
+                         if (event.key === 'Enter' || event.key === ' ') setSelectedMapItem(item);
+                       }}
+                       className="cursor-pointer"
+                     >
+                       <circle
+                         cx={x}
+                         cy={y}
+                         r={selected ? 10 : 7}
+                         fill="currentColor"
+                         className={isCargo ? "text-primary" : "text-tertiary"}
+                         opacity={selected ? 1 : 0.85}
+                       />
+                       <circle cx={x} cy={y} r={selected ? 18 : 13} fill="none" stroke="currentColor" className={isCargo ? "text-primary/50" : "text-tertiary/50"} strokeWidth="2" />
+                     </g>
+                   );
+                 })}
+               </svg>
+
+               {positionedItems.length === 0 && (
+                 <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
+                   <div className="max-w-sm">
+                     <MapPin className="w-8 h-8 text-on-surface-variant mx-auto mb-3" />
+                     <h4 className="font-display text-base text-on-surface">No geocoded positions available</h4>
+                     <p className="text-xs text-on-surface-variant mt-2">
+                       Add verified coordinates, stored port coordinates, or a live AIS position. The desk will not invent map positions.
+                     </p>
+                   </div>
+                 </div>
+               )}
+
+               <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-3 pointer-events-none">
+                 <div className="bg-surface/90 border border-outline px-2 py-1 text-[8px] uppercase tracking-widest text-on-surface-variant">
+                   Equirectangular commercial position plot · not for navigation
+                 </div>
+                 {selectedMapItem && (() => {
+                   const c = getCoordinates(selectedMapItem);
+                   return c ? (
+                     <div className="bg-surface/95 border border-primary/40 px-3 py-2 text-right pointer-events-auto max-w-[240px]">
+                       <div className="text-[10px] font-bold text-on-surface truncate">
+                         {selectedMapItem.commodity || selectedMapItem.name || 'Selected item'}
+                       </div>
+                       <div className="mt-1 text-[9px] font-mono text-on-surface-variant">
+                         {c.latitude.toFixed(4)}, {c.longitude.toFixed(4)} · {c.source}
+                       </div>
+                     </div>
+                   ) : null;
+                 })()}
                </div>
             </div>
-            <p className="text-xs text-on-surface-variant max-w-md">
-              Approximate distance logic is applied via location model. Distances are calculated point-to-point via haversine formula without routing engine guarantees.
-            </p>
          </div>
 
          <div className="w-full md:w-80 bg-surface flex flex-col border-l border-outline">

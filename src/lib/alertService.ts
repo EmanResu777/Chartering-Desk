@@ -1,5 +1,5 @@
 import { doc, getDoc, setDoc, collection, getDocs, query, where, updateDoc, writeBatch } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 
 export interface AlertPreference {
   userId: string;
@@ -96,9 +96,27 @@ export async function updateAlertPreferences(uid: string, updates: Partial<Alert
 }
 
 export async function writeAudit(uid: string, action: string, details: string) {
-  // simple local mock or write to safe place, we can reuse system wide audit logic if needed.
-  // Not creating real collection here unless instructed to.
-  console.log(`[AUDIT] ${action}: ${details}`);
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid) return;
+  try {
+    const token = await user.getIdToken();
+    const response = await fetch('/api/audit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        action,
+        metadata: { details: String(details).slice(0, 1000) }
+      })
+    });
+    if (!response.ok) {
+      console.warn(`[AUDIT] Server rejected ${action}: HTTP ${response.status}`);
+    }
+  } catch (error) {
+    console.warn(`[AUDIT] Failed to persist ${action}`, error);
+  }
 }
 
 export type CreateAlertInput = Omit<Alert, 'id' | 'read' | 'dismissed' | 'createdAt' | 'readAt' | 'dismissedAt' | 'visibility' | 'sourceId' | 'sourceType' | 'createdBySystem' | 'actionLabel'> & {
@@ -152,29 +170,63 @@ export async function dismissAlert(alertId: string, uid: string) {
   await writeAudit(uid, 'alert_dismissed', `Alert ${alertId} dismissed`);
 }
 
-// Emulates a background cron generating a safe digest
 export async function generateDailyDigest(uid: string, deskId: string) {
   const digestId = doc(collection(db, 'dailyDigests')).id;
   const ts = Date.now();
-  
+  const since = ts - 24 * 60 * 60 * 1000;
+
+  const [matchesSnap, alertsSnap] = await Promise.all([
+    getDocs(query(collection(db, 'watchlistMatches'), where('createdByUid', '==', uid))),
+    getDocs(query(collection(db, 'alerts'), where('recipientUid', '==', uid)))
+  ]);
+
+  const topMatches = matchesSnap.docs
+    .map(d => ({ id: d.id, ...d.data() } as any))
+    .filter(match => match.status !== 'dismissed' && Number.isFinite(Number(match.score)))
+    .sort((a, b) => Number(b.score) - Number(a.score))
+    .slice(0, 3)
+    .map(match => ({
+      id: match.id,
+      title: String(match.itemDetails?.title || match.source || 'Matched opportunity').slice(0, 200),
+      percent: Math.max(0, Math.min(100, Number(match.score)))
+    }));
+
+  const recentAlerts = alertsSnap.docs
+    .map(d => ({ id: d.id, ...d.data() } as any))
+    .filter(alert => !alert.dismissed && Number(alert.createdAt || 0) >= since);
+
+  const urgentItems = recentAlerts
+    .filter(alert => ['critical', 'high'].includes(String(alert.priority)))
+    .slice(0, 5)
+    .map(alert => ({ id: alert.id, title: String(alert.title || 'Urgent item').slice(0, 200) }));
+
+  const actionCategories = new Set(['deal_room_update', 'broker_confirmation_waiting', 'recap_confirmation', 'recap_draft']);
+  const dealRoomsNeedingAction = recentAlerts
+    .filter(alert => actionCategories.has(String(alert.category)))
+    .slice(0, 5)
+    .map(alert => ({ id: alert.id, title: String(alert.title || 'Deal room action').slice(0, 200) }));
+
+  const suggestedActions: string[] = [];
+  if (urgentItems.length) suggestedActions.push(`Review ${urgentItems.length} high-priority alert${urgentItems.length === 1 ? '' : 's'}`);
+  if (dealRoomsNeedingAction.length) suggestedActions.push(`Review ${dealRoomsNeedingAction.length} deal-room action item${dealRoomsNeedingAction.length === 1 ? '' : 's'}`);
+  if (topMatches.length) suggestedActions.push(`Review top ${topMatches.length} current Smart Radar match${topMatches.length === 1 ? '' : 'es'}`);
+
   const digest = {
     id: digestId,
     recipientUid: uid,
     recipientDeskId: deskId,
     date: new Date(ts).toISOString().split('T')[0],
-    topMatches: [{ title: 'Panamax / USG', percent: 92 }], // mocked data mapped securely
-    urgentItems: [{ title: 'Need Recap confirm for APEX' }],
-    dealRoomsNeedingAction: [{ title: 'Neg: Frontline / Cargill' }],
+    topMatches,
+    urgentItems,
+    dealRoomsNeedingAction,
     recapConfirmations: [],
     counterpartyUpdates: [],
-    suggestedActions: [
-      'Review pending recap confirmations',
-      'Examine top 3 matched opportunities'
-    ],
-    generatedAt: ts
+    suggestedActions,
+    generatedAt: ts,
+    source: 'workspace_activity'
   };
   
   await setDoc(doc(db, 'dailyDigests', digestId), digest);
-  await writeAudit(uid, 'daily_digest_generated', `Generated daily digest ${digestId}`);
+  await writeAudit(uid, 'daily_digest_generated', `Generated daily digest ${digestId} from current workspace activity`);
   return digest;
 }

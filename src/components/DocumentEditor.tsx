@@ -14,17 +14,12 @@ interface DocumentEditorProps {
   onClose: () => void;
 }
 
-const NETWORK_CONTACTS = [
-  { id: '#DSK-8821', name: 'Marina Petrova', role: 'Chartering', online: true },
-  { id: '#DSK-4490', name: 'James Wilson', role: 'Shipowner', online: true },
-  { id: '#DSK-3112', name: 'Helga Schmidt', role: 'Broker', online: false },
-  { id: '#DSK-9901', name: 'David Lee', role: 'Operations', online: true },
-  { id: '#DSK-1225', name: 'Sofia Rossi', role: 'Owner Rep', online: true },
-];
+const NETWORK_CONTACTS: Array<{ id: string; name: string; role: string; online: boolean }> = [];
 
 export const DocumentEditor: React.FC<DocumentEditorProps> = ({ type, data, templates, onClose }) => {
   const { notify } = useNotification();
   const [copied, setCopied] = useState(false);
+  const recapReference = React.useMemo(() => `REC-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, []);
   const [isExporting, setIsExporting] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(data.draftId || null);
   const [selectedClauses, setSelectedClauses] = useState<string[]>(() => {
@@ -90,7 +85,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({ type, data, temp
 
     const replacements: Record<string, string> = {
       '[CURRENT_DATE]': d.toLocaleDateString(),
-      '[RECAP_REF]': `REC-${d.getFullYear()}-${Math.floor(Math.random() * 900) + 100}`,
+      '[RECAP_REF]': recapReference,
 
       '[OWNER_NAME]': data.vessel?.owner || 'TBA / To be confirmed',
       '[CHARTERER_NAME]': data.cargo?.charterer || 'TBA / To be confirmed',
@@ -116,7 +111,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({ type, data, temp
 
       '[Load Port]': data.cargo?.loadPort || 'TBA / To be confirmed',
       '[DISCHARGE_PORT]': data.cargo?.dischargePort || 'TBA / To be confirmed',
-      '[VOYAGE_DESC]': '1 Safe Port / 1 Safe Berth TBA',
+      '[VOYAGE_DESC]': 'TBA / To be agreed',
 
       '[LAYCAN_START]': data.cargo?.laycan?.split('-')[0]?.trim() || 'TBA',
       '[LAYCAN_END]': data.cargo?.laycan?.split('-')[1]?.trim() || 'TBA',
@@ -132,7 +127,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({ type, data, temp
 
       '[FREIGHT_RATE]': freightStr,
       '[FREIGHT_PAYMENT]': 'TBA / To be agreed',
-      '[FREIGHT_CURRENCY]': 'USD',
+      '[FREIGHT_CURRENCY]': 'TBA / To be agreed',
 
       '[ADD_COMM]': 'TBA',
       '[BROKER_COMMISSION]': brokerData?.commission || 'TBA',
@@ -140,7 +135,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({ type, data, temp
       '[SUBJECTS]': 'TBA / To be agreed',
       
       // Fallback variables not explicitly mapped in strictly new Recap but needed for GENCON
-      '[VESSEL_POSITION]': data.vessel?.position || 'TRADING',
+      '[VESSEL_POSITION]': data.vessel?.position || 'TBA / To be confirmed',
       '[OWNER_ADDRESS]': data.owner?.address || 'TBA',
       '[BROKER_CONTACT]': brokerData?.showProfileInDocs ? ((brokerData.phone || '') + (brokerData.email ? ` / ${brokerData.email}` : '')) : '',
       '[BROKER_ADDRESS]': brokerData?.showProfileInDocs ? (brokerData.address || '') : '',
@@ -236,7 +231,7 @@ Commissions:
 * Brokerage: [BROKER_COMMISSION]%
 
 Brokerage Clause:
-Brokers are entitled to [BROKER_COMMISSION]% brokerage on gross freight, deadfreight, and demurrage earned hereunder, payable by Owners upon receipt of freight. Brokers have a lien on the cargo for their commission.
+[TBA / Insert broker-approved brokerage wording only after agreement by the relevant parties.]
 
 Governing Law and Arbitration:
 [ARBITRATION_TERMS]
@@ -245,15 +240,15 @@ Subjects:
 [SUBJECTS]
 
 Otherwise:
-As per GENCON 94 with logical amendments to be agreed between parties, unless otherwise agreed.
+[TBA / No charter-party form or rider wording is deemed agreed by this draft.]
 
 Confirmed by:
 Shipowner: _______________________ Date: __________
 Charterer: _______________________ Date: __________
 Broker: _______________________ Date: __________`;
 
-    const fallbackGencon = `GENCON 94 - STANDARD CHARTER PARTY
-PART I
+    const fallbackGencon = `CHARTER PARTY WORKING DRAFT
+REFERENCE FORM: USER TO CONFIRM / UPLOAD LICENSED TEMPLATE
 
 1. Shipbroker
    [BROKER_COMPANY]
@@ -270,72 +265,47 @@ PART I
 4. Charterers/Place of business
    [CHARTERER_NAME]
 
-5. Vessel's name
+5. Vessel
    [Vessel Name]
    IMO: [VESSEL_IMO] / Flag: [VESSEL_FLAG]
 
-6. GRT/NRT
-   AS PER REGISTER
-
-7. DWT on summer load line in metric tons
+6. DWT
    [VESSEL_DWT]
 
-8. Present position
+7. Present position
    [VESSEL_POSITION]
 
-9. Expected ready to load (abt.)
-   [LAYCAN_START]
+8. Laycan
+   [LAYCAN_START] - [LAYCAN_END]
 
-10. Loading port or place
-    [Load Port]
+9. Loading port or place
+   [Load Port]
 
-11. Discharging port or place
+10. Discharging port or place
     [DISCHARGE_PORT]
 
-12. Cargo (also state quantity and margin)
-    [CARGO_QUANTITY] MT [CARGO_DESCRIPTION]
+11. Cargo
+    [CARGO_QUANTITY] [CARGO_DESCRIPTION]
 
-13. Freight rate (also state whether freight prepaid or payable on delivery)
-    [FREIGHT_RATE] FIOST 1/1
+12. Freight
+    [FREIGHT_RATE]
 
-14. Freight payment
-    100% WITHIN 3 BANKING DAYS FROM SIGNING BS/L
+13. Freight payment
+    TBA / TO BE EXPRESSLY AGREED
 
-15. State if vessel's cargo handling gear shall not be used
-    N/A
+14. Laytime / Demurrage / Despatch
+    TBA / TO BE EXPRESSLY AGREED
 
-16. Laytime (if separate days for load/discharge)
-    AS PER CHARTER PARTY FIXTURE RECAP
+15. Brokerage
+    [BROKER_COMMISSION]% TO [BROKER_COMPANY] — SUBJECT TO CONFIRMATION
 
-17. Shippers/Receivers
-    TBA
-
-18. Agents (loading)
-    CHARTERERS' AGENTS
-
-19. Agents (discharging)
-    CHARTERERS' AGENTS
-
-20. Demurrage rate and manner of payable
-    AS AGREED PDPR
-
-21. Cancelling date
-    [LAYCAN_END]
-
-22. General Average to be adjusted at
-    LONDON
-
-23. Freight Tax
-    FOR CHARTERERS ACCOUNT
-
-24. Brokerage commission and to whom payable
-    [BROKER_COMMISSION]% TO [BROKER_COMPANY]
-
-25. Law and Arbitration
+16. Law and Arbitration
     [ARBITRATION_TERMS]
 
-26. Additional clauses covering special provisions, if agreed
-    AS PER RIDER ATTACHED
+17. Additional clauses / riders
+    TBA / ATTACH ONLY BROKER-APPROVED FULL WORDING
+
+THIS IS A WORKING DRAFT ONLY. NO TERM IS DEEMED AGREED BY INCLUSION IN THIS TEMPLATE.
 `;
 
     if (type === 'RECAP') {
@@ -350,58 +320,20 @@ PART I
     }
 
     if (type === 'GENCON') {
-      let clausesText = '';
-      if (currentClauses.includes('Piracy')) {
-        clausesText += `
-Clause 15. BIMCO Piracy Clause 2013 (Applied)
-If, in the reasonable judgement of the Master and/or the Owners, any 
-port, place, area or zone, or any waterway or canal on the route 
-of the Vessel is dangerous to the Vessel...
-`;
-      }
-      if (currentClauses.includes('War Risk')) {
-        clausesText += `
-Clause 16. War Risk Clause (CONWORTIME) (Applied)
-The Vessel shall not be obliged to proceed or required to continue 
-to or through, any port, place, area or zone, or any waterway or canal...
-`;
-      }
-      if (currentClauses.includes('AIS')) {
-        clausesText += `
-Clause 17. AIS Data Monitoring Clause (Applied)
-Charterers shall not at any time request the Master to switch off 
-the Vessel's Automatic Identification System (AIS) or to take any 
-action which would inhibit its proper functioning...
-`;
-      }
+      const clauseReferences = currentClauses.length > 0
+        ? '\n\nSelected clause references (full approved wording must be attached manually):\n' + currentClauses.map(c => '* ' + c).join('\n')
+        : '\n\nSelected clause references: NONE';
 
       const genconText = currentTemplate || templates?.gencon || fallbackGencon;
 
-      return `${replacePlaceholders(genconText)}
+      return replacePlaceholders(genconText) + clauseReferences + `
+
 ------------------------------------------------------
-PART II - STANDARD CLAUSES & RIDERS
+LEGAL / COMMERCIAL REVIEW GATE
 ------------------------------------------------------
-
-Clause 1. Loading/Discharging
-The cargo shall be brought, loaded, stowed, trimmed, tallied, discharged 
-and taken from the alongside and from the hold free of any risk, 
-liability and expense whatsoever to the Owners.
-
-Clause 2. Owners' Responsibility Clause
-Owners are to be responsible for loss of or damage to the goods or for 
-delay in delivery of the goods only in case the loss, damage or delay 
-has been caused by personal want of due diligence on the part of the 
-Owners or their Manager.
-
-Clause 3. Deviation Clause
-The Vessel has liberty to call at any port or ports in any order, 
-for any purpose, to sail without pilots, to tow and/or assist vessels 
-in all situations, and also to deviate for the purpose of saving life 
-and/or property.
-${clausesText}
-++++++++++++++++++++++++++++++++++++++++++++++++++++++
-E. & O.E.
-++++++++++++++++++++++++++++++++++++++++++++++++++++++`;
+This editor does not supply or verify standard-form charter-party wording.
+Upload or paste the parties' approved licensed template and rider clauses.
+Broker review and explicit human approval are required before external use.`;
     }
     return '';
   };
@@ -452,11 +384,11 @@ E. & O.E.
     });
   };
 
-  const handleSendToNetwork = (contactName: string) => {
+  const handleSendToNetwork = (_contactName: string) => {
     notify({
-      title: 'Sent to Network',
-      message: `Document sent to ${contactName}.`,
-      type: 'success'
+      title: 'Direct Share Disabled',
+      message: 'Use the authenticated Deal Room / Desk Network workflow to share reviewed documents.',
+      type: 'info'
     });
     setShowNetworkShare(false);
   };
@@ -482,7 +414,7 @@ E. & O.E.
         title: `${type} - ${data.vessel?.name || 'TBA'} / ${data.cargo?.commodity || 'TBA'}`,
         recapReference: content.match(/Recap Reference: (.*)/)?.[1] || '',
         content,
-        status: (missingCountTemp > 0 || assumedCountTemp > 0) ? 'review_required' : 'ready',
+        status: 'review_required',
         createdAt: draftId ? undefined : serverTimestamp(),
         updatedAt: serverTimestamp(),
         cargoId: data.cargo?.id || null,
@@ -652,13 +584,13 @@ E. & O.E.
               <div className="flex flex-col gap-1 shrink-0">
                  <span className="text-[9px] text-on-surface-variant font-medium tracking-[0.3em] uppercase">Status</span>
                  <span className={cn("text-[10px] font-mono tracking-widest uppercase", (missingCount > 0 || assumedCount > 0) ? "text-error" : "text-tertiary")}>
-                   {(missingCount > 0 || assumedCount > 0) ? 'Draft — Review Required' : 'Ready for Signing'}
+                   Draft — Broker Review Required
                  </span>
               </div>
               <div className="w-px bg-outline/30 shrink-0"></div>
               <div className="flex flex-col gap-1 shrink-0">
                  <span className="text-[9px] text-on-surface-variant font-medium tracking-[0.3em] uppercase">Compliance</span>
-                 <span className="text-[10px] text-on-surface font-mono tracking-widest uppercase">BIMCO Verified</span>
+                 <span className="text-[10px] text-on-surface font-mono tracking-widest uppercase">Human Review Required</span>
               </div>
            </div>
            
@@ -667,7 +599,7 @@ E. & O.E.
              disabled={isExporting}
              className="w-full sm:w-auto bg-primary text-on-primary px-4 sm:px-8 py-3 rounded-sm font-medium uppercase tracking-[0.2em] text-[10px] hover:bg-primary-container transition-all flex justify-center items-center gap-3 shadow-md border border-primary/20 shrink-0"
            >
-             {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Final Draft'}
+             {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Reviewed Draft'}
            </button>
         </div>
 

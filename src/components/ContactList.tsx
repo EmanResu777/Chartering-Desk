@@ -192,7 +192,7 @@ export const ContactList: React.FC<ContactListProps> = ({ contactList, onCreate,
                   e.preventDefault();
                   const fd = new FormData(e.currentTarget);
                   onCreate({
-                    id: `CNT-${Math.floor(1000 + Math.random() * 9000)}`,
+                    id: `CNT-${crypto.randomUUID()}`,
                     name: fd.get('name') as string,
                     company: fd.get('company') as string,
                     email: fd.get('email') as string,
