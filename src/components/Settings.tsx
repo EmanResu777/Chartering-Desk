@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, Cpu, User, Zap, FileText, Save, Plus, Trash2, Key, Globe, ShieldCheck, Upload, Image as ImageIcon, CheckCircle2, AlertCircle, Check, Brain, ExternalLink, Info, CheckCircle, Activity, Users, Bell, Mail } from 'lucide-react';
+import { Settings as SettingsIcon, Cpu, User, Zap, FileText, Save, Plus, Trash2, Key, Globe, ShieldCheck, Upload, Image as ImageIcon, CheckCircle2, AlertCircle, Check, Brain, ExternalLink, Info, CheckCircle, Activity, Users, Bell, Mail, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useConfig, Language, ThemeMode } from '../lib/ConfigContext';
