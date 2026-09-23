@@ -5088,50 +5088,9 @@ Custom Context: {CONTEXT}`;
     }
   });
 
-  // Background task to send trial expiration notifications
-  const trialCheckInterval = setInterval(async () => {
-    if (!firestore) return;
-    try {
-      const now = new Date();
-      const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
-      
-      // Note: Firestore requires an index if we use compound queries, 
-      // so we might need a simpler query and filter in memory if index not present.
-      const workspacesSnapshot = await firestore.collection('workspaces')
-        .where('trialEndsAt', '<=', threeDaysFromNow)
-        .where('trialEndsAt', '>', now)
-        .get();
+  // Trial access is account-bound and evaluated from server-only billingState.
+  // Workspace creation never renews trial eligibility.
 
-      for (const doc of workspacesSnapshot.docs) {
-        const workspaceData = doc.data();
-        if (workspaceData.trialWarningSent) continue;
-        
-        console.log(`[Scheduled Task] Sending trial expiration warning for workspace ${doc.id}`);
-        
-        // 1. Mark as sent
-        await doc.ref.update({
-          trialWarningSent: true
-        });
-
-        // 2. Create in-app notification for the owner
-        if (workspaceData.ownerId) {
-          await firestore.collection('users').doc(workspaceData.ownerId).collection('notifications').add({
-            title: 'Trial Expiring Soon',
-            message: `Your free trial for workspace "${workspaceData.name || 'Cargo Desk'}" expires in less than 3 days. Upgrade your plan to avoid interruption.`,
-            type: 'warning',
-            createdAt: FieldValue.serverTimestamp(),
-            read: false
-          });
-        }
-      }
-    } catch (e: any) {
-      if (e.message && e.message.includes('PERMISSION_DENIED')) {
-        // Ignore in preview environment
-        return;
-      }
-      console.error("Error in trial expiration background task:", e);
-    }
-  }, 10 * 60 * 1000); // Run every 10 minutes for testing/demo purposes
 
   // Serve static files in production or use Vite middleware in development
   if (process.env.NODE_ENV !== "production") {
@@ -5238,8 +5197,7 @@ Custom Context: {CONTEXT}`;
     server.close(() => {
       console.log('HTTP server closed.');
       // Cleanup AI queue / IMAP sync connections if exist
-      clearInterval(trialCheckInterval);
-      process.exit(0);
+        process.exit(0);
     });
     
     // Force close after 10 seconds
