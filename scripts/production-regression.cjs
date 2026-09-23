@@ -18,6 +18,13 @@ const vesselMonitor = read('src/components/VesselMonitor.tsx');
 const inboxParser = read('src/components/InboxParser.tsx');
 const appClient = read('src/App.tsx');
 const workspaceContext = read('src/lib/WorkspaceContext.tsx');
+const aisProvider = read('src/server/aisProvider.ts');
+const smartRadar = read('src/components/SmartRadar.tsx');
+const alertService = read('src/lib/alertService.ts');
+const settingsClient = read('src/components/Settings.tsx');
+const analyticsClient = read('src/components/Analytics.tsx');
+const voyageEstimateModal = read('src/components/VoyageEstimateModal.tsx');
+const routingProvider = read('src/lib/routingProvider.ts');
 
 assert(!server.includes("testId123"), 'test-user authentication bypass must never ship');
 assert(!server.includes("raw_commodity: raw_commodity || 'coil'"), 'deterministic parser must never invent COIL');
@@ -156,6 +163,53 @@ assert(
   !workspaceContext.includes('trialEndsAt.setDate') &&
   !workspaceContext.includes('trialEndsAt: trialEndsAt'),
   'creating a workspace must never mint or extend trial eligibility'
+);
+
+assert(
+  !aisProvider.includes('Math.random()') &&
+  !aisProvider.includes('mock-ais-provider') &&
+  aisProvider.includes('AIS provider endpoint is not configured'),
+  'AIS provider must fail closed and never fabricate live vessel coordinates'
+);
+assert(
+  !smartRadar.includes('Mock Vessel') &&
+  !smartRadar.includes('mock-1790163048155') &&
+  smartRadar.includes("collection(db, 'sharedItems')"),
+  'Smart Radar must use real Desk Network data and never synthesize opportunities'
+);
+assert(
+  inboxParser.includes("import.meta.env.DEV && import.meta.env.VITE_ALLOW_DEMO_DATA === 'true'") &&
+  !inboxParser.includes('demo@gmail.com'),
+  'Inbox demo data must be explicitly development-only'
+);
+assert(
+  !alertService.includes("Panamax / USG") &&
+  !alertService.includes("Need Recap confirm for APEX") &&
+  !alertService.includes("Frontline / Cargill") &&
+  alertService.includes("collection(db, 'watchlistMatches')"),
+  'Daily digest must derive content from real user activity'
+);
+assert(
+  !settingsClient.includes('AUTO_REPLY:') &&
+  !settingsClient.includes('Math.random()') &&
+  settingsClient.includes('MANUAL_APPROVAL_ONLY'),
+  'Settings must not simulate automation or automatic outbound replies'
+);
+assert(
+  !analyticsClient.includes('Math.random()') &&
+  analyticsClient.includes('WORKSPACE DATA'),
+  'Analytics must not fabricate live trends'
+);
+assert(
+  voyageEstimateModal.includes('speedBallast: 0') &&
+  voyageEstimateModal.includes('bunkerPrice: 0') &&
+  voyageEstimateModal.includes('portCost: 0'),
+  'Voyage estimates must not silently seed commercial assumptions'
+);
+assert(
+  !routingProvider.includes('simulated_sea_route_fallback') &&
+  routingProvider.includes("provider: 'unavailable'"),
+  'routing provider errors must fail closed instead of returning simulated sea distances'
 );
 
 if (!process.exitCode) {
