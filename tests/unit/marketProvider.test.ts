@@ -16,10 +16,12 @@ test('market reference data is explicitly simulated in non-production', async ()
   assert.equal(market.available, true);
   assert.equal(market.isSimulated, true);
   assert.match(market.source, /simulated/);
-  assert.ok(market.indices.length >= 5);
+  assert.equal(market.indices.length, 5);
+  assert.equal(market.routes.length, 16);
   assert.equal(bunkers.available, true);
   assert.equal(bunkers.isSimulated, true);
   assert.ok(bunkers.prices.some(p => p.portCode === 'SGSIN' && p.fuelType === 'vlsfo'));
+  assert.equal(new Set(bunkers.prices.map(p => p.portCode)).size, 23);
 
   process.env = previous;
 });
