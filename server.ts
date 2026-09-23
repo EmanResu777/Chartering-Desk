@@ -3396,6 +3396,174 @@ async function startServer() {
     }
   });
 
+  app.post('/api/recaps/confirm', express.json({ limit: '8kb' }), async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
+    if (!(await checkRateLimit(user.uid, 30, 'recap-confirm'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    const dealId = String(req.body?.dealId || '').trim();
+    const confirm = req.body?.confirm;
+    if (!/^[A-Za-z0-9_.:-]{1,240}$/.test(dealId) || typeof confirm !== 'boolean') {
+      return res.status(400).json({ error: 'Invalid recap confirmation request' });
+    }
+
+    const dealRef = firestore.collection('deskNetworkUrgentDeals').doc(dealId);
+    const recapRef = dealRef.collection('recaps').doc('draft');
+
+    try {
+      let result: {
+        side: 'cargoSide' | 'vesselSide';
+        counterpartUid: string;
+        status: string;
+        recapStatus: string;
+        cargoOwnerUid: string;
+        vesselOwnerUid: string;
+      } | null = null;
+
+      await firestore.runTransaction(async tx => {
+        const [dealSnap, recapSnap] = await Promise.all([tx.get(dealRef), tx.get(recapRef)]);
+        if (!dealSnap.exists) throw new Error('DEAL_NOT_FOUND');
+        if (!recapSnap.exists) throw new Error('RECAP_NOT_FOUND');
+
+        const deal = dealSnap.data() || {};
+        const recap = recapSnap.data() || {};
+        if (deal.status === 'cancelled') throw new Error('DEAL_CANCELLED');
+
+        const cargoOwnerUid = String(deal.cargoOwnerUid || '');
+        const vesselOwnerUid = String(deal.vesselOwnerUid || '');
+        const side: 'cargoSide' | 'vesselSide' =
+          user.uid === cargoOwnerUid ? 'cargoSide' :
+          user.uid === vesselOwnerUid ? 'vesselSide' :
+          (() => { throw new Error('NOT_PARTICIPANT'); })();
+
+        if (recap.status === 'locked' && !confirm) {
+          throw new Error('RECAP_LOCKED');
+        }
+
+        const otherSide: 'cargoSide' | 'vesselSide' = side === 'cargoSide' ? 'vesselSide' : 'cargoSide';
+        const otherConfirmed = recap.confirmations?.[otherSide]?.confirmed === true;
+        const bothConfirmed = confirm && otherConfirmed;
+        const confirmationStatus = bothConfirmed
+          ? 'confirmed_by_both_sides'
+          : confirm
+            ? (side === 'cargoSide' ? 'confirmed_by_cargo_side' : 'confirmed_by_vessel_side')
+            : 'confirmation_revoked';
+        const recapStatus = bothConfirmed ? 'locked' : 'draft';
+
+        const auditEntries: any[] = [{
+          action: confirm ? `recap_confirmed_by_${side === 'cargoSide' ? 'cargo_side' : 'vessel_side'}` : 'recap_confirmation_revoked',
+          timestamp: new Date(),
+          actorUid: user.uid,
+          side: side === 'cargoSide' ? 'cargo' : 'vessel',
+          safeMessage: confirm ? `Recap confirmed by ${side === 'cargoSide' ? 'cargo' : 'vessel'} side` : 'Recap confirmation revoked'
+        }];
+        if (bothConfirmed) {
+          auditEntries.push(
+            { action: 'recap_confirmed_by_both_sides', timestamp: new Date(), actorUid: 'system', safeMessage: 'Recap confirmed by both sides.' },
+            { action: 'recap_locked', timestamp: new Date(), actorUid: 'system', safeMessage: 'Recap locked after both sides confirmed.' }
+          );
+        }
+
+        const updatePayload: Record<string, any> = {
+          [`confirmations.${side}.confirmed`]: confirm,
+          [`confirmations.${side}.confirmedBy`]: confirm ? user.uid : null,
+          [`confirmations.${side}.confirmedAt`]: confirm ? FieldValue.serverTimestamp() : null,
+          [`confirmations.${side}.revokedAt`]: !confirm ? FieldValue.serverTimestamp() : null,
+          confirmationStatus,
+          status: recapStatus,
+          lastConfirmationActionAt: FieldValue.serverTimestamp(),
+          lastConfirmationActionBy: user.uid,
+          updatedAt: FieldValue.serverTimestamp(),
+          auditTrail: FieldValue.arrayUnion(...auditEntries)
+        };
+        if (bothConfirmed) {
+          updatePayload.fullyConfirmedAt = FieldValue.serverTimestamp();
+        }
+
+        tx.update(recapRef, updatePayload);
+
+        result = {
+          side,
+          counterpartUid: side === 'cargoSide' ? vesselOwnerUid : cargoOwnerUid,
+          status: confirmationStatus,
+          recapStatus,
+          cargoOwnerUid,
+          vesselOwnerUid
+        };
+      });
+
+      if (!result) throw new Error('CONFIRMATION_FAILED');
+
+      const pointerData = {
+        updatedAt: FieldValue.serverTimestamp(),
+        status: result.recapStatus,
+        confirmationStatus: result.status
+      };
+      const pointerWrites: Promise<any>[] = [];
+      if (result.cargoOwnerUid && result.cargoOwnerUid !== 'system') {
+        pointerWrites.push(
+          firestore.collection(`users/${result.cargoOwnerUid}/recapDrafts`).doc(dealId).set(pointerData, { merge: true })
+        );
+      }
+      if (result.vesselOwnerUid && result.vesselOwnerUid !== 'system' && result.vesselOwnerUid !== result.cargoOwnerUid) {
+        pointerWrites.push(
+          firestore.collection(`users/${result.vesselOwnerUid}/recapDrafts`).doc(dealId).set(pointerData, { merge: true })
+        );
+      }
+      await Promise.all(pointerWrites);
+
+      const targetUid = result.counterpartUid;
+      if (confirm && targetUid && targetUid !== 'system' && targetUid !== user.uid) {
+        const locked = result.status === 'confirmed_by_both_sides';
+        const alertId = `recap_${createHash('sha256').update(`${dealId}:${locked ? 'locked' : 'pending'}:${targetUid}`).digest('hex').slice(0, 32)}`;
+        await firestore.collection('alerts').doc(alertId).set({
+          id: alertId,
+          recipientUid: targetUid,
+          createdBySystem: true,
+          category: locked ? 'recap_confirmation' : 'broker_confirmation_waiting',
+          priority: 'high',
+          title: locked ? 'Recap Locked' : 'Recap Confirmation Pending',
+          message: locked
+            ? 'Both Desk Network sides have confirmed the working recap. The recap is now locked.'
+            : 'The other Desk Network side confirmed the working recap. Your review and confirmation are pending.',
+          sourceType: 'recap',
+          sourceId: dealId,
+          actionLabel: 'Review',
+          actionRoute: '/dashboard',
+          read: false,
+          dismissed: false,
+          createdAt: Date.now(),
+          visibility: 'private'
+        }, { merge: true });
+      }
+
+      await firestore.collection('auditEvents').add({
+        action: 'recap_confirmation_action',
+        uid: user.uid,
+        metadata: { dealId, side: result.side, confirm, status: result.status },
+        timestamp: FieldValue.serverTimestamp()
+      });
+
+      return res.json({
+        success: true,
+        side: result.side,
+        confirmationStatus: result.status,
+        recapStatus: result.recapStatus
+      });
+    } catch (error: any) {
+      const code = String(error?.message || '');
+      if (code === 'DEAL_NOT_FOUND' || code === 'RECAP_NOT_FOUND') return res.status(404).json({ error: 'Deal or recap not found' });
+      if (code === 'NOT_PARTICIPANT') return res.status(403).json({ error: 'Not a recap participant' });
+      if (code === 'DEAL_CANCELLED') return res.status(409).json({ error: 'Deal is cancelled' });
+      if (code === 'RECAP_LOCKED') return res.status(409).json({ error: 'Locked recap confirmation cannot be revoked' });
+      console.error('[Recap Confirm] Failed:', error.message);
+      return res.status(500).json({ error: 'Unable to update recap confirmation' });
+    }
+  });
+
   app.post('/api/market/matches/notify', express.json({ limit: '16kb' }), async (req, res) => {
     const user = await requireFirebaseUser(req);
     if (!user) return res.status(401).json({ error: 'Authentication required' });
