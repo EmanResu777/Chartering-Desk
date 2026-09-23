@@ -1,5 +1,5 @@
 import React from 'react';
-import { Package2, Ship, Mail, BarChart3, Settings as SettingsIcon, Users, Zap, Bot, BookOpen, ChevronDown, Plus, Search, Plug, Bell, FileText, Briefcase, LayoutDashboard } from 'lucide-react';
+import { Package2, Ship, Mail, BarChart3, Settings as SettingsIcon, Users, Zap, Bot, BookOpen, ChevronDown, Plus, Search, Plug, Bell, FileText, Briefcase, LayoutDashboard, LineChart } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useConfig } from '../lib/ConfigContext';
 import { motion, AnimatePresence } from 'motion/react';
@@ -24,6 +24,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, notif
     { id: 'vessel', icon: Ship, label: t('vessel_monitor') },
     { id: 'selection', icon: Zap, label: t('selection_desk') },
     { id: 'radar', icon: Bot, label: 'Smart Radar' },
+    { id: 'market', icon: LineChart, label: 'Market Intel' },
     { id: 'deal-rooms', icon: Briefcase, label: 'Deal Rooms' },
     { id: 'documents', icon: FileText, label: 'Drafts' },
     { id: 'inbox', icon: Mail, label: t('inbox_parser') },
