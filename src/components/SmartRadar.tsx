@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Bot, Plus, Radar, CheckSquare, Settings, Save, X, Search, ShieldCheck, MapPin } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth, db } from '../lib/firebase';
-import { collection, query, where, getDocs, getDoc, onSnapshot, setDoc, doc, deleteDoc, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, setDoc, doc, deleteDoc, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 
 import { AIDealBriefCard } from './AIDealBriefCard';
 import { CounterpartyLinker } from './CounterpartyLinker';
@@ -361,13 +361,11 @@ const MatchEngineView = ({ watchlists }: { watchlists: Watchlist[] }) => {
       const fetchMatches = async () => {
          setLoading(true);
          try {
-            const userSnap = await getDoc(doc(db, 'users', user.uid));
-            const connectedTo = Array.isArray(userSnap.data()?.connectedTo)
-              ? userSnap.data()!.connectedTo.filter((id: unknown) => typeof id === 'string' && id)
-              : [];
+            const connectionsSnap = await getDocs(collection(db, `users/${user.uid}/networkConnections`));
+            const connectedOwnerIds = connectionsSnap.docs.map(d => d.id).filter(Boolean);
 
             const sharedItems: any[] = [];
-            for (const ownerId of connectedTo) {
+            for (const ownerId of connectedOwnerIds) {
               const sharedQuery = query(
                 collection(db, 'sharedItems'),
                 where('ownerId', '==', ownerId),
