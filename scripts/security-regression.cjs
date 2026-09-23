@@ -102,6 +102,12 @@ assert(
   'workspace ownerId must be immutable through client rules'
 );
 assert(
+  rules.includes("'participantUids', 'participantDeskIds'") &&
+  rules.includes("'visibility', 'linkedCargoId', 'linkedVesselId'") &&
+  rules.includes("'sourceType', 'sourceId', 'dealRoomId', 'cargoId', 'vesselId'"),
+  'participants must not be able to rewrite Deal Room or voyage-estimate ACL/source fields'
+);
+assert(
   rules.includes("incoming().get('verifiedCompany', false) == existing().get('verifiedCompany', false)"),
   'clients must not self-verify company profiles'
 );
