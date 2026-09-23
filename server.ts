@@ -1211,6 +1211,10 @@ async function startServer() {
   const parsedPort = Number.parseInt(process.env.PORT || '3000', 10);
   const PORT = Number.isFinite(parsedPort) && parsedPort > 0 && parsedPort <= 65535 ? parsedPort : 3000;
 
+  // The application uses flat query parameters only. Avoid Express's extended
+  // qs parser to reduce the query-string attack surface.
+  app.set('query parser', 'simple');
+
   const trustProxyHops = Math.max(0, Number.parseInt(process.env.TRUST_PROXY_HOPS || '1', 10) || 0);
   app.set('trust proxy', process.env.NODE_ENV === 'production' ? trustProxyHops : false);
   app.disable('x-powered-by');
