@@ -624,13 +624,15 @@ export const DeskNetwork: React.FC<DeskNetworkProps> = ({ networkState }) => {
         return;
     }
     
-    const inviteId = `INV-${Date.now()}`;
+    const inviteId = `INV-${crypto.randomUUID()}`;
     try {
+       const senderSnap = await getDoc(doc(db, 'users', user.uid));
+       const senderProfile = senderSnap.exists() ? senderSnap.data() : {};
        await setDoc(doc(db, `users/${targetUid}/networkInvites`, inviteId), {
           id: inviteId,
           fromUserId: user.uid,
-          fromName: user.displayName || 'Broker',
-          fromCompany: 'ShipBroker Inc',
+          fromName: senderProfile.displayName || user.displayName || user.email || 'Broker',
+          fromCompany: senderProfile.companyName || '',
           fromEmail: user.email || '',
           status: 'pending',
           createdAt: serverTimestamp(),
@@ -648,7 +650,7 @@ export const DeskNetwork: React.FC<DeskNetworkProps> = ({ networkState }) => {
   const handleSubmitProposal = async (type: string) => {
     if (!user || !showProposalModal) return;
     try {
-      const propId = `PROP-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+      const propId = `PROP-${crypto.randomUUID()}`;
       await setDoc(doc(db, `sharedItems/${showProposalModal.id}/proposals/${propId}`), {
         sharedItemId: showProposalModal.id,
         ownerId: showProposalModal.ownerId,
