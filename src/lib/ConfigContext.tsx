@@ -135,7 +135,7 @@ const translations: Record<Language, Record<string, string>> = {
     operations: "OPERATIONS",
     search: "Search",
     trial_welcome_title: "Welcome to Cargo Desk App!",
-    trial_welcome_message: "Your first 30 days are completely free! Enjoy full access to all features. After the trial period ends, you will be asked to select a subscription plan.",
+    trial_welcome_message: "Your first 14 days are completely free! Enjoy full access to all features. After the trial period ends, you will be asked to select a subscription plan.",
     trial_welcome_button: "Start Free Trial",
     trial_expired_title: "Trial Period Ended",
     trial_expired_message: "Your 30-day free trial has expired. To continue using all features, please choose a subscription plan.",
@@ -246,10 +246,10 @@ const translations: Record<Language, Record<string, string>> = {
     operations: "ОПЕРАЦИИ",
     search: "Поиск",
     trial_welcome_title: "Добро пожаловать в Cargo Desk App!",
-    trial_welcome_message: "Первый месяц использования абсолютно бесплатен! Наслаждайтесь полным доступом ко всем функциям. По истечении 30 дней вам будет предложено выбрать тарифный план.",
+    trial_welcome_message: "Первый месяц использования абсолютно бесплатен! Наслаждайтесь полным доступом ко всем функциям. По истечении 14 дней вам будет предложено выбрать тарифный план.",
     trial_welcome_button: "Начать бесплатный период",
     trial_expired_title: "Пробный период истек",
-    trial_expired_message: "Ваш бесплатный 30-дневный период подошел к концу. Чтобы продолжить использовать все функции приложения, выберите подходящий тарифный план.",
+    trial_expired_message: "Ваш бесплатный 14-дневный период подошел к концу. Чтобы продолжить использовать все функции приложения, выберите подходящий тарифный план.",
     choose_plan: "Выбрать тариф"
   },
   zh: {
@@ -357,10 +357,10 @@ const translations: Record<Language, Record<string, string>> = {
     "operations": "运营",
     "search": "搜索",
     "trial_welcome_title": "欢迎使用 Cargo DeskApp!",
-    "trial_welcome_message": "您的前30天完全免费！试用期结束后，我们会请您选择一个订阅计划。",
+    "trial_welcome_message": "您的前14天完全免费！试用期结束后，我们会请您选择一个订阅计划。",
     "trial_welcome_button": "开始免费试用",
     "trial_expired_title": "试用期结束",
-    "trial_expired_message": "您30天的试用期已结束。要继续使用，请选择一个计划。",
+    "trial_expired_message": "您14天的试用期已结束。要继续使用，请选择一个计划。",
     "choose_plan": "选择计划"
 },
   es: {
@@ -468,10 +468,10 @@ const translations: Record<Language, Record<string, string>> = {
     "operations": "OPERACIONES",
     "search": "Buscar",
     "trial_welcome_title": "¡Bienvenido a Cargo Desk App!",
-    "trial_welcome_message": "Tus primeros 30 días son gratuitos. ¡Disfruta acceso total!",
+    "trial_welcome_message": "Tus primeros 14 días son gratuitos. ¡Disfruta acceso total!",
     "trial_welcome_button": "Comenzar Prueba",
     "trial_expired_title": "Prueba Finalizada",
-    "trial_expired_message": "Tu prueba de 30 días ha expirado. Selecciona un plan para continuar.",
+    "trial_expired_message": "Tu prueba de 14 días ha expirado. Selecciona un plan para continuar.",
     "choose_plan": "Elegir Plan"
 },
   fr: {
@@ -579,7 +579,7 @@ const translations: Record<Language, Record<string, string>> = {
     "operations": "OPÉRATIONS",
     "search": "Chercher",
     "trial_welcome_title": "Bienvenue dans Cargo Desk!",
-    "trial_welcome_message": "Vos 30 premiers jours sont totalement gratuits.",
+    "trial_welcome_message": "Vos 14 premiers jours sont totalement gratuits.",
     "trial_welcome_button": "Démarrer l'essai",
     "trial_expired_title": "Essai terminé",
     "trial_expired_message": "Votre essai de 30 jours est expiré. Choisissez un plan.",
@@ -696,10 +696,10 @@ const translations: Record<Language, Record<string, string>> = {
     "operations": "OPERATIONEN",
     "search": "Suchen",
     "trial_welcome_title": "Willkommen bei Cargo Desk!",
-    "trial_welcome_message": "Ihre ersten 30 Tage sind absolut kostenlos.",
+    "trial_welcome_message": "Ihre ersten 14 Tage sind absolut kostenlos.",
     "trial_welcome_button": "Testversion Starten",
     "trial_expired_title": "Testzeitraum Abgelaufen",
-    "trial_expired_message": "Ihre 30-tägige Testversion ist abgelaufen. Wählen Sie einen Plan.",
+    "trial_expired_message": "Ihre 14-tägige Testversion ist abgelaufen. Wählen Sie einen Plan.",
     "choose_plan": "Plan Wählen"
 },
   pt: {
@@ -807,10 +807,10 @@ const translations: Record<Language, Record<string, string>> = {
     "operations": "OPERAÇÕES",
     "search": "Buscar",
     "trial_welcome_title": "Bem-vindo ao Cargo Desk!",
-    "trial_welcome_message": "Seus primeiros 30 dias são totalmente grátis.",
+    "trial_welcome_message": "Seus primeiros 14 dias são totalmente grátis.",
     "trial_welcome_button": "Começar Teste",
     "trial_expired_title": "Teste Expirado",
-    "trial_expired_message": "Seus 30 dias expiraram. Escolha um plano.",
+    "trial_expired_message": "Seus 14 dias expiraram. Escolha um plano.",
     "choose_plan": "Escolher Plano"
 },
   ja: { 
