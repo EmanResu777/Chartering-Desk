@@ -51,7 +51,10 @@ function parseLaycan(laycanStr?: string): { start: Date; end: Date } | null {
 }
 
 function parseOpenDate(dateStr?: string): Date | null {
-  if (!dateStr || dateStr.toUpperCase() === 'TBD' || dateStr.toUpperCase() === 'SPOT') return new Date(); // assume spot
+  if (!dateStr) return null;
+  const normalized = dateStr.trim().toUpperCase();
+  if (['TBD', 'TBA', 'UNKNOWN', 'N/A'].includes(normalized)) return null;
+  if (['SPOT', 'PROMPT'].includes(normalized)) return new Date();
   try {
     // Basic string parse
     const rawMatch = dateStr.match(/\d+[\s-][a-zA-Z]+/);
@@ -78,7 +81,15 @@ export function calculateProximity(vessel: Partial<Vessel>, cargo: Partial<Cargo
     distanceNm = haversineDistance(vLat, vLon, cLat, cLon);
   }
 
-  const isLiveAIS = vessel.positionSource?.toLowerCase() !== 'system' && vessel.positionSource != null && !vessel.aisStale && vessel.latitude != null;
+  const positionSource = String(vessel.positionSource || '').toLowerCase();
+  const receivedAtMs = vessel.positionReceivedAt ? new Date(vessel.positionReceivedAt).getTime() : NaN;
+  const hasFreshTimestamp = Number.isFinite(receivedAtMs) && (Date.now() - receivedAtMs) <= 2 * 60 * 60 * 1000;
+  const isLiveAIS = positionSource.includes('ais') &&
+    !positionSource.includes('stored') &&
+    !vessel.aisStale &&
+    vessel.latitude != null &&
+    vessel.longitude != null &&
+    hasFreshTimestamp;
 
   let distanceConfidence: 'high' | 'medium' | 'low' | 'unknown' = 'unknown';
   let positionSourceConfidence: 'high' | 'medium' | 'low' | 'unknown' = 'unknown';
@@ -167,7 +178,7 @@ export function calculateProximity(vessel: Partial<Vessel>, cargo: Partial<Cargo
          proximityLabel,
          proximityScore: score,
          distanceConfidence,
-         positionSource: isLiveAIS ? 'live_ais' : 'assumed',
+         positionSource: isLiveAIS ? 'live_ais' : (positionSource || 'unknown'),
          laycanCompatibility,
          sourceModule
       });
