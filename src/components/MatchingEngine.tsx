@@ -339,8 +339,10 @@ export const MatchingEngine: React.FC<{
                          <span className="text-on-surface font-bold">{match.eta}</span>
                        </div>
                        <div className="flex justify-between items-center text-[11px] font-mono">
-                         <span className="text-on-surface-variant uppercase font-bold">SPATIAL_GAP:</span>
-                         <span className="text-primary font-bold">{match.distance}</span>
+                         <span className="text-on-surface-variant uppercase font-bold">
+                           {match.missingPositionData ? 'SPATIAL_GAP (INDICATIVE):' : 'SPATIAL_GAP:'}
+                         </span>
+                         <span className={match.missingPositionData ? "text-amber-500 font-bold" : "text-primary font-bold"}>{match.distance}</span>
                        </div>
                     </div>
                   </div>
