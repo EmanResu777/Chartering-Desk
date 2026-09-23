@@ -366,42 +366,47 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
         console.warn("Webhook fetch skipped:", err);
       }
 
-      // Try IMAP first with background worker
-      try {
-        const fetchLimit = isBackground ? 10 : scanLimit;
-        const imapEmails = await fetchImapEmails(fetchLimit, (status, data) => {
-           setSyncStatus(status as any);
-           if (data) setSyncStats(data);
-        });
-        const mappedImap = imapEmails.map((im: any) => ({
-          id: `msg-${Date.now()}-${Math.random().toString(36).substring(7)}`,
-          accountId: im.accountId,
-          sender: im.sender,
-          subject: im.subject,
-          rawBody: im.rawBody,
-          summary: im.subject,
-          timestamp: im.timestamp,
-          classification: im.classification || 'MARKET INTEL',
-          confidence: 85,
-          provider: im.provider || 'imap',
-          relevanceStatus: determineRelevanceStatus(im.subject, im.sender, (im.rawBody || '').substring(0, 500))
-        }));
-        allFetchedEmails = [...allFetchedEmails, ...mappedImap];
-      } catch (err: any) {
-        console.warn('IMAP fetch skipped or failed:', err);
-        setSyncStatus('failed');
-        setSyncStats({ safeErrorMessage: err.message });
+      // Sync only sources that are actually enabled by the user.
+      const hasActiveImap = accounts.some(account => account.active && account.provider !== 'gmail');
+      if (hasActiveImap) {
+        try {
+          const fetchLimit = isBackground ? 10 : scanLimit;
+          const imapEmails = await fetchImapEmails(fetchLimit, (status, data) => {
+             setSyncStatus(status as any);
+             if (data) setSyncStats(data);
+          });
+          const mappedImap = imapEmails.map((im: any) => ({
+            id: im.id ? String(im.id) : `msg-${crypto.randomUUID()}`,
+            accountId: im.accountId,
+            sender: im.sender,
+            subject: im.subject,
+            rawBody: im.rawBody,
+            summary: im.subject,
+            timestamp: im.timestamp,
+            classification: im.classification || 'MARKET INTEL',
+            confidence: 85,
+            provider: im.provider || 'imap',
+            relevanceStatus: determineRelevanceStatus(im.subject, im.sender, (im.rawBody || '').substring(0, 500))
+          }));
+          allFetchedEmails = [...allFetchedEmails, ...mappedImap];
+        } catch (err: any) {
+          console.warn('IMAP fetch failed:', err);
+          setSyncStatus('failed');
+          setSyncStats({ safeErrorMessage: err.message });
+        }
       }
       
-      // Then Gmail
-      try {
-        if (import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+      const hasActiveGmail = accounts.some(account => account.active && account.provider === 'gmail');
+      if (hasActiveGmail && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+        try {
           const fetchLimit = isBackground ? 10 : scanLimit;
           const gmailEmails = await fetchGmailEmails(fetchLimit);
           allFetchedEmails = [...allFetchedEmails, ...gmailEmails];
+        } catch (err: any) {
+          console.warn('Gmail fetch failed:', err);
+          setSyncStatus('failed');
+          setSyncStats({ safeErrorMessage: err.message });
         }
-      } catch (err: any) {
-        console.warn('Gmail fetch skipped or failed:', err);
       }
       
       if (allFetchedEmails.length > 0) {
