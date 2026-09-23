@@ -402,24 +402,58 @@ service cloud.firestore {
       allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
     }
 
+    function isValidMarketMatchCreate(data) {
+      let requestData = get(/databases/$(database)/documents/marketRequests/$(data.requestId)).data;
+      let sharedData = get(/databases/$(database)/documents/sharedItems/$(data.sharedItemId)).data;
+      let counterpartUid = sharedData.ownerId;
+      return data.keys().hasOnly([
+          'id', 'requestId', 'sharedItemId', 'requestType',
+          'vesselOwnerUid', 'cargoOwnerUid', 'matchScore', 'scoreType',
+          'label', 'reasons', 'status', 'createdAt', 'audit'
+        ])
+        && data.id is string
+        && data.id.size() <= 240
+        && data.requestId is string
+        && data.sharedItemId is string
+        && data.requestType is string
+        && data.matchScore is number
+        && data.matchScore >= 0
+        && data.matchScore <= 100
+        && data.scoreType == 'deterministic_criteria_fit_not_probability'
+        && data.label == 'screening candidate'
+        && data.status == 'active'
+        && requestData.createdByUid == request.auth.uid
+        && requestData.status == 'active'
+        && requestData.visibility == 'network'
+        && data.requestType == requestData.type
+        && sharedData.status == 'active'
+        && counterpartUid != request.auth.uid
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid)/networkConnections/$(counterpartUid))
+        && exists(/databases/$(database)/documents/users/$(counterpartUid)/networkConnections/$(request.auth.uid))
+        && (
+          (
+            (data.requestType == 'cargo_search' || data.requestType == 'available_vessel')
+            && sharedData.itemType == 'cargo'
+            && data.vesselOwnerUid == request.auth.uid
+            && data.cargoOwnerUid == counterpartUid
+          )
+          ||
+          (
+            data.requestType == 'tonnage_search'
+            && sharedData.itemType == 'vessel'
+            && data.cargoOwnerUid == request.auth.uid
+            && data.vesselOwnerUid == counterpartUid
+          )
+        );
+    }
+
     match /marketMatches/{matchId} {
       allow read: if isSignedIn() && (
         resource.data.vesselOwnerUid == request.auth.uid || 
         resource.data.cargoOwnerUid == request.auth.uid
       );
-      allow create: if isSignedIn() && (
-        incoming().vesselOwnerUid == request.auth.uid || 
-        incoming().cargoOwnerUid == request.auth.uid
-      );
-      allow update: if isSignedIn()
-        && incoming().vesselOwnerUid == existing().vesselOwnerUid
-        && incoming().cargoOwnerUid == existing().cargoOwnerUid
-        && incoming().get('vesselItemId', null) == existing().get('vesselItemId', null)
-        && incoming().get('cargoItemId', null) == existing().get('cargoItemId', null)
-        && (
-          existing().vesselOwnerUid == request.auth.uid || 
-          existing().cargoOwnerUid == request.auth.uid
-        );
+      allow create: if isSignedIn() && isValidMarketMatchCreate(incoming());
+      allow update: if false;
       allow delete: if isSignedIn() && (
         existing().vesselOwnerUid == request.auth.uid || 
         existing().cargoOwnerUid == request.auth.uid
