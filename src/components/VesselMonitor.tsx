@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Search, Ship, Anchor, Globe, MoreHorizontal, X, Calendar, MapPin, User, TrendingUp, Info, ChevronUp, ChevronDown, Trash2, Share2, Download, FileJson, FileSpreadsheet, List, Map as MapIcon, FileText, Upload, Filter, RefreshCw, Radar } from 'lucide-react';
-import { Vessel, Cargo, INITIAL_VESSELS, cn, exportToCSV, exportToJSON } from '../lib/utils';
+import { Vessel, Cargo, cn, exportToCSV, exportToJSON } from '../lib/utils';
 import { REGIONS, parseRegion, isDateInRange, matchMinMax, parseGearCategory } from '../lib/filterUtils';
 import { calculateProximity } from '../lib/proximityIntelligence';
 import { motion, AnimatePresence } from 'motion/react';
@@ -1672,7 +1672,7 @@ const VesselDraftModal = ({ onClose, onSubmit }: { onClose: () => void, onSubmit
     if (!formData.name || !formData.dwt || !formData.openPort) return;
     
     onSubmit({
-      id: `VSL-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
+      id: `VSL-${crypto.randomUUID()}`,
       name: formData.name as string,
       type: formData.type as 'Handysize' | 'Supramax' | 'Ultramax' | 'Panamax' | 'Capesize',
       dwt: Number(formData.dwt),
