@@ -109,52 +109,61 @@ export const AISMap: React.FC<{
               return;
             }
             const token = await user.getIdToken();
-            const res = await fetch(`/api/ais/position?mmsi=${selectedVessel.mmsi}`, {
-              headers: { 'Authorization': `Bearer ${token}` }
+            const res = await fetch('/api/ais/vessel-position', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                vesselId: selectedVessel.id,
+                imo: selectedVessel.imo,
+                mmsi: selectedVessel.mmsi
+              })
             });
             const data = await res.json();
             
-            if (data.status === 'live' && data.lat && data.lon) {
+            if (res.ok && data.isLive && data.latitude != null && data.longitude != null) {
                setPositions(prev => ({
                  ...prev,
                  [selectedVessel.mmsi!]: { 
-                   lat: data.lat, 
-                   lon: data.lon, 
-                   heading: data.heading, 
-                   source: data.source || 'AISStream',
-                   timestamp: data.timestamp || new Date().toISOString(),
+                   lat: data.latitude, 
+                   lon: data.longitude, 
+                   heading: data.heading ?? undefined, 
+                   source: data.provider || 'AIS provider',
+                   timestamp: data.positionReceivedAt || new Date().toISOString(),
                    status: 'live' 
                  }
                }));
                setBackendError(null);
-            } else if ((selectedVessel as any).lat && (selectedVessel as any).lon) {
+            } else if (selectedVessel.latitude != null && selectedVessel.longitude != null) {
                setPositions(prev => ({
                  ...prev,
                  [selectedVessel.mmsi!]: { 
-                   lat: (selectedVessel as any).lat, 
-                   lon: (selectedVessel as any).lon, 
-                   source: 'Stored Internal',
-                   timestamp: selectedVessel.updatedAt || new Date().toISOString(),
+                   lat: selectedVessel.latitude!, 
+                   lon: selectedVessel.longitude!, 
+                   source: selectedVessel.positionSource || 'Stored Internal',
+                   timestamp: selectedVessel.positionReceivedAt || selectedVessel.positionUpdatedAt || selectedVessel.updatedAt || new Date().toISOString(),
                    status: 'stored'
                  }
                }));
-               setBackendError(null);
+               setBackendError(data.sanitizedPreview || data.message || null);
             } else {
-               setBackendError(data.message || data.error || `No live AIS position returned for MMSI ${selectedVessel.mmsi}`);
+               setBackendError(data.sanitizedPreview || data.message || data.error || `No AIS position returned for MMSI ${selectedVessel.mmsi}`);
             }
           } catch(e: any) {
-             if ((selectedVessel as any).lat && (selectedVessel as any).lon) {
+             if (selectedVessel.latitude != null && selectedVessel.longitude != null) {
                setPositions(prev => ({
                  ...prev,
                  [selectedVessel.mmsi!]: { 
-                   lat: (selectedVessel as any).lat, 
-                   lon: (selectedVessel as any).lon, 
-                   source: 'Stored Internal',
-                   timestamp: selectedVessel.updatedAt || new Date().toISOString(),
+                   lat: selectedVessel.latitude!, 
+                   lon: selectedVessel.longitude!, 
+                   source: selectedVessel.positionSource || 'Stored Internal',
+                   timestamp: selectedVessel.positionReceivedAt || selectedVessel.positionUpdatedAt || selectedVessel.updatedAt || new Date().toISOString(),
                    status: 'stored'
                  }
                }));
-               setBackendError(null);
+               setBackendError('Live AIS unavailable; showing stored position.');
              } else {
                setBackendError(`AIS provider error: ${e.message}`);
              }
