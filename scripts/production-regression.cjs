@@ -25,6 +25,9 @@ const settingsClient = read('src/components/Settings.tsx');
 const analyticsClient = read('src/components/Analytics.tsx');
 const voyageEstimateModal = read('src/components/VoyageEstimateModal.tsx');
 const routingProvider = read('src/lib/routingProvider.ts');
+const recapModal = read('src/components/RecapModal.tsx');
+const proximityIntelligence = read('src/lib/proximityIntelligence.ts');
+const marketRequestsForm = read('src/components/MarketRequests/MarketRequestsForm.tsx');
 const documentEditor = read('src/components/DocumentEditor.tsx');
 
 assert(!server.includes("testId123"), 'test-user authentication bypass must never ship');
@@ -211,6 +214,36 @@ assert(
   !routingProvider.includes('simulated_sea_route_fallback') &&
   routingProvider.includes("provider: 'unavailable'"),
   'routing provider errors must fail closed instead of returning simulated sea distances'
+);
+
+assert(
+  !inboxParser.includes("email: 'vessels@gmail.com'") &&
+  !inboxParser.includes('added (mocked)') &&
+  inboxParser.includes("setAccounts(loadedAccounts)"),
+  'Inbox must never ship a fake default account or simulated provider connection'
+);
+assert(
+  !recapModal.includes("brokerage: '5% TTL'") &&
+  !recapModal.includes("nor: 'WIPON WIBON'") &&
+  !recapModal.includes("stevedores: 'FIOS'") &&
+  !recapModal.includes("laytime: 'SHINC REVERSIBLE'") &&
+  !recapModal.includes("despatch: 'HALF DEMURRAGE'") &&
+  recapModal.includes("fixtureStatus: 'DRAFT / NOT CONFIRMED'"),
+  'recap drafts must not pre-agree charter-party terms'
+);
+assert(
+  !proximityIntelligence.includes("dateStr.toUpperCase() === 'TBD' || dateStr.toUpperCase() === 'SPOT') return new Date()") &&
+  proximityIntelligence.includes("['TBD', 'TBA', 'UNKNOWN', 'N/A'].includes(normalized)") &&
+  proximityIntelligence.includes("positionSource.includes('ais')") &&
+  proximityIntelligence.includes('hasFreshTimestamp'),
+  'proximity scoring must not convert unknown dates or stored positions into live readiness evidence'
+);
+assert(
+  !marketRequestsForm.includes("collection(db, 'deskNetworkSharedItems')") &&
+  marketRequestsForm.includes("collection(db, 'sharedItems')") &&
+  marketRequestsForm.includes("scoreType: 'deterministic_criteria_fit_not_probability'") &&
+  marketRequestsForm.includes("label: 'screening candidate'"),
+  'Market Requests must use the current connection-scoped network schema without presenting screening score as probability'
 );
 assert(
   !documentEditor.includes('Marina Petrova') &&
