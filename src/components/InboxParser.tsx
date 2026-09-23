@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Brain, CheckCircle, Mail, RotateCw, Trash2, FileSearch, LogIn, Package2, Zap, Ship, Plus, Globe, Cloud, Layout, Check, MoreVertical, MessageSquare, X, Info } from 'lucide-react';
-import { Email, INITIAL_EMAILS, Cargo, Vessel, cn, determineRelevanceStatus } from '../lib/utils';
+import { Email, Cargo, Vessel, cn, determineRelevanceStatus } from '../lib/utils';
 import { parseEmail } from '../lib/geminiService';
 import { fetchGmailEmails } from '../lib/gmailService';
 import { isAuthenticated, getAccessToken } from '../lib/googleAuth';
@@ -43,6 +43,11 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
   const isViewer = currentWorkspace?.myRole === 'viewer';
   const { t } = useConfig();
   const demoDataEnabled = import.meta.env.DEV && import.meta.env.VITE_ALLOW_DEMO_DATA === 'true';
+  const loadDevelopmentDemoEmails = async () => {
+    if (!demoDataEnabled) return [] as Email[];
+    const { DEV_DEMO_EMAILS } = await import('../dev/demoEmails');
+    return DEV_DEMO_EMAILS;
+  };
   const [parsingId, setParsingId] = useState<string | null>(null);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [extractionResult, setExtractionResult] = useState<any>(null);
@@ -411,7 +416,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
       } else {
         setLastChecked(new Date());
         if (demoDataEnabled) {
-          const demoEmails: Email[] = [...INITIAL_EMAILS];
+          const demoEmails: Email[] = [...(await loadDevelopmentDemoEmails())];
           setEmails(prev => {
             const uniqueExisting = prev.filter(e => !demoEmails.some(ne => ne.id === e.id));
             return [...demoEmails, ...uniqueExisting];
@@ -450,7 +455,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
     } catch (error: any) {
       console.error('Auth error:', error);
       if (demoDataEnabled) {
-        setEmails([...INITIAL_EMAILS]);
+        setEmails([...(await loadDevelopmentDemoEmails())]);
         setIsLoggedIn(true);
         notify({ title: 'Development Demo Data', message: 'OAuth failed; explicit dev demo data loaded.', type: 'info' });
       } else {
@@ -930,7 +935,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
                                   <button 
                                     key={key}
                                     className="p-3 border border-outline hover:border-primary hover:bg-primary/5 transition-all flex flex-col items-center gap-2 group"
-                                    onClick={() => {
+                                    onClick={async () => {
                                       if (key === 'gmail') handleSignIn();
                                       else setConnectingProvider(key);
                                     }}
@@ -946,7 +951,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
                                 <button
                                   onClick={() => {
                                     setGlobalError(null);
-                                    setEmails([...INITIAL_EMAILS]);
+                                    setEmails([...(await loadDevelopmentDemoEmails())]);
                                     setIsLoggedIn(true);
                                     setShowSetupGuide(false);
                                   }}
