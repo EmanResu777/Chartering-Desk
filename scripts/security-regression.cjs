@@ -108,6 +108,22 @@ assert(
   'participants must not be able to rewrite Deal Room or voyage-estimate ACL/source fields'
 );
 assert(
+  rules.includes("incoming().vesselOwnerUid == existing().vesselOwnerUid") &&
+  rules.includes("incoming().cargoOwnerUid == existing().cargoOwnerUid"),
+  'market match participants must not be able to rewrite owner identities'
+);
+assert(
+  rules.includes("incoming().get('recipientUid', null) == existing().get('recipientUid', null)") &&
+  rules.includes("incoming().get('recipientDeskId', null) == existing().get('recipientDeskId', null)"),
+  'alert recipients must remain immutable during client updates'
+);
+assert(
+  rules.includes("existing().createdByUid == request.auth.uid;") &&
+  rules.includes("!incoming().diff(existing()).affectedKeys().hasAny(['createdByUid', 'createdByDeskId', 'visibility'])"),
+  'shared counterparties must preserve ownership and ACL fields'
+);
+
+assert(
   rules.includes("incoming().get('verifiedCompany', false) == existing().get('verifiedCompany', false)"),
   'clients must not self-verify company profiles'
 );
