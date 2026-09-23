@@ -115,6 +115,10 @@ service cloud.firestore {
         allow write: if false; // Billing/usage counters are server-authoritative.
       }
 
+      match /billingState/{stateId} {
+        allow read, write: if false; // Subscription/trial state is server-authoritative.
+      }
+
       match /emailSyncJobs/{jobId} {
         allow read: if isOwner(userId);
         allow write: if false; // Server only
