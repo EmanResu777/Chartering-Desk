@@ -966,7 +966,6 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
                                 </button>
                               </div>
                             )}
-                            </div>
                           </div>
                         </>
                       ) : (
