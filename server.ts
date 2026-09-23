@@ -4168,7 +4168,11 @@ async function startServer() {
       let assumptionsText = "No voyage-cost assumptions were supplied. Do not invent bunker prices, hire, port/canal costs, speeds, consumption, distance, freight, or TCE. Score technical/position/laycan fit only from supplied facts and mark commercial fields as pending.";
       if (assumptions && typeof assumptions === 'object') {
          const safeAssumptions = Object.fromEntries(
-           Object.entries(assumptions).filter(([, value]) => value !== undefined && value !== null && value !== '')
+           Object.entries(assumptions).filter(([, value]) => {
+             if (value === undefined || value === null || value === '') return false;
+             if (typeof value === 'number') return Number.isFinite(value) && value > 0;
+             return true;
+           })
          );
          assumptionsText = `Use only these user-provided market assumptions. Missing assumptions remain pending: ${JSON.stringify(safeAssumptions)}`;
       }
@@ -4311,7 +4315,17 @@ async function startServer() {
           Number.isFinite(vesselLat) && Number.isFinite(vesselLng) &&
           Number.isFinite(loadLat) && Number.isFinite(loadLng);
 
-        const missingCommercialData = Boolean(match.missingCommercialData) || !assumptions || !cargo.freightRate;
+        const requiredCommercialInputs = [
+          assumptions?.bunkerPrice,
+          assumptions?.dailyHire,
+          assumptions?.ballastSpeed,
+          assumptions?.ladenSpeed,
+          assumptions?.ballastConsumption,
+          assumptions?.ladenConsumption
+        ];
+        const hasCommercialAssumptions = requiredCommercialInputs.every(value => Number(value) > 0);
+        const hasFreightBasis = Number(cargo.freightRate || cargo.freightIdea || cargo.freightLumpSum || cargo.lumpSum || 0) > 0;
+        const missingCommercialData = Boolean(match.missingCommercialData) || !hasCommercialAssumptions || !hasFreightBasis;
         const normalizedDistance = hasPositionEvidence
           ? String(match.distance || 'Pending')
           : (match.distance ? `Indicative ~ ${String(match.distance).replace(/^Indicative\s*~?\s*/i, '')}` : 'Indicative / position data pending');
