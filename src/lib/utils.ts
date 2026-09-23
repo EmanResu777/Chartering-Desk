@@ -271,6 +271,8 @@ export interface MatchResult {
   eta: string;
   distance: string;
   missingCommercialData?: boolean;
+  missingPositionData?: boolean;
+  positionEvidence?: 'coordinates_supplied' | 'port_name_only';
   calculatorInputs?: OwnerLossCalculatorInputs;
   calculatorOutputs?: OwnerLossCalculatorOutputs;
 }
