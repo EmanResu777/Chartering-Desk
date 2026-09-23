@@ -1,5 +1,4 @@
-// Server-side AIS provider
-// DO NOT import this in frontend code
+// Server-side AIS provider. Never imported by browser code.
 
 export interface SafeAISResponse {
   vesselId: string;
@@ -21,10 +20,9 @@ export interface SafeAISResponse {
   sanitizedPreview: string;
 }
 
-// In-memory cache: vesselId -> SafeAISResponse & { fetchedAt: number }
 const aisCache = new Map<string, SafeAISResponse & { fetchedAt: number }>();
-const CACHE_TTL_MS = 15 * 60 * 1000; // 15 mins
-const COOLDOWN_MS = 60 * 1000; // 1 min
+const CACHE_TTL_MS = 15 * 60 * 1000;
+const STALE_POSITION_MS = 2 * 60 * 60 * 1000;
 
 export interface AISLookupReq {
   vesselId: string;
@@ -33,122 +31,139 @@ export interface AISLookupReq {
   name?: string;
 }
 
+const unavailable = (req: AISLookupReq, message: string, stale = false): SafeAISResponse => ({
+  vesselId: req.vesselId,
+  imo: req.imo,
+  mmsi: req.mmsi,
+  latitude: null,
+  longitude: null,
+  course: null,
+  speed: null,
+  heading: null,
+  navigationStatus: null,
+  destination: null,
+  eta: null,
+  positionReceivedAt: null,
+  provider: "unavailable",
+  confidence: "none",
+  isLive: false,
+  stale,
+  sanitizedPreview: message
+});
+
+const toNullableNumber = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const toNullableString = (value: unknown): string | null =>
+  value === null || value === undefined || value === '' ? null : String(value);
+
 export async function fetchAISPosition(req: AISLookupReq): Promise<SafeAISResponse> {
   const now = Date.now();
   const cached = aisCache.get(req.vesselId);
-
-  // Per-vessel cooldown / cache hit
-  if (cached) {
-    if (now - cached.fetchedAt < CACHE_TTL_MS) {
-      if (now - cached.fetchedAt < COOLDOWN_MS) {
-        // Strict cooldown - return cached without checking stale
-        return cached;
-      }
-      // Return cached, maybe mark stale if older than some threshold, e.g., 2 hours
-      const isStale = now - new Date(cached.positionReceivedAt || 0).getTime() > 2 * 60 * 60 * 1000;
-      return { ...cached, stale: isStale };
-    }
+  if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
+    const receivedAt = cached.positionReceivedAt ? new Date(cached.positionReceivedAt).getTime() : 0;
+    const stale = receivedAt > 0 ? now - receivedAt > STALE_POSITION_MS : cached.stale;
+    return { ...cached, stale, isLive: cached.isLive && !stale };
   }
 
-  // Simulate provider lookup securely
-  const apiKey = process.env.AIS_PROVIDER_KEY;
-  if (!apiKey) {
-    // Return empty/unavailable
-    const fallback: SafeAISResponse = {
-      vesselId: req.vesselId,
-      imo: req.imo,
-      mmsi: req.mmsi,
-      latitude: null,
-      longitude: null,
-      course: null,
-      speed: null,
-      heading: null,
-      navigationStatus: null,
-      destination: null,
-      eta: null,
-      positionReceivedAt: null,
-      provider: "system",
-      confidence: "none",
-      isLive: false,
-      stale: false,
-      sanitizedPreview: "AIS provider not configured"
-    };
-    aisCache.set(req.vesselId, { ...fallback, fetchedAt: now });
-    return fallback;
+  const providerUrl = (process.env.AIS_PROVIDER_URL || '').trim();
+  const apiKey = (process.env.AIS_PROVIDER_KEY || '').trim();
+
+  if (!providerUrl) {
+    const result = unavailable(req, "AIS provider endpoint is not configured");
+    aisCache.set(req.vesselId, { ...result, fetchedAt: now });
+    return result;
   }
 
   try {
-    // If we had a real provider, we would fetch it here.
-    // We will simulate a safe response.
-    
-    // Simulating provider response logic:
-    // ... fetch logic ...
-    
-    // Instead of real fetch, we will mock for lack of real AIS KEY implementation 
-    // unless there actually is one.
-    // If it was a real fetch, we would extract data and construct SafeAISResponse.
-    
-    const fakeLat = (Math.random() * 180) - 90;
-    const fakeLng = (Math.random() * 360) - 180;
-    const mockResponse: SafeAISResponse = {
+    const url = new URL(providerUrl);
+    if (process.env.NODE_ENV === 'production' && url.protocol !== 'https:') {
+      throw new Error('AIS_PROVIDER_URL must use HTTPS in production');
+    }
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      throw new Error('Unsupported AIS provider protocol');
+    }
+
+    if (req.imo) url.searchParams.set('imo', String(req.imo));
+    if (req.mmsi) url.searchParams.set('mmsi', String(req.mmsi));
+
+    const headers: Record<string, string> = { accept: 'application/json' };
+    if (apiKey) {
+      const headerName = (process.env.AIS_PROVIDER_API_KEY_HEADER || 'Authorization').trim();
+      headers[headerName] = headerName.toLowerCase() === 'authorization' ? `Bearer ${apiKey}` : apiKey;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    let response: Response;
+    try {
+      response = await fetch(url.toString(), { headers, signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!response.ok) {
+      throw new Error(`AIS provider HTTP ${response.status}`);
+    }
+
+    const raw = await response.json() as any;
+    const payload = raw?.data ?? raw?.vessel ?? raw?.position ?? raw;
+
+    const latitude = toNullableNumber(payload?.latitude ?? payload?.lat);
+    const longitude = toNullableNumber(payload?.longitude ?? payload?.lon ?? payload?.lng);
+    if (latitude === null || longitude === null || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+      throw new Error('AIS provider returned invalid coordinates');
+    }
+
+    const receivedRaw = payload?.positionReceivedAt ?? payload?.timestamp ?? payload?.receivedAt ?? payload?.lastUpdate;
+    const receivedDate = receivedRaw ? new Date(receivedRaw) : new Date();
+    if (Number.isNaN(receivedDate.getTime())) {
+      throw new Error('AIS provider returned invalid position timestamp');
+    }
+
+    const stale = now - receivedDate.getTime() > STALE_POSITION_MS;
+    const providerName = String(raw?.provider || payload?.provider || 'external_ais_provider').slice(0, 80);
+
+    const result: SafeAISResponse = {
       vesselId: req.vesselId,
       imo: req.imo,
       mmsi: req.mmsi,
-      latitude: parseFloat(fakeLat.toFixed(4)),
-      longitude: parseFloat(fakeLng.toFixed(4)),
-      course: parseFloat((Math.random() * 360).toFixed(1)),
-      speed: parseFloat((Math.random() * 20).toFixed(1)),
-      heading: parseFloat((Math.random() * 360).toFixed(1)),
-      navigationStatus: "Under way using engine",
-      destination: "UNKNOWN",
-      eta: null,
-      positionReceivedAt: new Date().toISOString(),
-      provider: "mock-ais-provider",
-      confidence: "high",
-      isLive: true,
-      stale: false,
-      sanitizedPreview: "Live AIS position available"
+      latitude,
+      longitude,
+      course: toNullableNumber(payload?.course ?? payload?.cog),
+      speed: toNullableNumber(payload?.speed ?? payload?.sog),
+      heading: toNullableNumber(payload?.heading),
+      navigationStatus: toNullableString(payload?.navigationStatus ?? payload?.navStatus),
+      destination: toNullableString(payload?.destination),
+      eta: toNullableString(payload?.eta),
+      positionReceivedAt: receivedDate.toISOString(),
+      provider: providerName,
+      confidence: stale ? "low" : "high",
+      isLive: !stale,
+      stale,
+      sanitizedPreview: stale
+        ? `AIS position available but stale (${receivedDate.toISOString()})`
+        : `AIS position updated ${receivedDate.toISOString()}`
     };
 
-    aisCache.set(req.vesselId, { ...mockResponse, fetchedAt: now });
-
-    // Optional: write to Firestore snapshots
-    // const snapshotRef = getFirestore().collection('aisPositionSnapshots').doc();
-    // await snapshotRef.set({ ...mockResponse, fetchedAt: FieldValue.serverTimestamp(), createdByUid: 'system' });
-
-    return mockResponse;
-  } catch (error) {
-    console.error("AIS fetch error", error);
-    // Return unavailable on failure to prevent crash
-    const failure: SafeAISResponse = {
-      vesselId: req.vesselId,
-      imo: req.imo,
-      mmsi: req.mmsi,
-      latitude: null,
-      longitude: null,
-      course: null,
-      speed: null,
-      heading: null,
-      navigationStatus: null,
-      destination: null,
-      eta: null,
-      positionReceivedAt: null,
-      provider: "system",
-      confidence: "none",
-      isLive: false,
-      stale: true,
-      sanitizedPreview: "AIS lookup failed"
-    };
-    aisCache.set(req.vesselId, { ...failure, fetchedAt: now });
-    return failure;
+    aisCache.set(req.vesselId, { ...result, fetchedAt: now });
+    return result;
+  } catch (error: any) {
+    console.error("AIS fetch error:", error?.message || error);
+    const result = unavailable(req, "AIS lookup unavailable", true);
+    aisCache.set(req.vesselId, { ...result, fetchedAt: now });
+    return result;
   }
 }
 
 export function getAISProviderStatus() {
+  const configured = !!process.env.AIS_PROVIDER_URL;
   return {
-    configured: !!process.env.AIS_PROVIDER_KEY,
-    health: "unknown",
-    lastSuccessfulFetch: null,
-    lastError: "none"
+    configured,
+    health: configured ? "configured_unverified" : "not_configured",
+    providerUrlConfigured: configured
   };
 }
