@@ -31,6 +31,10 @@ const marketRequestsForm = read('src/components/MarketRequests/MarketRequestsFor
 const deskNetwork = read('src/components/DeskNetwork.tsx');
 const imapService = read('src/lib/imapService.ts');
 const documentEditor = read('src/components/DocumentEditor.tsx');
+const utilsModule = read('src/lib/utils.ts');
+const opportunityMap = read('src/components/OpportunityMap.tsx');
+const dealRoomDetail = read('src/components/DealRooms/DealRoomDetail.tsx');
+const matchingEngine = read('src/components/MatchingEngine.tsx');
 
 assert(!server.includes("testId123"), 'test-user authentication bypass must never ship');
 assert(!server.includes("raw_commodity: raw_commodity || 'coil'"), 'deterministic parser must never invent COIL');
@@ -286,6 +290,34 @@ assert(
   !settingsClient.includes('John Harrison') &&
   settingsClient.includes('TBA / EXPRESS AGREEMENT REQUIRED'),
   'document settings must use neutral placeholders instead of fictitious commercial parties'
+);
+
+assert(
+  !utilsModule.includes('INITIAL_CARGO') &&
+  !utilsModule.includes('INITIAL_VESSELS') &&
+  !utilsModule.includes('INITIAL_EMAILS') &&
+  inboxParser.includes("await import('../dev/demoEmails')") &&
+  inboxParser.includes("import.meta.env.DEV && import.meta.env.VITE_ALLOW_DEMO_DATA === 'true'"),
+  'development fixtures must not live in runtime utilities and inbox demo data must be dynamically dev-gated'
+);
+assert(
+  matchingEngine.includes('bunkerPrice: 0') &&
+  matchingEngine.includes('dailyHire: 0') &&
+  matchingEngine.includes('ballastSpeed: 0') &&
+  server.includes('const requiredCommercialInputs = [') &&
+  server.includes('const hasCommercialAssumptions = requiredCommercialInputs.every'),
+  'matching must not seed commercial economics and server must keep economics pending without actual inputs'
+);
+assert(
+  !opportunityMap.includes('Map View Placeholder') &&
+  opportunityMap.includes('Geographic Position Plot') &&
+  opportunityMap.includes('The desk will not invent map positions'),
+  'commercial map must plot only real coordinates instead of shipping a placeholder'
+);
+assert(
+  !dealRoomDetail.includes('Document Management Placeholder (Not Implemented)') &&
+  dealRoomDetail.includes("collection(db, `users/${user.uid}/recapDrafts`)"),
+  'Deal Room documents must surface linked real recap drafts instead of an unimplemented placeholder'
 );
 
 if (!process.exitCode) {
