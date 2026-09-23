@@ -17,6 +17,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import OpenAI from "openai";
 import { fetchAISPosition, getAISProviderStatus } from './src/server/aisProvider';
 import { estimateRoute } from './src/lib/routingProvider';
+import { getMarketSnapshot, getBunkerSnapshot } from './src/server/marketProvider';
 
 let firestore: Firestore | null = null;
 try {
@@ -187,8 +188,8 @@ const STRIPE_PLAN_MAPPING: Record<string, { priceId: string, name: string }> = {
 
 const AI_MODELS = {
   BROWSER_OPTIONAL: "gemini-nano-browser-optional",
-  COMPLEX_CLOUD: "gemini-2.5-flash",
-  HEAVY_SERVER: "gemini-2.5-pro",
+  COMPLEX_CLOUD: process.env.GEMINI_MODEL_FAST || "gemini-2.5-flash",
+  HEAVY_SERVER: process.env.GEMINI_MODEL_HEAVY || "gemini-2.5-pro",
   LOCAL_PROCESSING: "no-llm"
 };
 
@@ -226,6 +227,7 @@ export const CREDIT_COST: Record<string, number> = {
   analyze_risk: 5,
   match_cargo_vessel: 5,
   negotiation_strategy: 5,
+  market_report_analysis: 3,
   email_sync_scan: 1,
   manual_text_intake: 1,
   draft_reply: 2,
@@ -607,6 +609,11 @@ const COMMERCIAL_SAFETY_RULES = "CRITICAL: If freight rate or cargo weight (MT) 
 const RISK_ANALYST_SYSTEM = `You are a maritime risk analyst. Evaluate commercial data and identify risks (CQD, FIOS, lacking details). ${COMMERCIAL_SAFETY_RULES}
 Interpret terms in chartering context: SHINC/SHEX for laytime, NOR/WIBON for tendering. For CQD, severity is Medium, action is clarify. Return strictly structured JSON matching the schema.`;
 
+const MARKET_REPORT_SYSTEM = `You are a senior dry-bulk shipbroker market analyst. Parse only facts supported by the supplied broker circular or market report.
+Return structured JSON. Never invent rates, index values, fixtures, bunker prices, dates, vessel availability, counterparties, or market direction.
+If evidence is mixed, set trend to "mixed" or "unclear" and reduce confidence.
+Keep ai_summary concise and operational. Distinguish stated facts from inference.`;
+
 const JSON_REPAIR_SYSTEM_INSTRUCTION = `Repair this malformed JSON to valid JSON matching the provided schema. Do not add new facts.`;
 
 const PARSE_EMAIL_SYSTEM_INSTRUCTION = `Extract cargo or vessel positions from email.
@@ -688,8 +695,27 @@ function getGoogleGenAI() {
 let _openAI: OpenAI | null = null;
 function getOpenAI() {
   if (_openAI) return _openAI;
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY env var not set");
   _openAI = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   return _openAI;
+}
+
+let _experimentalRouter: OpenAI | null = null;
+function getExperimentalRouter() {
+  const enabled = process.env.FREELLM_FALLBACK_ENABLED === 'true';
+  if (!enabled) return null;
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_EXPERIMENTAL_LLM_FALLBACK !== 'true') return null;
+
+  const baseURL = (process.env.FREELLM_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  const apiKey = (process.env.FREELLM_API_KEY || '').trim();
+  if (!baseURL || !apiKey) return null;
+
+  if (_experimentalRouter) return _experimentalRouter;
+  _experimentalRouter = new OpenAI({
+    apiKey,
+    baseURL: baseURL.endsWith('/v1') ? baseURL : `${baseURL}/v1`,
+  });
+  return _experimentalRouter;
 }
 
 class AsyncQueue {
@@ -800,14 +826,11 @@ async function generateContentWithFailover(ai: GoogleGenAI, args: any): Promise<
     const timeoutMs = parseInt(process.env.AI_PROVIDER_TIMEOUT_MS || '30000');
     
     // 3. Clean model tier mapping
-    let openaiModel = 'gpt-4o-mini';
-    let anthropicModel = 'claude-3-haiku-20240307';
-    if (args.model === 'gemini-2.5-pro' || args.model === 'gemini-1.5-pro') {
-        openaiModel = 'gpt-4o';
-        anthropicModel = 'claude-3-5-sonnet-20241022';
-    } else if (args.model === 'gemini-2.5-flash-8b') {
-        openaiModel = 'gpt-4o-mini';
-        anthropicModel = 'claude-3-haiku-20240307';
+    let openaiModel = process.env.OPENAI_MODEL_FAST || 'gpt-4o-mini';
+    let anthropicModel = process.env.ANTHROPIC_MODEL_FAST || 'claude-3-5-haiku-latest';
+    if (args.model === AI_MODELS.HEAVY_SERVER || args.model === 'gemini-1.5-pro') {
+        openaiModel = process.env.OPENAI_MODEL_HEAVY || 'gpt-4o';
+        anthropicModel = process.env.ANTHROPIC_MODEL_HEAVY || 'claude-sonnet-4-5';
     }
 
     while (retries <= maxRetries) {
@@ -918,58 +941,88 @@ async function generateContentWithFailover(ai: GoogleGenAI, args: any): Promise<
          } catch (oaError: any) {
              console.log('OpenAI failed. Failing over to Anthropic.', oaError.message);
              if (process.env.ANTHROPIC_API_KEY) {
-                 let system = args.config?.systemInstruction;
-                 let prompt = args.contents;
-                 if (Array.isArray(prompt)) {
-                    prompt = prompt.map((p: any) => typeof p === 'string' ? p : JSON.stringify(p)).join('\n');
-                 }
-
-                 if (args.config?.responseMimeType === 'application/json') {
-                     let schemaStr = JSON.stringify(args.config?.responseSchema || {});
-                     prompt += "\n\nReturn strictly JSON according to the schema: " + schemaStr;
-                 }
-                 
-                 const reqBody: any = {
-                     model: anthropicModel,
-                     max_tokens: 4096,
-                     messages: [{role: 'user', content: prompt}]
-                 };
-                 if (system) {
-                     reqBody.system = system;
-                 }
-                 
-                 const abortController = new AbortController();
-                 const timeoutId = setTimeout(() => abortController.abort(new Error("provider_timeout")), timeoutMs);
-                 let r;
                  try {
-                     r = await fetch('https://api.anthropic.com/v1/messages', {
-                         method: 'POST',
-                         headers: {
-                            'x-api-key': process.env.ANTHROPIC_API_KEY,
-                            'anthropic-version': '2023-06-01',
-                            'content-type': 'application/json'
-                         },
-                         body: JSON.stringify(reqBody),
-                         signal: abortController.signal as any
-                     });
-                     clearTimeout(timeoutId);
-                 } catch(err: any) {
-                     clearTimeout(timeoutId);
-                     const errMsgAn = (err.message || '').toLowerCase();
-                     if (err.name === 'AbortError' || errMsgAn.includes('provider_timeout')) timeoutCount++;
-                     throw err;
+                     let system = args.config?.systemInstruction;
+                     let prompt = args.contents;
+                     if (Array.isArray(prompt)) {
+                        prompt = prompt.map((p: any) => typeof p === 'string' ? p : JSON.stringify(p)).join('\n');
+                     }
+
+                     if (args.config?.responseMimeType === 'application/json') {
+                         const schemaStr = JSON.stringify(args.config?.responseSchema || {});
+                         prompt += "\n\nReturn strictly JSON according to the schema: " + schemaStr;
+                     }
+                     
+                     const reqBody: any = {
+                         model: anthropicModel,
+                         max_tokens: 4096,
+                         messages: [{role: 'user', content: prompt}]
+                     };
+                     if (system) reqBody.system = system;
+                     
+                     const abortController = new AbortController();
+                     const timeoutId = setTimeout(() => abortController.abort(new Error("provider_timeout")), timeoutMs);
+                     let r;
+                     try {
+                         r = await fetch('https://api.anthropic.com/v1/messages', {
+                             method: 'POST',
+                             headers: {
+                                'x-api-key': process.env.ANTHROPIC_API_KEY,
+                                'anthropic-version': '2023-06-01',
+                                'content-type': 'application/json'
+                             },
+                             body: JSON.stringify(reqBody),
+                             signal: abortController.signal as any
+                         });
+                         clearTimeout(timeoutId);
+                     } catch(err: any) {
+                         clearTimeout(timeoutId);
+                         const errMsgAn = (err.message || '').toLowerCase();
+                         if (err.name === 'AbortError' || errMsgAn.includes('provider_timeout')) timeoutCount++;
+                         throw err;
+                     }
+                     
+                     if (!r.ok) throw new Error(`Anthropic HTTP ${r.status}`);
+                     const d = await r.json();
+                     if (d.error) throw new Error(d.error.message);
+                     
+                     const text = d.content?.[0]?.text || "";
+                     if (!text) throw new Error("Anthropic returned no text content");
+                     
+                     return { text, actualModel: anthropicModel, actualProvider: 'anthropic', degraded: true, retries, failovers: 2, timeoutCount, queueWaitMs };
+                 } catch (anthropicError: any) {
+                     console.log('Anthropic failed.', anthropicError.message);
                  }
-                 
-                 const d = await r.json();
-                 if (d.error) throw new Error(d.error.message);
-                 
-                 // 5. Safe Anthropic extraction
-                 const text = d.content?.[0]?.text || "";
-                 if (!text) throw new Error("Anthropic returned no text content");
-                 
-                 return { text, actualModel: anthropicModel, actualProvider: 'anthropic', degraded: true, retries, failovers: 2, timeoutCount, queueWaitMs };
              }
-             throw error; // Re-throw original Gemini error if Anthropic also fails and cannot be used
+
+             const experimentalRouter = getExperimentalRouter();
+             if (experimentalRouter) {
+                 try {
+                     let system = args.config?.systemInstruction;
+                     let prompt = args.contents;
+                     if (Array.isArray(prompt)) {
+                       prompt = prompt.map((p: any) => typeof p === 'string' ? p : JSON.stringify(p)).join('\n');
+                     }
+                     const messages: any[] = [];
+                     if (system) messages.push({ role: 'system', content: system });
+                     messages.push({ role: 'user', content: prompt });
+
+                     const routerModel = process.env.FREELLM_MODEL || 'auto';
+                     const routerConfig: any = { model: routerModel, messages };
+                     if (args.config?.responseMimeType === 'application/json') {
+                       routerConfig.response_format = { type: 'json_object' };
+                     }
+
+                     const routerResponse = await experimentalRouter.chat.completions.create(routerConfig);
+                     const text = routerResponse.choices?.[0]?.message?.content || '';
+                     if (!text) throw new Error('Experimental router returned no content');
+                     return { text, actualModel: routerModel, actualProvider: 'freellm-experimental', degraded: true, retries, failovers: 3, timeoutCount, queueWaitMs };
+                 } catch (routerError: any) {
+                     console.log('Experimental FreeLLM-compatible router failed.', routerError.message);
+                 }
+             }
+
+             throw error; // Re-throw original Gemini error if all configured fallbacks fail
          } // end inner catch oaError
       } // end outer catch error
     } // end while loop
@@ -2734,11 +2787,12 @@ async function startServer() {
     compare_cargoes: 'cargo_match_review',
     negotiation_strategy: 'negotiation_strategy',
     laytime_demurrage_analysis: 'risk_review',
-    commercial_recommendation: 'analyze_risk'
+    commercial_recommendation: 'analyze_risk',
+    parse_market_report: 'market_report_analysis'
   };
 
   const routeAITaskBackend = (taskType: string) => {
-    const heavyTasks = ["match_cargo_vessel", "analyze_fixture", "analyze_risk", "compare_vessels", "compare_cargoes", "negotiation_strategy", "laytime_demurrage_analysis", "commercial_recommendation"];
+    const heavyTasks = ["match_cargo_vessel", "analyze_fixture", "analyze_risk", "compare_vessels", "compare_cargoes", "negotiation_strategy", "laytime_demurrage_analysis", "commercial_recommendation", "parse_market_report"];
     if (heavyTasks.includes(taskType)) {
       return { model: AI_MODELS.HEAVY_SERVER, preprocessing: false };
     }
@@ -2799,6 +2853,59 @@ async function startServer() {
                    shouldFlagRisk: { type: Type.BOOLEAN }
                 },
                 required: ["type", "risk_type", "key_risk", "recommended_action", "severity", "shouldReject", "shouldFlagRisk"]
+             }
+           };
+        } else if (taskType === "parse_market_report") {
+           const marketText = String(payload.contents || payload.prompt || '');
+           if (marketText.length < 30 || marketText.length > 100000) {
+             return res.status(400).json({ error: "Market report text must be between 30 and 100000 characters" });
+           }
+           aiConfig.config = {
+             systemInstruction: MARKET_REPORT_SYSTEM,
+             responseMimeType: "application/json",
+             responseSchema: {
+               type: Type.OBJECT,
+               properties: {
+                 trend: { type: Type.STRING, description: "firm, soft, sideways, volatile, mixed, or unclear" },
+                 confidence: { type: Type.NUMBER },
+                 sentiment_score: { type: Type.NUMBER },
+                 regions: {
+                   type: Type.ARRAY,
+                   items: {
+                     type: Type.OBJECT,
+                     properties: {
+                       name: { type: Type.STRING },
+                       trend: { type: Type.STRING },
+                       activity: { type: Type.STRING }
+                     }
+                   }
+                 },
+                 cargo_activity: {
+                   type: Type.ARRAY,
+                   items: {
+                     type: Type.OBJECT,
+                     properties: {
+                       commodity: { type: Type.STRING },
+                       trend: { type: Type.STRING },
+                       note: { type: Type.STRING }
+                     }
+                   }
+                 },
+                 vessel_supply: {
+                   type: Type.ARRAY,
+                   items: {
+                     type: Type.OBJECT,
+                     properties: {
+                       segment: { type: Type.STRING },
+                       availability: { type: Type.STRING },
+                       note: { type: Type.STRING }
+                     }
+                   }
+                 },
+                 key_points: { type: Type.ARRAY, items: { type: Type.STRING } },
+                 ai_summary: { type: Type.STRING }
+               },
+               required: ["trend", "confidence", "sentiment_score", "key_points", "ai_summary"]
              }
            };
         }
@@ -2873,6 +2980,44 @@ async function startServer() {
     } catch (error: any) {
       console.error("AI Route Task Error:", error);
       res.status(500).json({ error: getErrorMsg(error) || "Failed to route AI task." });
+    }
+  });
+
+  const requireFirebaseUser = async (req: express.Request) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) return null;
+    try {
+      return await getAuth().verifyIdToken(authHeader.slice(7));
+    } catch {
+      return null;
+    }
+  };
+
+  app.get('/api/market/snapshot', async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!(await checkRateLimit(user.uid, 120, 'market-user'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+    try {
+      return res.json(await getMarketSnapshot());
+    } catch (error: any) {
+      console.error('[Market] Snapshot failed:', error.message);
+      return res.status(503).json({ error: 'Market data temporarily unavailable' });
+    }
+  });
+
+  app.get('/api/market/bunkers', async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!(await checkRateLimit(user.uid, 120, 'market-user'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+    try {
+      return res.json(await getBunkerSnapshot());
+    } catch (error: any) {
+      console.error('[Market] Bunker snapshot failed:', error.message);
+      return res.status(503).json({ error: 'Bunker data temporarily unavailable' });
     }
   });
 
