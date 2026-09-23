@@ -68,9 +68,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
   const [selectedCargos, setSelectedCargos] = useState<Set<number>>(new Set());
   const [selectedVessels, setSelectedVessels] = useState<Set<number>>(new Set());
 
-  const [accounts, setAccounts] = useState<Account[]>([
-    { id: 'acc-1', email: 'vessels@gmail.com', provider: 'gmail', active: true }
-  ]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
 
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
 
@@ -102,40 +100,41 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
   }, []);
 
   useEffect(() => {
-    if (!isLoggedIn) return;
+    let unsubscribe: (() => void) | undefined;
+    let cancelled = false;
+
     import('firebase/firestore').then(({ collection, query, onSnapshot }) => {
       import('../lib/firebase').then(({ db, auth }) => {
-        if (!auth.currentUser) return;
+        if (cancelled || !auth.currentUser) return;
         const q = query(collection(db, `users/${auth.currentUser.uid}/emailAccounts`));
-        const unsub = onSnapshot(q, (snapshot) => {
+        unsubscribe = onSnapshot(q, (snapshot) => {
           const loadedAccounts: Account[] = [];
-          snapshot.forEach(doc => {
-            const data = doc.data();
+          snapshot.forEach(docSnap => {
+            const data = docSnap.data();
+            const provider = data.provider as Account['provider'];
+            if (!['gmail', 'outlook', 'icloud', 'imap'].includes(provider)) return;
+            const email = String(data.email || data.username || '').trim();
+            if (!email) return;
             loadedAccounts.push({
-              id: doc.id,
-              email: data.email || data.username,
-              provider: data.provider,
+              id: docSnap.id,
+              email,
+              provider,
               active: data.active !== false
             });
           });
-          // Merge with any demo accounts or default
-          setAccounts(prev => {
-            const defaults = prev.filter(a => a.id === 'acc-1');
-            const merged = [...defaults];
-            loadedAccounts.forEach(acc => {
-              if (!merged.find(m => m.email === acc.email)) {
-                merged.push(acc);
-              }
-            });
-            return merged;
-          });
+          setAccounts(loadedAccounts);
+          setIsLoggedIn(isAuthenticated() || loadedAccounts.some(account => account.active));
         }, (error) => {
           console.error("Error fetching email accounts:", error);
         });
-        return unsub;
       });
     });
-  }, [isLoggedIn]);
+
+    return () => {
+      cancelled = true;
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
 
   const handleConnectNew = async () => {
     if (!newAccForm.email) return;
@@ -172,17 +171,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
         
         await handleFetchEmails();
       } else {
-        // Fallback for others
-        setTimeout(() => {
-          const newAcc: Account = {
-            id: `acc-${Date.now()}`,
-            email: newAccForm.email,
-            provider: connectingProvider || 'imap',
-            active: true
-          };
-          setAccounts(prev => [...prev, newAcc]);
-          notify({ title: 'Account Added', message: `Account ${newAccForm.email} added (mocked).`, type: 'info' });
-        }, 1000);
+        throw new Error('Unsupported email provider.');
       }
     } catch (e: any) {
       notify({ title: 'Connection Failed', message: e.message || 'Failed to verify account', type: 'error' });
@@ -216,7 +205,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
     try {
       const { doc, updateDoc } = await import('firebase/firestore');
       const { db, auth } = await import('../lib/firebase');
-      if (auth.currentUser && id !== 'acc-1') {
+      if (auth.currentUser) {
         const accTarget = accounts.find(a => a.id === id);
         if (accTarget) {
           await updateDoc(doc(db, `users/${auth.currentUser.uid}/emailAccounts/${email}`), {
@@ -234,7 +223,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
     try {
       const { doc, deleteDoc } = await import('firebase/firestore');
       const { db, auth } = await import('../lib/firebase');
-      if (auth.currentUser && id !== 'acc-1') {
+      if (auth.currentUser) {
         await deleteDoc(doc(db, `users/${auth.currentUser.uid}/emailAccounts/${email}`));
       }
     } catch (err) {
