@@ -1,3 +1,4 @@
+import { auth } from './firebase';
 export const AI_MODELS = {
   SIMPLE_BROWSER: "gemini-nano-browser-optional",
   BROWSER_OPTIONAL: "gemini-nano-browser-optional",
@@ -11,7 +12,8 @@ export type TaskType =
   | 'short_rewrite' | 'tone_adjustment' | 'quick_summary' | 'simple_classification' | 'local_ui_assist' | 'missing_field_hint'
   | 'redact_email' | 'remove_signature' | 'mask_phone_numbers' | 'trim_email_chain' | 'detect_prompt_injection' | 'mask_personal_emails' | 'preprocess_email_for_ai'
   | 'extract_cargo' | 'extract_vessel' | 'summarize_email' | 'generate_reply' | 'classify_email' | 'detect_missing_terms' | 'transport_specs' | 'normalize_cargo_json' | 'normalize_vessel_json'
-  | 'match_cargo_vessel' | 'analyze_fixture' | 'analyze_risk' | 'compare_vessels' | 'compare_cargoes' | 'negotiation_strategy' | 'laytime_demurrage_analysis' | 'commercial_recommendation';
+  | 'match_cargo_vessel' | 'analyze_fixture' | 'analyze_risk' | 'compare_vessels' | 'compare_cargoes' | 'negotiation_strategy' | 'laytime_demurrage_analysis' | 'commercial_recommendation'
+  | 'parse_market_report' | 'calculate_voyage';
 
 export function routeAITask(taskType: TaskType) {
   if (["filter_cargo", "sort_vessels", "search_table", "highlight_missing_fields", "format_card", "validate_required_fields"].includes(taskType)) {
@@ -174,11 +176,18 @@ export async function executeHybridAIRequest(taskType: TaskType, payload: any, f
       }
   }
   
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('Authentication required');
+  const idToken = await currentUser.getIdToken();
+
   const response = await fetchFunction('/api/ai/routeTask', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${idToken}`
+    },
     body: JSON.stringify({
-      taskType: taskType,
+      taskType,
       payload: processedPayload
     })
   });
