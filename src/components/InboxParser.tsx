@@ -949,7 +949,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
                             {demoDataEnabled && (
                               <div className="mt-4">
                                 <button
-                                  onClick={() => {
+                                  onClick={async () => {
                                     setGlobalError(null);
                                     setEmails([...(await loadDevelopmentDemoEmails())]);
                                     setIsLoggedIn(true);
