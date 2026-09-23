@@ -3438,7 +3438,7 @@ async function startServer() {
           category: 'market_request_match',
           priority: score >= 80 ? 'high' : 'info',
           title: 'New Market Match',
-          message: `A connected desk market request matched one of your shared items (score ${Math.round(score)}%).`,
+          message: `A connected desk market request matched one of your shared items (criteria-fit score ${Math.round(score)}/100; not a probability or fixture recommendation).`,
           sourceType: 'market_match',
           sourceId: matchId,
           actionLabel: 'Review',
