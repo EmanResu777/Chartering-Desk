@@ -108,9 +108,11 @@ assert(
   'participants must not be able to rewrite Deal Room or voyage-estimate ACL/source fields'
 );
 assert(
-  rules.includes("incoming().vesselOwnerUid == existing().vesselOwnerUid") &&
-  rules.includes("incoming().cargoOwnerUid == existing().cargoOwnerUid"),
-  'market match participants must not be able to rewrite owner identities'
+  rules.includes("function isValidMarketMatchCreate(data)") &&
+  /match \/marketMatches\/\{matchId\}[\s\S]{0,5000}allow update: if false;/.test(rules) &&
+  rules.includes("data.vesselOwnerUid == request.auth.uid") &&
+  rules.includes("data.cargoOwnerUid == counterpartUid"),
+  'market matches must require authentic participant mapping and remain immutable from clients'
 );
 assert(
   rules.includes("incoming().get('recipientUid', null) == existing().get('recipientUid', null)") &&
