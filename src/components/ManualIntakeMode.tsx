@@ -41,8 +41,8 @@ export const ManualIntakeMode = ({
     setIsParsing(true);
     setWarning(null);
     try {
-      const fakeEmail: any = {
-        id: `manual-${Date.now()}`,
+      const manualMessage: any = {
+        id: `manual-${crypto.randomUUID()}`,
         sender: 'Manual Entry',
         subject: 'Manual Broker Text',
         timestamp: new Date().toISOString(),
@@ -53,24 +53,7 @@ export const ManualIntakeMode = ({
         labels: []
       };
 
-      // Deterministic frontend fallback to bypass Gemini API completely for exceptionally short inputs
-      const lowerText = text.toLowerCase().trim().replace(/\r\n/g, '\n');
-      let result;
-      if (defaultType === 'CARGO' && (lowerText === 'loading sequence 3 days prior to actual direct loading.\n5 pct' || 
-         (lowerText.includes('loading sequence 3 days prior') && lowerText.includes('5 pct') && lowerText.length < 100))) {
-          result = {
-              type: "CARGO",
-              cargoes: [{
-                  special_requirements: "loading sequence 3 days prior to actual direct loading",
-                  comm: "5 pct",
-                  missing_fields: ["commodity", "quantity", "load port / area", "discharge port / area", "laycan", "freight / rate"]
-              }],
-              vessels: [],
-              _diagnostic: { buildVersion: "pilot-blocker-12-fix", endpoint: "parseEmail (frontend intercept)", fallbackUsed: true }
-          };
-      } else {
-          result = await parseEmail(fakeEmail, auth.currentUser?.uid, defaultType);
-      }
+      const result = await parseEmail(manualMessage, auth.currentUser?.uid, defaultType);
 
       const cList = (result.cargoes && result.cargoes.length > 0) ? result.cargoes : (result.cargo ? [result.cargo] : []);
       const vList = (result.vessels && result.vessels.length > 0) ? result.vessels : (result.vessel ? [result.vessel] : []);
@@ -240,7 +223,7 @@ export const ManualIntakeMode = ({
             continue;
           }
 
-          const id = `CRG-${Math.floor(1000 + Math.random() * 9000)}-TXT`;
+          const id = `CRG-${crypto.randomUUID()}-TXT`;
           
           const cleanItem = { ...item };
           delete cleanItem.missing_fields;
@@ -312,7 +295,7 @@ export const ManualIntakeMode = ({
             continue;
           }
 
-          const id = `VSL-${Math.floor(1000 + Math.random() * 9000)}-TXT`;
+          const id = `VSL-${crypto.randomUUID()}-TXT`;
           
           const cleanItem = { ...item };
           delete cleanItem.missing_fields;
