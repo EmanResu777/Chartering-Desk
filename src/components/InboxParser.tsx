@@ -569,8 +569,10 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
 
       let createdCargos = 0;
       let skippedCargos = 0;
+      let rejectedCargos = 0;
       let createdVessels = 0;
       let skippedVessels = 0;
+      let rejectedVessels = 0;
 
       // Handle CARGO or CARGO_LIST
       if (extractionResult.type === 'CARGO' || extractionResult.type === 'CARGO_LIST' || extractionResult.type === 'MIXED_LIST') {
@@ -579,6 +581,24 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
         
         for (let i = 0; i < cargosToPublish.length; i++) {
           const item = cargosToPublish[i];
+          const commodity = String(item.commodity || item.cargo_type || '').trim();
+          const quantity = String(item.quantity || '').trim();
+          const loadPort = String(item.loadPort || '').trim();
+          const dischargePort = String(item.dischargePort || '').trim();
+          const laycan = String(item.laycan || '').trim();
+          const missingRequired = [
+            !commodity && 'commodity',
+            !quantity && 'quantity',
+            !loadPort && 'load port',
+            !dischargePort && 'discharge port',
+            !laycan && 'laycan'
+          ].filter(Boolean);
+
+          if (missingRequired.length > 0) {
+            rejectedCargos++;
+            continue;
+          }
+
           const dedupeKey = [
              selectedEmail?.id || '',
              item.entry_no || String(i),
@@ -603,10 +623,10 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
             dedupeKey,
             sourceEmailId: selectedEmail?.id || null,
             entry_no: item.entry_no || String(i),
-            raw_commodity: String(item.raw_commodity || item.commodity || item.cargo_type || 'Unknown').substring(0, 100),
-            commodity: String(item.commodity || item.cargo_type || 'Unknown').substring(0, 100),
+            raw_commodity: String(item.raw_commodity || commodity).substring(0, 100),
+            commodity: commodity.substring(0, 100),
             normalized_commodity: item.normalized_commodity ? String(item.normalized_commodity).substring(0, 100) : null,
-            quantity: String(item.quantity || 'TBN').substring(0, 100),
+            quantity: quantity.substring(0, 100),
             quantity_mt: item.quantity_mt ? String(item.quantity_mt).substring(0, 50) : null,
             quantity_cbm: item.quantity_cbm ? String(item.quantity_cbm).substring(0, 50) : null,
             plus_minus: item.plus_minus ? String(item.plus_minus).substring(0, 50) : null,
@@ -616,10 +636,11 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
             waiting_clause: item.waiting_clause ? String(item.waiting_clause).substring(0, 100) : null,
             unit_weight: item.unit_weight ? String(item.unit_weight).substring(0, 100) : null,
             stowage: item.stowage ? String(item.stowage).substring(0, 100) : null,
-            loadPort: String(item.loadPort || 'TBN').substring(0, 100),
-            dischargePort: String(item.dischargePort || 'TBN').substring(0, 100),
-            laycan: String(item.laycan || 'TBD').substring(0, 100),
-            charterer: String(selectedEmail?.sender || 'Unknown').substring(0, 150),
+            loadPort: loadPort.substring(0, 100),
+            dischargePort: dischargePort.substring(0, 100),
+            laycan: laycan.substring(0, 100),
+            charterer: item.charterer ? String(item.charterer).substring(0, 150) : '',
+            sourceContact: selectedEmail?.sender ? String(selectedEmail.sender).substring(0, 150) : '',
             category: String(selectedEmail?.category || 'DRY BULK').substring(0, 100),
             status: 'ACTIVE',
             description: String(extractionResult.summary || '').substring(0, 1000),
@@ -647,7 +668,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
           }
         }
         
-        if (createdCargos > 0 || skippedCargos > 0) {
+        if (createdCargos > 0 || skippedCargos > 0 || rejectedCargos > 0) {
           if (createdCargos === 1) {
             addNotification({
               title: settings?.mode === 'broker_humor' 
@@ -684,9 +705,9 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
           }
 
           notify({
-            title: 'Cargo Published',
-            message: `${createdCargos} Cargo(es) added. ${skippedCargos > 0 ? `(${skippedCargos} skipped as duplicates)` : ''}`,
-            type: 'success'
+            title: rejectedCargos > 0 ? 'Cargo Publish Review' : 'Cargo Published',
+            message: `${createdCargos} added, ${skippedCargos} duplicate(s), ${rejectedCargos} rejected as incomplete.`,
+            type: rejectedCargos > 0 ? 'warning' : 'success'
           });
         }
       } 
@@ -698,6 +719,16 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
         
         for (let i = 0; i < vesselsToPublish.length; i++) {
           const item = vesselsToPublish[i];
+          const vesselName = String(item.name || item.vessel_name || '').trim();
+          const vesselDwt = Number(String(item.dwt || '').replace(/[^0-9.]/g, '')) || 0;
+          const openPort = String(item.openPort || '').trim();
+          const openDate = String(item.openDate || '').trim();
+
+          if (!vesselName || vesselDwt <= 0 || !openPort || !openDate) {
+            rejectedVessels++;
+            continue;
+          }
+
           const dedupeKey = [
              selectedEmail?.id || '',
              item.entry_no || String(i),
@@ -722,14 +753,15 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
             sourceEmailId: selectedEmail?.id || null,
             entry_no: item.entry_no || String(i),
             section_region: item.section_region ? String(item.section_region).substring(0, 100) : null,
-            name: String(item.name || item.vessel_name || 'TBN').substring(0, 100),
-            dwt: Number(String(item.dwt || '').replace(/[^0-9.]/g, '')) || 0,
-            openPort: String(item.openPort || 'TBN').substring(0, 100),
-            openDate: String(item.openDate || 'TBD').substring(0, 50),
+            name: vesselName.substring(0, 100),
+            dwt: vesselDwt,
+            openPort: openPort.substring(0, 100),
+            openDate: openDate.substring(0, 50),
             gear: String(item.gear || '').substring(0, 100),
             direction: String(item.direction || '').substring(0, 100),
-            type: String(item.type || item.vessel_type || 'Bulk Carrier').substring(0, 100),
-            owner: String(selectedEmail?.sender || 'Unknown').substring(0, 150),
+            type: String(item.type || item.vessel_type || '').substring(0, 100),
+            owner: item.owner ? String(item.owner).substring(0, 150) : '',
+            sourceContact: selectedEmail?.sender ? String(selectedEmail.sender).substring(0, 150) : '',
             holds: item.holds ? String(item.holds).substring(0, 100) : null,
             cranes: item.cranes ? String(item.cranes).substring(0, 100) : null,
             last_cargo: item.last_cargo ? String(item.last_cargo).substring(0, 100) : null,
@@ -748,7 +780,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
           createdVessels++;
         }
         
-        if (createdVessels > 0 || skippedVessels > 0) {
+        if (createdVessels > 0 || skippedVessels > 0 || rejectedVessels > 0) {
           if (createdVessels === 1) {
             addNotification({
               title: settings?.mode === 'broker_humor' 
@@ -785,9 +817,9 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
           }
 
           notify({
-            title: 'Vessel Published',
-            message: `${createdVessels} Vessel(s) added. ${skippedVessels > 0 ? `(${skippedVessels} skipped as duplicates)` : ''}`,
-            type: 'success'
+            title: rejectedVessels > 0 ? 'Vessel Publish Review' : 'Vessel Published',
+            message: `${createdVessels} added, ${skippedVessels} duplicate(s), ${rejectedVessels} rejected as incomplete.`,
+            type: rejectedVessels > 0 ? 'warning' : 'success'
           });
         }
       }
