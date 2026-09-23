@@ -16,6 +16,7 @@ import { ArchitectureStack } from './components/ArchitectureStack';
 import { SmartRadar } from './components/SmartRadar';
 import { DealRoomMain } from './components/DealRooms/DealRoomMain';
 import { Dashboard } from './components/Dashboard';
+import { MarketIntel } from './components/MarketIntel';
 import { Ticker } from './components/Ticker';
 import { Pricing } from './components/Pricing';
 import { GlobalSearch } from './components/GlobalSearch';
@@ -34,7 +35,7 @@ import { useAuth, loginWithGoogle, logout, handleFirestoreError, OperationType, 
 import { collection, onSnapshot, query, where, setDoc, doc, deleteDoc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { shareItem, unshareItem, updateSharedItem } from './lib/networkService';
 
-type Tab = 'dashboard' | 'cargo' | 'vessel' | 'selection' | 'inbox' | 'analytics' | 'settings' | 'match' | 'contacts' | 'ai' | 'architecture' | 'docs' | 'documents' | 'radar' | 'deal-rooms';
+type Tab = 'dashboard' | 'cargo' | 'vessel' | 'selection' | 'inbox' | 'analytics' | 'settings' | 'match' | 'contacts' | 'ai' | 'architecture' | 'docs' | 'documents' | 'radar' | 'deal-rooms' | 'market';
 
 import { FeedbackWidget } from './components/FeedbackWidget';
 
@@ -96,6 +97,7 @@ function AppContent() {
        if (path === '/cargo') setActiveTab('cargo');
        if (path === '/vessel') setActiveTab('vessel');
        if (path === '/radar') setActiveTab('radar');
+       if (path === '/market') setActiveTab('market');
        if (path === '/dashboard') setActiveTab('dashboard');
        if (path === '/settings') setActiveTab('settings');
     };
@@ -802,6 +804,8 @@ function AppContent() {
         return <SmartRadar />;
       case 'deal-rooms':
         return <DealRoomMain />;
+      case 'market':
+        return <MarketIntel />;
       case 'documents':
         return <DraftList />;
       case 'cargo':
