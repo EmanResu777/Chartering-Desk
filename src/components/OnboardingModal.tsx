@@ -229,7 +229,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ user, onComple
                 </div>
                 <h2 className="text-2xl font-display font-light text-on-surface mb-4">Plan & Trial Status</h2>
                 <p className="text-sm text-on-surface-variant mb-8 leading-relaxed">
-                  You are currently on the <strong className="text-on-surface">Maximum Tier (Trial)</strong> plan. You have full access to all AI parsing, analytics, and network capabilities.
+                  New accounts receive a <strong className="text-on-surface">14-day trial</strong> with the trial credit allowance. Trial eligibility is account-based and does not reset when creating another workspace.
                 </p>
                 <div className="bg-surface-container-low border border-outline/30 rounded-sm p-4 text-left mb-8 space-y-3">
                   <div className="flex items-center justify-between text-sm">
