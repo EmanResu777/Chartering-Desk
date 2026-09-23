@@ -245,6 +245,109 @@ export function getCurrentUsagePeriod(): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+type BillingState = {
+  planId: 'trial' | 'solo' | 'desk' | 'free';
+  billingStatus: string;
+  creditsIncluded: number;
+  resetAt: Date;
+  trialStartedAt?: Date;
+  trialEndsAt?: Date;
+  currentPeriodStart?: Date;
+  currentPeriodEnd?: Date;
+};
+
+async function getOrCreateBillingState(uid: string): Promise<BillingState | null> {
+  if (!firestore) return null;
+  const stateRef = firestore.collection('users').doc(uid).collection('billingState').doc('current');
+  const existing = await stateRef.get();
+  if (existing.exists) {
+    return existing.data() as BillingState;
+  }
+
+  let accountCreatedAt = new Date();
+  try {
+    const userRecord = await getAuth().getUser(uid);
+    if (userRecord.metadata.creationTime) {
+      accountCreatedAt = new Date(userRecord.metadata.creationTime);
+    }
+  } catch (error: any) {
+    console.warn('[Billing] Failed to resolve Firebase Auth creation time:', error.message);
+    return null;
+  }
+
+  const trialEndsAt = new Date(accountCreatedAt.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const activeTrial = Date.now() < trialEndsAt.getTime();
+  const initialState: BillingState = {
+    planId: 'trial',
+    billingStatus: activeTrial ? 'trial' : 'trial_expired',
+    creditsIncluded: activeTrial ? PLAN_CONFIG.trial.creditsIncluded : 0,
+    resetAt: trialEndsAt,
+    trialStartedAt: accountCreatedAt,
+    trialEndsAt,
+  };
+
+  try {
+    await stateRef.create({
+      ...initialState,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return initialState;
+  } catch (error: any) {
+    const raced = await stateRef.get();
+    if (raced.exists) return raced.data() as BillingState;
+    console.error('[Billing] Failed to initialize billing state:', error.message);
+    return null;
+  }
+}
+
+function normalizeBillingState(raw: any): BillingState | null {
+  if (!raw) return null;
+  const toDate = (value: any) => value?.toDate ? value.toDate() : (value ? new Date(value) : undefined);
+  const planId = ['trial', 'solo', 'desk', 'free'].includes(raw.planId) ? raw.planId : 'free';
+  const resetAt = toDate(raw.resetAt) || new Date(0);
+  const trialEndsAt = toDate(raw.trialEndsAt);
+  const currentPeriodStart = toDate(raw.currentPeriodStart);
+  const currentPeriodEnd = toDate(raw.currentPeriodEnd);
+
+  let creditsIncluded = Number(raw.creditsIncluded || 0);
+  let billingStatus = String(raw.billingStatus || 'inactive');
+
+  if (planId === 'trial') {
+    const stillActive = !!trialEndsAt && Date.now() < trialEndsAt.getTime();
+    creditsIncluded = stillActive ? PLAN_CONFIG.trial.creditsIncluded : 0;
+    billingStatus = stillActive ? 'trial' : 'trial_expired';
+  } else if (planId === 'solo' || planId === 'desk') {
+    const activeStatus = ['active', 'trialing'].includes(billingStatus);
+    const withinPaidPeriod = !currentPeriodEnd || Date.now() <= currentPeriodEnd.getTime();
+    creditsIncluded = activeStatus && withinPaidPeriod
+      ? Number(PLAN_CONFIG[planId].creditsIncluded)
+      : 0;
+    if (!withinPaidPeriod && activeStatus) billingStatus = 'renewal_pending';
+  } else {
+    creditsIncluded = 0;
+  }
+
+  return {
+    planId,
+    billingStatus,
+    creditsIncluded,
+    resetAt: currentPeriodEnd || trialEndsAt || resetAt,
+    trialStartedAt: toDate(raw.trialStartedAt),
+    trialEndsAt,
+    currentPeriodStart,
+    currentPeriodEnd,
+  };
+}
+
+async function writeBillingState(uid: string, data: Record<string, any>) {
+  if (!firestore) throw new Error('Firestore not initialized');
+  await firestore.collection('users').doc(uid).collection('billingState').doc('current').set({
+    ...data,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+}
+
 export function getCreditCost(operation: string): number {
   const cost = CREDIT_COST[operation];
   if (cost === undefined) {
@@ -433,27 +536,49 @@ export async function getOrCreateUsageDoc(uid: string) {
   if (!firestore) return null;
   const period = getCurrentUsagePeriod();
   const usageRef = firestore.collection('users').doc(uid).collection('usage').doc(period);
-  
+
   try {
+    const rawBillingState = await getOrCreateBillingState(uid);
+    const billingState = normalizeBillingState(rawBillingState);
+    if (!billingState) return null;
+
     const docSnap = await usageRef.get();
-    if (!docSnap.exists) {
-      // Create new monthly doc or trial doc
+    const existing = docSnap.exists ? (docSnap.data() || {}) : null;
+    const desired = {
+      uid,
+      planId: billingState.planId,
+      creditsIncluded: billingState.creditsIncluded,
+      period,
+      resetAt: billingState.resetAt,
+      billingStatus: billingState.billingStatus,
+      updatedAt: FieldValue.serverTimestamp()
+    };
+
+    if (!existing) {
       const newDoc = {
-        uid,
-        planId: 'trial', // Defaulting to trial for skeleton
-        creditsIncluded: PLAN_CONFIG.trial.creditsIncluded,
+        ...desired,
         creditsUsed: 0,
-        period,
-        resetAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days for trial
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp()
+        createdAt: FieldValue.serverTimestamp()
       };
       await usageRef.set(newDoc);
-      return newDoc;
+      return { ...newDoc, updatedAt: undefined, createdAt: undefined };
     }
-    return docSnap.data();
+
+    const existingResetAt = existing.resetAt?.toDate ? existing.resetAt.toDate() : new Date(existing.resetAt || 0);
+    const needsReconcile =
+      existing.planId !== desired.planId ||
+      Number(existing.creditsIncluded || 0) !== desired.creditsIncluded ||
+      existing.billingStatus !== desired.billingStatus ||
+      existingResetAt.getTime() !== billingState.resetAt.getTime();
+
+    if (needsReconcile) {
+      await usageRef.set(desired, { merge: true });
+      return { ...existing, ...desired };
+    }
+
+    return existing;
   } catch (err: any) {
-    console.error("[Usage Fatal] Failed to get or create usage doc. Error name:", err.name, "Message:", err.message, "Stack:", err.stack);
+    console.error("[Usage Fatal] Failed to get or create usage doc. Error name:", err.name, "Message:", err.message);
     return null;
   }
 }
@@ -500,6 +625,11 @@ export async function incrementCreditsUsed(uid: string, operation: string, cost:
     return { recorded: false, cost, operation, requestId, safeErrorCode: 'no_firestore' };
   }
   
+  const preparedUsage = await getOrCreateUsageDoc(uid);
+  if (!preparedUsage) {
+    return { recorded: false, cost, operation, requestId, safeErrorCode: 'USAGE_STATE_UNAVAILABLE' };
+  }
+
   let validRequestId = requestId;
   if (!validRequestId) {
     // Fail-safe logic if no idempotency key is provided.
@@ -525,10 +655,9 @@ export async function incrementCreditsUsed(uid: string, operation: string, cost:
       const docSnap = await transaction.get(usageRef);
       const overrideSnap = await transaction.get(overrideRef);
 
-      const usageData = docSnap.exists ? (docSnap.data() || {}) : {};
+      const usageData = docSnap.exists ? (docSnap.data() || {}) : preparedUsage;
       const currentUsed = Number(usageData.creditsUsed || 0);
-      const baseIncludedRaw = docSnap.exists ? usageData.creditsIncluded : PLAN_CONFIG.trial.creditsIncluded;
-      const baseIncluded = Number(baseIncludedRaw);
+      const baseIncluded = Number(usageData.creditsIncluded || 0);
 
       if (!Number.isFinite(baseIncluded) || baseIncluded < 0 || !Number.isFinite(currentUsed) || currentUsed < 0) {
         return { recorded: false, cost, operation, requestId: validRequestId, safeErrorCode: 'INVALID_USAGE_STATE' };
@@ -552,11 +681,12 @@ export async function incrementCreditsUsed(uid: string, operation: string, cost:
       if (!docSnap.exists) {
         transaction.set(usageRef, {
           uid,
-          planId: 'trial',
-          creditsIncluded: PLAN_CONFIG.trial.creditsIncluded,
+          planId: preparedUsage.planId,
+          creditsIncluded: preparedUsage.creditsIncluded,
           creditsUsed: cost,
           period,
-          resetAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), 
+          resetAt: preparedUsage.resetAt,
+          billingStatus: preparedUsage.billingStatus,
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp()
         });
@@ -1166,6 +1296,15 @@ async function startServer() {
              creditsUsed: 0, // Reset on new subscription completed
              billingStatus: 'active'
           }, { merge: true });
+
+          await writeBillingState(userId, {
+            planId,
+            billingStatus: 'active',
+            creditsIncluded: Number(planConfig.creditsIncluded),
+            stripeCustomerId: session.customer,
+            stripeSubscriptionId: session.subscription,
+            trialConsumed: true
+          });
         }
       } 
       else if (event.type === 'customer.subscription.created' || event.type === 'customer.subscription.updated') {
@@ -1194,6 +1333,18 @@ async function startServer() {
               currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
               resetAt: new Date((subscription as any).current_period_end * 1000)
            }, { merge: true });
+
+           await writeBillingState(userId, {
+             planId,
+             billingStatus: subscription.status,
+             creditsIncluded: Number(planConfig.creditsIncluded),
+             stripeCustomerId: subscription.customer,
+             stripeSubscriptionId: subscription.id,
+             currentPeriodStart: new Date((subscription as any).current_period_start * 1000),
+             currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+             resetAt: new Date((subscription as any).current_period_end * 1000),
+             trialConsumed: true
+           });
         }
       }
       else if (event.type === 'customer.subscription.deleted') {
@@ -1210,9 +1361,17 @@ async function startServer() {
            const period = getCurrentUsagePeriod();
            await firestore.collection('users').doc(userId).collection('usage').doc(period).set({
               billingStatus: 'cancelled',
-              planId: 'trial',
-              creditsIncluded: PLAN_CONFIG.trial.creditsIncluded // safe read-only or limited fallback
+              planId: 'free',
+              creditsIncluded: 0
            }, { merge: true });
+
+           await writeBillingState(userId, {
+             planId: 'free',
+             billingStatus: 'cancelled',
+             creditsIncluded: 0,
+             stripeSubscriptionId: subscription.id,
+             trialConsumed: true
+           });
         }
       }
       else if (event.type === 'invoice.payment_succeeded') {
@@ -1225,6 +1384,7 @@ async function startServer() {
                  creditsUsed: 0, // Reset credits on successful recurring invoice payment
                  billingStatus: 'active'
               }, { merge: true });
+              await writeBillingState(userId, { billingStatus: 'active' });
             }
         }
       }
@@ -1239,8 +1399,13 @@ async function startServer() {
 
                const period = getCurrentUsagePeriod();
                await firestore.collection('users').doc(userId).collection('usage').doc(period).set({
-                  billingStatus: 'past_due'
+                  billingStatus: 'past_due',
+                  creditsIncluded: 0
                }, { merge: true });
+               await writeBillingState(userId, {
+                 billingStatus: 'past_due',
+                 creditsIncluded: 0
+               });
             }
         }
       }
