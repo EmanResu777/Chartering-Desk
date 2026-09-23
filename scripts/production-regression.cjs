@@ -14,6 +14,10 @@ function assert(condition, message) {
 const server = read('server.ts');
 const selectionDesk = read('src/components/SelectionDesk.tsx');
 const cargoDesk = read('src/components/CargoDesk.tsx');
+const vesselMonitor = read('src/components/VesselMonitor.tsx');
+const inboxParser = read('src/components/InboxParser.tsx');
+const appClient = read('src/App.tsx');
+const workspaceContext = read('src/lib/WorkspaceContext.tsx');
 
 assert(!server.includes("testId123"), 'test-user authentication bypass must never ship');
 assert(!server.includes("raw_commodity: raw_commodity || 'coil'"), 'deterministic parser must never invent COIL');
@@ -139,6 +143,19 @@ assert(
   cargoDesk.includes("taskType: \"transport_specs\"") &&
   !cargoDesk.includes('operation: "analyze_risk"'),
   'Cargo transport intelligence must use the allowlisted AI router instead of a blocked generic operation'
+);
+
+assert(
+  appClient.includes('overflow-x-auto no-scrollbar') &&
+  cargoDesk.includes('bottom-[calc(5.25rem+env(safe-area-inset-bottom))]') &&
+  vesselMonitor.includes('bottom-[calc(5.25rem+env(safe-area-inset-bottom))]') &&
+  inboxParser.includes('w-[calc(100vw-2rem)] max-w-72'),
+  'mobile navigation and key overlays must remain phone-safe'
+);
+assert(
+  !workspaceContext.includes('trialEndsAt.setDate') &&
+  !workspaceContext.includes('trialEndsAt: trialEndsAt'),
+  'creating a workspace must never mint or extend trial eligibility'
 );
 
 if (!process.exitCode) {
