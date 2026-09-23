@@ -967,7 +967,6 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
                               </div>
                             )}
                           </div>
-                          </div>
                         </>
                       ) : (
                         <div className="space-y-4">
