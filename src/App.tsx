@@ -451,19 +451,17 @@ function AppContent() {
     };
   }, [user, currentWorkspace]);
 
-  // User Identity
-  const [userProfile] = useState({
-    id: `#DSK-${Math.floor(1000 + Math.random() * 8999)}`,
-    name: 'You (Me)',
-    role: 'Senior Broker'
-  });
+  // User identity shown in legacy network UI. Use authenticated data only.
+  const userProfile = {
+    id: user.uid,
+    name: user.displayName || user.email || 'Broker',
+    role: currentWorkspace?.myRole || 'broker'
+  };
 
   // Network State
   const [networkMessages, setNetworkMessages] = useState<any[]>([]);
   const [selectedContact, setSelectedContact] = useState<any>(null);
-  const [pendingInvites, setPendingInvites] = useState<any[]>([
-    { id: '3', name: 'Dimitris Papadopoulos', role: 'Owner Rep', online: false, status: 'pending_received' },
-  ]);
+  const [pendingInvites, setPendingInvites] = useState<any[]>([]);
 
   // Set initial contact
   useEffect(() => {
@@ -659,23 +657,32 @@ function AppContent() {
 
     const handleImportCargoAsync = async (e: any) => {
       if (!user) return;
-      const data = e.detail;
+      const data = e.detail || {};
+      if (!data.commodity || !data.quantity || !data.loadPort || !data.dischargePort) {
+        notify({
+          type: 'error',
+          title: 'Network Import Rejected',
+          message: 'Cargo import requires commodity, quantity, load port and discharge port.'
+        });
+        return;
+      }
+
       const newCargo: Cargo = {
-        id: `NET-${Math.floor(1000 + Math.random() * 9000)}`,
-        commodity: data.commodity || 'UNNAMED_CARGO',
-        quantity: data.quantity || 'TBN',
-        loadPort: data.loadPort || 'TBN',
-        dischargePort: data.dischargePort || 'TBN',
-        laycan: data.laycan || 'PTLY',
-        charterer: data.charterer || 'NETWORK_CONTACT',
+        id: `NET-${crypto.randomUUID()}`,
+        commodity: String(data.commodity),
+        quantity: String(data.quantity),
+        loadPort: String(data.loadPort),
+        dischargePort: String(data.dischargePort),
+        laycan: data.laycan ? String(data.laycan) : 'TBD',
+        charterer: data.charterer ? String(data.charterer) : 'NETWORK_CONTACT',
         category: data.category || 'DRY BULK',
         status: data.status || 'ACTIVE',
         priority: data.priority || 'NORMAL',
-        confidence: 90
+        confidence: Number.isFinite(Number(data.confidence)) ? Number(data.confidence) : 0
       };
       await handleCargoCreate(newCargo);
       
-      const title = settings?.mode === 'broker_humor'
+      const title = settings?.mode === 'broker_humor' 
         ? "🤝 New Desk Network interest received — someone’s knocking on your cargo."
         : "Desk Network Proposal Received";
         
@@ -688,7 +695,6 @@ function AppContent() {
         source: 'desk_network'
       });
       
-      // Set notification if not on cargo tab
       if (activeTab !== 'cargo') {
         setNotifications(prev => ({ ...prev, cargo: true }));
       }
@@ -696,28 +702,38 @@ function AppContent() {
 
     const handleImportVesselAsync = async (e: any) => {
       if (!user || !currentWorkspace) return;
-      const data = e.detail;
+      const data = e.detail || {};
+      const parsedDwt = Number(data.dwt);
+
+      if (!data.name || !Number.isFinite(parsedDwt) || parsedDwt <= 0) {
+        notify({
+          type: 'error',
+          title: 'Network Import Rejected',
+          message: 'Vessel import requires a vessel name and valid DWT.'
+        });
+        return;
+      }
+
       const newVessel: Vessel = {
-        id: `NET-V-${Math.floor(1000 + Math.random() * 9000)}`,
-        name: data.name || 'UNKNOWN_SHIP',
-        type: data.type || 'Handymax',
-        dwt: data.dwt || 50000,
-        grt: data.grt || 30000,
-        nrt: data.nrt || 18000,
-        builtYear: data.builtYear || 2020,
+        id: `NET-V-${crypto.randomUUID()}`,
+        name: String(data.name),
+        type: data.type ? String(data.type) : 'Bulk Carrier',
+        dwt: parsedDwt,
+        grt: Number.isFinite(Number(data.grt)) ? Number(data.grt) : 0,
+        nrt: Number.isFinite(Number(data.nrt)) ? Number(data.nrt) : 0,
+        builtYear: Number.isFinite(Number(data.builtYear)) ? Number(data.builtYear) : 0,
         status: data.status || 'OPEN',
-        openPort: data.openPort || 'TBN',
-        openDate: data.openDate || 'PTLY',
-        owner: data.owner || 'PRIVATE_OWNER',
-        updatedAt: 'LIVE_NOW',
-        confidence: 95
+        openPort: data.openPort ? String(data.openPort) : 'TBD',
+        openDate: data.openDate ? String(data.openDate) : 'TBD',
+        owner: data.owner ? String(data.owner) : 'NETWORK_CONTACT',
+        updatedAt: new Date().toISOString(),
+        confidence: Number.isFinite(Number(data.confidence)) ? Number(data.confidence) : 0
       };
       
       await safeFirestoreCall(async () => {
         await setDoc(doc(db, 'vessels', newVessel.id), { ...newVessel, workspaceId: currentWorkspace.id, userId: user.uid });
       }, OperationType.CREATE, 'vessels', `Vessel ${newVessel.name} imported successfully`);
 
-      // Set notification if not on vessel tab
       if (activeTab !== 'vessel') {
         setNotifications(prev => ({ ...prev, vessel: true }));
       }
