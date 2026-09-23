@@ -739,6 +739,13 @@ const COMMERCIAL_SAFETY_RULES = "CRITICAL: If freight rate or cargo weight (MT) 
 const RISK_ANALYST_SYSTEM = `You are a maritime risk analyst. Evaluate commercial data and identify risks (CQD, FIOS, lacking details). ${COMMERCIAL_SAFETY_RULES}
 Interpret terms in chartering context: SHINC/SHEX for laytime, NOR/WIBON for tendering. For CQD, severity is Medium, action is clarify. Return strictly structured JSON matching the schema.`;
 
+const VOYAGE_CALC_SYSTEM = `You are a senior dry-bulk voyage estimator assisting a shipbroker.
+Use only the supplied cargo, vessel and manual overrides. Never invent a freight rate or lump sum.
+When route distance, speed, consumption, bunker price, port time or PDA is not confirmed, you may use a transparent reference assumption ONLY to produce an indicative scenario, and its status must be "Assumed default" or "Estimated route".
+Never label an indicative result as fixture-grade, confirmed, profitable, or above market.
+If cargo weight in MT is unknown, keep TCE/profitability pending.
+Return strict JSON matching the response schema.`;
+
 const MARKET_REPORT_SYSTEM = `You are a senior dry-bulk shipbroker market analyst. Parse only facts supported by the supplied broker circular or market report.
 Return structured JSON. Never invent rates, index values, fixtures, bunker prices, dates, vessel availability, counterparties, or market direction.
 If evidence is mixed, set trend to "mixed" or "unclear" and reduce confidence.
@@ -2960,7 +2967,8 @@ async function startServer() {
     negotiation_strategy: 'negotiation_strategy',
     laytime_demurrage_analysis: 'risk_review',
     commercial_recommendation: 'analyze_risk',
-    parse_market_report: 'market_report_analysis'
+    parse_market_report: 'market_report_analysis',
+    calculate_voyage: 'freight_calc'
   };
 
   const routeAITaskBackend = (taskType: string) => {
@@ -3025,6 +3033,90 @@ async function startServer() {
                    shouldFlagRisk: { type: Type.BOOLEAN }
                 },
                 required: ["type", "risk_type", "key_risk", "recommended_action", "severity", "shouldReject", "shouldFlagRisk"]
+             }
+           };
+        } else if (taskType === "calculate_voyage") {
+           const cargo = payload.cargo;
+           const vessel = payload.vessel;
+           const overrides = payload.overrides && typeof payload.overrides === 'object' ? payload.overrides : {};
+           if (!cargo || typeof cargo !== 'object' || !vessel || typeof vessel !== 'object') {
+             return res.status(400).json({ error: "Cargo and vessel objects are required" });
+           }
+           const compactPayload = {
+             cargo: {
+               commodity: cargo.commodity || cargo.rawCommodity || null,
+               quantity: cargo.quantity || cargo.quantityMt || cargo.quantityCbm || null,
+               quantityMt: cargo.quantityMt || null,
+               loadPort: cargo.loadPort || null,
+               dischargePort: cargo.dischargePort || null,
+               laycan: cargo.laycan || null,
+               freightRate: cargo.freightRate || cargo.freightIdea || null,
+               lumpSum: cargo.lumpSum || null,
+               terms: cargo.terms || null,
+             },
+             vessel: {
+               name: vessel.name || null,
+               type: vessel.type || null,
+               dwt: vessel.dwt || null,
+               openPort: vessel.openPort || null,
+               openDate: vessel.openDate || null,
+               speed: vessel.speed || null,
+               consumption: vessel.consumption || null,
+             },
+             overrides
+           };
+           const serialized = JSON.stringify(compactPayload);
+           if (serialized.length > 100000) {
+             return res.status(413).json({ error: "Voyage calculation payload is too large" });
+           }
+           aiConfig.contents = serialized;
+           aiConfig.config = {
+             systemInstruction: VOYAGE_CALC_SYSTEM,
+             responseMimeType: "application/json",
+             responseSchema: {
+               type: Type.OBJECT,
+               properties: {
+                 ballastLeg: { type: Type.STRING },
+                 ladenLeg: { type: Type.STRING },
+                 distanceToLoad: { type: Type.STRING },
+                 distanceVoyage: { type: Type.STRING },
+                 totalDistance: { type: Type.STRING },
+                 distanceStatus: { type: Type.STRING },
+                 seaDays: { type: Type.STRING },
+                 portDays: { type: Type.STRING },
+                 waitingDays: { type: Type.STRING },
+                 daysTotal: { type: Type.STRING },
+                 speedStatus: { type: Type.STRING },
+                 fuelConsumption: { type: Type.STRING },
+                 totalBunkerQuantity: { type: Type.STRING },
+                 fuelCost: { type: Type.STRING },
+                 consumptionStatus: { type: Type.STRING },
+                 bunkerPriceStatus: { type: Type.STRING },
+                 portCosts: { type: Type.STRING },
+                 pdaStatus: { type: Type.STRING },
+                 totalExpenses: { type: Type.STRING },
+                 cargoQuantityStatus: { type: Type.STRING },
+                 estimatedFreight: { type: Type.STRING },
+                 freightStatus: { type: Type.STRING },
+                 profitability: { type: Type.STRING },
+                 tce: { type: Type.STRING },
+                 reasoning: { type: Type.STRING },
+                 commercialStatus: { type: Type.STRING },
+                 completenessScore: { type: Type.NUMBER },
+                 routeIntegrity: { type: Type.STRING },
+                 routeConfidence: { type: Type.STRING },
+                 ballastSeverity: { type: Type.STRING },
+                 commercialRecommendation: { type: Type.STRING },
+                 dwtUtilizationWarning: { type: Type.STRING, nullable: true }
+               },
+               required: [
+                 "ballastLeg","ladenLeg","distanceToLoad","distanceVoyage","totalDistance","distanceStatus",
+                 "seaDays","portDays","waitingDays","daysTotal","speedStatus","fuelConsumption","totalBunkerQuantity",
+                 "fuelCost","consumptionStatus","bunkerPriceStatus","portCosts","pdaStatus","totalExpenses",
+                 "cargoQuantityStatus","estimatedFreight","freightStatus","profitability","tce","reasoning",
+                 "commercialStatus","completenessScore","routeIntegrity","routeConfidence","ballastSeverity",
+                 "commercialRecommendation"
+               ]
              }
            };
         } else if (taskType === "parse_market_report") {
