@@ -411,10 +411,15 @@ service cloud.firestore {
         incoming().vesselOwnerUid == request.auth.uid || 
         incoming().cargoOwnerUid == request.auth.uid
       );
-      allow update: if isSignedIn() && (
-        existing().vesselOwnerUid == request.auth.uid || 
-        existing().cargoOwnerUid == request.auth.uid
-      );
+      allow update: if isSignedIn()
+        && incoming().vesselOwnerUid == existing().vesselOwnerUid
+        && incoming().cargoOwnerUid == existing().cargoOwnerUid
+        && incoming().get('vesselItemId', null) == existing().get('vesselItemId', null)
+        && incoming().get('cargoItemId', null) == existing().get('cargoItemId', null)
+        && (
+          existing().vesselOwnerUid == request.auth.uid || 
+          existing().cargoOwnerUid == request.auth.uid
+        );
       allow delete: if isSignedIn() && (
         existing().vesselOwnerUid == request.auth.uid || 
         existing().cargoOwnerUid == request.auth.uid
@@ -451,15 +456,21 @@ service cloud.firestore {
         resource.data.createdByUid == request.auth.uid || 
         (resource.data.visibility == 'my_desk' && resource.data.createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
       );
-      allow create: if isSignedIn() && incoming().createdByUid == request.auth.uid;
-      allow update: if isSignedIn() && (
-        existing().createdByUid == request.auth.uid || 
-        (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
-      );
-      allow delete: if isSignedIn() && (
-        existing().createdByUid == request.auth.uid || 
-        (existing().visibility == 'my_desk' && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
-      );
+      allow create: if isSignedIn()
+        && incoming().createdByUid == request.auth.uid
+        && (!('createdByDeskId' in incoming()) || incoming().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId);
+      allow update: if isSignedIn()
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().get('createdByDeskId', null) == existing().get('createdByDeskId', null)
+        && (
+          existing().createdByUid == request.auth.uid ||
+          (
+            existing().visibility == 'my_desk'
+            && existing().createdByDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId
+            && !incoming().diff(existing()).affectedKeys().hasAny(['createdByUid', 'createdByDeskId', 'visibility'])
+          )
+        );
+      allow delete: if isSignedIn() && existing().createdByUid == request.auth.uid;
     }
 
     match /counterpartyNotes/{noteId} {
@@ -522,10 +533,13 @@ service cloud.firestore {
         incoming().recipientUid == request.auth.uid || 
         (incoming().recipientDeskId != null && incoming().recipientDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
       );
-      allow update: if isSignedIn() && (
-        existing().recipientUid == request.auth.uid || 
-        (existing().recipientDeskId != null && existing().recipientDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
-      );
+      allow update: if isSignedIn()
+        && incoming().get('recipientUid', null) == existing().get('recipientUid', null)
+        && incoming().get('recipientDeskId', null) == existing().get('recipientDeskId', null)
+        && (
+          existing().recipientUid == request.auth.uid || 
+          (existing().recipientDeskId != null && existing().recipientDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
+        );
       allow delete: if isSignedIn() && (
         existing().recipientUid == request.auth.uid || 
         (existing().recipientDeskId != null && existing().recipientDeskId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.deskId)
