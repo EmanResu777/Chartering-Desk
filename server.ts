@@ -3338,6 +3338,64 @@ async function startServer() {
     }
   });
 
+  app.post('/api/network/invites/accept', express.json({ limit: '8kb' }), async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
+    if (!(await checkRateLimit(user.uid, 30, 'network-invite-accept'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    const inviteId = String(req.body?.inviteId || '').trim();
+    if (!/^[A-Za-z0-9_.:-]{1,240}$/.test(inviteId)) {
+      return res.status(400).json({ error: 'Invalid invite id' });
+    }
+
+    try {
+      const inviteRef = firestore.collection(`users/${user.uid}/networkInvites`).doc(inviteId);
+      let fromUserId = '';
+
+      await firestore.runTransaction(async tx => {
+        const inviteSnap = await tx.get(inviteRef);
+        if (!inviteSnap.exists) throw new Error('INVITE_NOT_FOUND');
+        const invite = inviteSnap.data() || {};
+        fromUserId = String(invite.fromUserId || '');
+        if (!fromUserId || fromUserId === user.uid) throw new Error('INVALID_INVITE_SENDER');
+        if (invite.status === 'declined' || invite.status === 'archived') throw new Error('INVITE_NOT_ACCEPTABLE');
+
+        const now = FieldValue.serverTimestamp();
+        tx.set(
+          firestore.collection(`users/${user.uid}/networkConnections`).doc(fromUserId),
+          { peerUid: fromUserId, connectedAt: now, source: 'invite_accept' },
+          { merge: true }
+        );
+        tx.set(
+          firestore.collection(`users/${fromUserId}/networkConnections`).doc(user.uid),
+          { peerUid: user.uid, connectedAt: now, source: 'invite_accept' },
+          { merge: true }
+        );
+        tx.set(inviteRef, { status: 'accepted', updatedAt: now }, { merge: true });
+      });
+
+      await firestore.collection('auditEvents').add({
+        action: 'network_connection_accepted',
+        uid: user.uid,
+        metadata: { inviteId, peerUid: fromUserId },
+        timestamp: FieldValue.serverTimestamp()
+      });
+
+      return res.json({ success: true, peerUid: fromUserId });
+    } catch (error: any) {
+      const code = String(error?.message || '');
+      if (code === 'INVITE_NOT_FOUND') return res.status(404).json({ error: 'Invite not found' });
+      if (code === 'INVALID_INVITE_SENDER' || code === 'INVITE_NOT_ACCEPTABLE') {
+        return res.status(400).json({ error: 'Invite cannot be accepted' });
+      }
+      console.error('[Network Invite Accept] Failed:', error.message);
+      return res.status(500).json({ error: 'Unable to accept network invite' });
+    }
+  });
+
   app.post('/api/market/matches/notify', express.json({ limit: '16kb' }), async (req, res) => {
     const user = await requireFirebaseUser(req);
     if (!user) return res.status(401).json({ error: 'Authentication required' });
