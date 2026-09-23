@@ -605,16 +605,16 @@ const AutomationConfig = () => {
 const DocsConfig = ({ brokerProfile }: { brokerProfile: any }) => {
   const [activePreview, setActivePreview] = useState<'RECAP' | 'GENCON' | null>(null);
   const [livePreviewType, setLivePreviewType] = useState<'RECAP' | 'GENCON'>('GENCON');
-  const [aiCharterer, setAiCharterer] = useState(true);
+  const [aiCharterer, setAiCharterer] = useState(false);
   const [hoveredClause, setHoveredClause] = useState<string | null>(null);
   const [ownerDetails, setOwnerDetails] = useState({
-    name: 'Global Maritime Holdings',
-    address: 'Rue du Rhône 42, Geneva, Switzerland',
-    signee: 'Capt. Erik Sørensen'
+    name: '',
+    address: '',
+    signee: ''
   });
 
-  const [selectedClauses, setSelectedClauses] = useState<string[]>(['Piracy', 'War Risk']);
-  const [arbitration, setArbitration] = useState('London / LMAA');
+  const [selectedClauses, setSelectedClauses] = useState<string[]>([]);
+  const [arbitration, setArbitration] = useState('');
 
   const arbitrationOptions = [
     { id: 'London / LMAA', label: 'London / LMAA Terms' },
@@ -622,12 +622,12 @@ const DocsConfig = ({ brokerProfile }: { brokerProfile: any }) => {
     { id: 'Singapore / SCMA', label: 'Singapore / SCMA' }
   ];
 
-  const arbitrationLabel = arbitrationOptions.find(o => o.id === arbitration)?.label || arbitration || 'AS PER GENCON 94';
+  const arbitrationLabel = arbitrationOptions.find(o => o.id === arbitration)?.label || arbitration || 'TBA / EXPRESS AGREEMENT REQUIRED';
 
   const [clausesList, setClausesList] = useState([
-    { id: 'Piracy', title: 'BIMCO Piracy Clause 2013', text: 'If, in the reasonable judgement of the Master, any port, place, area or zone is dangerous...' },
-    { id: 'War Risk', title: 'War Risk Clause (CONWORTIME)', text: 'The Vessel shall not be obliged to proceed or required to continue to or through any port...' },
-    { id: 'AIS', title: 'AIS Data Monitoring Clause', text: 'Charterers shall not at any time request the Master to switch off the Vessel\'s Automatic Identification System...' }
+    { id: 'Piracy', title: 'Piracy Clause Reference', text: 'Insert the parties\' approved full clause wording before issuing a recap or charter party.' },
+    { id: 'War Risk', title: 'War Risk Clause Reference', text: 'Insert the parties\' approved full clause wording before issuing a recap or charter party.' },
+    { id: 'AIS', title: 'AIS Clause Reference', text: 'Insert the parties\' approved full clause wording before issuing a recap or charter party.' }
   ]);
 
   const [isAddingClause, setIsAddingClause] = useState(false);
@@ -714,37 +714,37 @@ PART I
     [CARGO_QUANTITY] MT [CARGO_DESCRIPTION]
 
 13. Freight rate (also state whether freight prepaid or payable on delivery)
-    [FREIGHT_RATE] FIOST 1/1
+    [FREIGHT_RATE] [FREIGHT_TERMS]
 
 14. Freight payment
-    100% WITHIN 3 BANKING DAYS FROM SIGNING BS/L
+    [FREIGHT_PAYMENT_TERMS]
 
 15. State if vessel's cargo handling gear shall not be used
-    N/A
+    [GEAR_TERMS]
 
 16. Laytime (if separate days for load/discharge)
-    AS PER CHARTER PARTY FIXTURE RECAP
+    [LAYTIME_TERMS]
 
 17. Shippers/Receivers
-    TBA
+    [SHIPPERS_RECEIVERS]
 
 18. Agents (loading)
-    CHARTERERS' AGENTS
+    [LOAD_AGENT_TERMS]
 
 19. Agents (discharging)
-    CHARTERERS' AGENTS
+    [DISCH_AGENT_TERMS]
 
 20. Demurrage rate and manner of payable
-    AS AGREED PDPR
+    [DEMURRAGE_TERMS]
 
 21. Cancelling date
     [LAYCAN_END]
 
 22. General Average to be adjusted at
-    LONDON
+    [GENERAL_AVERAGE_PLACE]
 
 23. Freight Tax
-    FOR CHARTERERS ACCOUNT
+    [FREIGHT_TAX_TERMS]
 
 24. Brokerage commission and to whom payable
     [BROKER_COMMISSION]% TO [BROKER_COMPANY]
@@ -753,21 +753,21 @@ PART I
     [ARBITRATION_TERMS]
 
 26. Additional clauses covering special provisions, if agreed
-    AS PER RIDER ATTACHED
+    [ADDITIONAL_CLAUSES_STATUS]
 `
   });
 
-  // Sample data for preview
+  // Neutral preview data: no real-looking principal, vessel, rate or legal term is prefilled.
   const sampleData = {
-    cargo: { commodity: 'Iron Ore', quantity: '150,000 MT', loadPort: 'Tubarao', dischargePort: 'Qingdao', laycan: '10-20 Dec' },
-    vessel: { name: 'MV OCEAN TITAN', type: 'Capesize', dwt: 180000, builtYear: 2018 },
-    calculation: { estimatedFreight: '$24.50' }
+    cargo: { commodity: 'TBA', quantity: 'TBA', loadPort: 'TBA', dischargePort: 'TBA', laycan: 'TBA' },
+    vessel: { name: 'TBA', type: 'TBA', dwt: 0, builtYear: 0 },
+    calculation: { estimatedFreight: 'TBA' }
   };
 
   const replacePlaceholders = (templateText: string, data: any, arbLabel: string) => {
     if (!templateText) return '';
     const replacements: Record<string, string> = {
-      '[CHARTERER_NAME]': data.aiCharterer ? 'PACIFIC MATERIALS TRADING' : '[TBN]',
+      '[CHARTERER_NAME]': '[TBA / CONFIRM CHARTERER]',
       '[Vessel Name]': data.vessel?.name || 'TBA',
       '[CARGO_DESCRIPTION]': data.cargo ? data.cargo.commodity : '',
       '[CARGO_QUANTITY]': data.cargo ? data.cargo.quantity : '',
@@ -780,17 +780,28 @@ PART I
       '[ARBITRATION_TERMS]': arbLabel,
       '[OWNER_NAME]': data.owner?.name || '[REGISTERED_OWNER]',
       '[OWNER_ADDRESS]': data.owner?.address || '[OWNER_LEGAL_ADDRESS]',
-      '[BROKER_COMPANY]': data.broker?.showProfileInDocs ? (data.broker.company || 'Meridian Shipbrokers Ltd') : 'Direct',
-      '[BROKER_NAME]': data.broker?.showProfileInDocs ? (data.broker.name || 'John Harrison') : '',
+      '[BROKER_COMPANY]': data.broker?.showProfileInDocs ? (data.broker.company || 'TBA') : 'Direct',
+      '[BROKER_NAME]': data.broker?.showProfileInDocs ? (data.broker.name || 'TBA') : '',
       '[BROKER_ADDRESS]': data.broker?.showProfileInDocs ? (data.broker.address || '') : '',
       '[BROKER_CONTACT]': data.broker?.showProfileInDocs ? ((data.broker.phone || '') + (data.broker.email ? ` / ${data.broker.email}` : '')) : '',
-      '[AI_IDENTIFIED_ENTITY]': data.aiCharterer ? 'AI_IDENTIFIED: PACIFIC MATERIALS TRADING' : '[CHARTERER_UNIDENTIFIED]',
+      '[AI_IDENTIFIED_ENTITY]': data.aiCharterer ? '[AI ENTITY REQUIRES BROKER CONFIRMATION]' : '[CHARTERER_UNIDENTIFIED]',
       '[CURRENT_DATE]': new Date().toLocaleDateString(),
       '[VESSEL_IMO]': data.vessel?.imo || 'TBA',
       '[VESSEL_FLAG]': data.vessel?.flag || 'TBA',
       '[VESSEL_DWT]': data.vessel?.dwt || 'TBA',
-      '[VESSEL_POSITION]': data.vessel?.position || 'TRADING',
-      '[BROKER_COMMISSION]': data.broker?.commission || '1.25',
+      '[VESSEL_POSITION]': data.vessel?.position || 'TBA',
+      '[BROKER_COMMISSION]': data.broker?.commission || 'TBA',
+      '[FREIGHT_TERMS]': 'TBA',
+      '[FREIGHT_PAYMENT_TERMS]': 'TBA',
+      '[GEAR_TERMS]': 'TBA',
+      '[LAYTIME_TERMS]': 'TBA',
+      '[SHIPPERS_RECEIVERS]': 'TBA',
+      '[LOAD_AGENT_TERMS]': 'TBA',
+      '[DISCH_AGENT_TERMS]': 'TBA',
+      '[DEMURRAGE_TERMS]': 'TBA',
+      '[GENERAL_AVERAGE_PLACE]': 'TBA',
+      '[FREIGHT_TAX_TERMS]': 'TBA',
+      '[ADDITIONAL_CLAUSES_STATUS]': data.clauses?.length ? 'SEE BROKER-APPROVED RIDER / CLAUSE WORDING' : 'NONE AGREED',
     };
 
     let result = templateText;
