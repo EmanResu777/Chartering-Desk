@@ -25,17 +25,7 @@ interface ConfigContextType {
   setTickerItems: React.Dispatch<React.SetStateAction<TickerItem[]>>;
 }
 
-const defaultTickerItems: TickerItem[] = [
-  { id: 'c5', label: 'C5 (W. Australia/China)', price: '$8.45', change: '+0.12', isUp: true, isVisible: true },
-  { id: 'c3', label: 'C3 (Tubarao/China)', price: '$18.20', change: '-0.35', isUp: false, isVisible: true },
-  { id: 'c4', label: 'C4 (RB/Rotterdam)', price: '$14.80', change: '+0.08', isUp: true, isVisible: true },
-  { id: 'p1a', label: 'P1A (USG/Rotterdam)', price: '$12.10', change: '+0.22', isUp: true, isVisible: true },
-  { id: 'p2a', label: 'P2A (USG/Far East)', price: '$28.50', change: '-0.15', isUp: false, isVisible: true },
-  { id: 's1b', label: 'S1B (ECSA/Rotterdam)', price: '$15.30', change: '+0.05', isUp: true, isVisible: true },
-  { id: 'bci', label: 'BCI', price: '2,845', change: '+45', isUp: true, isVisible: true },
-  { id: 'bpi', label: 'BPI', price: '1,952', change: '-12', isUp: false, isVisible: true },
-  { id: 'bsi', label: 'BSI', price: '1,240', change: '+8', isUp: true, isVisible: true },
-];
+const defaultTickerItems: TickerItem[] = [];
 
 const ConfigContext = createContext<ConfigContextType | undefined>(undefined);
 
