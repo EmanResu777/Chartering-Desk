@@ -54,9 +54,9 @@ export function VoyageEstimateModal({
   const [assumptions, setAssumptions] = useState<VoyageEstimateAssumptions>({
     loadPort: '', dischargePort: '', cargoQuantity: 0, freightIdea: 0, isLumpSum: false,
     vesselDWT: 0, vesselIntakeEstimate: 0, ballastDistance: 0, ladenDistance: 0,
-    speedBallast: 13, speedLaden: 12.5, bunkerConsumptionBallast: 25, bunkerConsumptionLaden: 28,
-    idlePortConsumption: 3, bunkerPrice: 600, loadPortDays: 3, dischargePortDays: 3, waitingDays: 1,
-    canalCost: 0, portCost: 50000, commissionPercentage: 3.75, addressCommissionPercentage: 0, otherCost: 0,
+    speedBallast: 0, speedLaden: 0, bunkerConsumptionBallast: 0, bunkerConsumptionLaden: 0,
+    idlePortConsumption: 0, bunkerPrice: 0, loadPortDays: 0, dischargePortDays: 0, waitingDays: 0,
+    canalCost: 0, portCost: 0, commissionPercentage: 0, addressCommissionPercentage: 0, otherCost: 0,
     ...initialAssumptions
   });
 
@@ -125,7 +125,7 @@ export function VoyageEstimateModal({
         <div className="flex items-center justify-between p-3 sm:p-4 border-b shrink-0 bg-gray-50 gap-3">
           <div>
             <h2 className="text-lg font-bold text-gray-900">Commercial Estimate / TCE Lite</h2>
-            <p className="text-sm text-gray-500">Internal decision-support tool. Not a final calculation.</p>
+            <p className="text-sm text-gray-500">Internal decision-support tool. Missing assumptions remain zero/pending until explicitly supplied.</p>
           </div>
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-6 h-6" />
