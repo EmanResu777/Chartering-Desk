@@ -25,7 +25,7 @@ import { AlertsCenter } from './components/AlertsCenter';
 import { AuthScreen } from './components/AuthScreen';
 import { OnboardingChecklist } from './components/OnboardingChecklist';
 import { Cargo, Vessel, Contact, Email, cn } from './lib/utils';
-import { Package2, Ship, Mail, Settings as SettingsIcon, Users, BarChart3, Zap, Bot, X, FileText } from 'lucide-react';
+import { Package2, Ship, Mail, Settings as SettingsIcon, Users, BarChart3, Zap, Bot, X, FileText, LayoutDashboard, LineChart, Briefcase } from 'lucide-react';
 import { ConfigProvider, useConfig, Language } from './lib/ConfigContext';
 import { NotificationProvider, useNotification } from './lib/NotificationContext';
 import { AlertProvider, useAlerts } from './lib/AlertContext';
@@ -1031,10 +1031,19 @@ function AppContent() {
         </main>
 
         {/* Mobile Navbar */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 w-full z-50 flex justify-around items-stretch h-[calc(4.5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-surface-container-highest border-t border-outline/30 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+        <nav aria-label="Mobile navigation" className="md:hidden fixed bottom-0 left-0 right-0 w-full z-50 flex justify-start items-stretch overflow-x-auto no-scrollbar h-[calc(4.5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-surface-container-highest border-t border-outline/30 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            aria-label="Dashboard"
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'dashboard' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
+          >
+            <LayoutDashboard strokeWidth={activeTab === 'dashboard' ? 2 : 1.5} className="h-5 w-5" />
+            <span className="text-[9px] tracking-widest uppercase font-medium">Home</span>
+            {activeTab === 'dashboard' && <motion.div layoutId="mobileNavIndicator" className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-primary rounded-b-full" />}
+          </button>
           <button 
             onClick={() => setActiveTab('cargo')}
-            className={cn("flex-1 flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'cargo' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'cargo' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
           >
             <div className="relative">
               <Package2 strokeWidth={activeTab === 'cargo' ? 2 : 1.5} className="h-5 w-5" />
@@ -1047,7 +1056,7 @@ function AppContent() {
           </button>
           <button 
             onClick={() => setActiveTab('vessel')}
-            className={cn("flex-1 flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'vessel' ? "text-primary flex-1" : "text-on-surface-variant hover:text-on-surface")}
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'vessel' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
           >
             <div className="relative">
               <Ship strokeWidth={activeTab === 'vessel' ? 2 : 1.5} className="h-5 w-5" />
@@ -1060,7 +1069,7 @@ function AppContent() {
           </button>
           <button 
             onClick={() => setActiveTab('selection')}
-            className={cn("flex-1 flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'selection' ? "text-primary flex-1" : "text-on-surface-variant hover:text-on-surface")}
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'selection' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
           >
             <div className="relative">
               <Zap strokeWidth={activeTab === 'selection' ? 2 : 1.5} className="h-5 w-5" />
@@ -1073,7 +1082,7 @@ function AppContent() {
           </button>
           <button 
             onClick={() => setActiveTab('inbox')}
-            className={cn("flex-1 flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'inbox' ? "text-primary flex-1" : "text-on-surface-variant hover:text-on-surface")}
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'inbox' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
           >
             <div className="relative">
               <Mail strokeWidth={activeTab === 'inbox' ? 2 : 1.5} className="h-5 w-5" />
@@ -1086,7 +1095,7 @@ function AppContent() {
           </button>
           <button 
             onClick={() => setActiveTab('radar')}
-            className={cn("flex-1 px-1 flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'radar' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
+            className={cn("min-w-[68px] flex-none px-1 flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'radar' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
           >
             <div className="relative">
               <Bot strokeWidth={activeTab === 'radar' ? 2 : 1.5} className="h-5 w-5" />
@@ -1098,7 +1107,7 @@ function AppContent() {
           </button>
           <button 
             onClick={() => setActiveTab('documents')}
-            className={cn("flex-1 hidden sm:flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'documents' ? "text-primary flex-1" : "text-on-surface-variant hover:text-on-surface")}
+            className={cn("min-w-[68px] flex-none hidden sm:flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'documents' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
           >
             <div className="relative">
               <FileText strokeWidth={activeTab === 'documents' ? 2 : 1.5} className="h-5 w-5" />
@@ -1108,9 +1117,27 @@ function AppContent() {
               <motion.div layoutId="mobileNavIndicator" className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-primary rounded-b-full shadow-[0_0_8px_rgba(212,175,55,0.8)]" />
             )}
           </button>
+          <button
+            onClick={() => setActiveTab('market')}
+            aria-label="Market intelligence"
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'market' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
+          >
+            <LineChart strokeWidth={activeTab === 'market' ? 2 : 1.5} className="h-5 w-5" />
+            <span className="text-[9px] tracking-widest uppercase font-medium">Market</span>
+            {activeTab === 'market' && <motion.div layoutId="mobileNavIndicator" className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-primary rounded-b-full" />}
+          </button>
+          <button
+            onClick={() => setActiveTab('deal-rooms')}
+            aria-label="Deal rooms"
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'deal-rooms' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
+          >
+            <Briefcase strokeWidth={activeTab === 'deal-rooms' ? 2 : 1.5} className="h-5 w-5" />
+            <span className="text-[9px] tracking-widest uppercase font-medium">Deals</span>
+            {activeTab === 'deal-rooms' && <motion.div layoutId="mobileNavIndicator" className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-primary rounded-b-full" />}
+          </button>
           <button 
             onClick={() => setActiveTab('settings')}
-            className={cn("flex-1 flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'settings' ? "text-primary flex-1" : "text-on-surface-variant hover:text-on-surface")}
+            className={cn("min-w-[68px] flex-none flex flex-col items-center justify-center gap-1.5 relative transition-colors", activeTab === 'settings' ? "text-primary" : "text-on-surface-variant hover:text-on-surface")}
           >
             <SettingsIcon strokeWidth={activeTab === 'settings' ? 2 : 1.5} className="h-5 w-5" />
             <span className="text-[9px] tracking-widest uppercase font-medium">{t('settings')}</span>
