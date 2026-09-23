@@ -259,16 +259,18 @@ export const CargoDesk: React.FC<{
     setAiInsights(null);
     try {
       const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-      const response = await fetch('/api/ai/generateContent', {
+      if (!idToken) throw new Error('Authentication required');
+      const response = await fetch('/api/ai/routeTask', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
+          'Authorization': `Bearer ${idToken}`
         },
         body: JSON.stringify({
-          model: "gemini-1.5-flash",
-          operation: "analyze_risk", // Using a relevant cost category
-          contents: `Provide transport specs for "${commodity}": SF range, hazards(IMDG/IMSBC), moisture limits, ventilation needs. Keep it short.`
+          taskType: "transport_specs",
+          payload: {
+            contents: `Provide transport specs for "${commodity}": SF range, hazards (IMDG/IMSBC), moisture limits, ventilation needs. Keep it short and flag uncertainty.`
+          }
         })
       });
       
