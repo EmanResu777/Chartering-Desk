@@ -25,6 +25,7 @@ const settingsClient = read('src/components/Settings.tsx');
 const analyticsClient = read('src/components/Analytics.tsx');
 const voyageEstimateModal = read('src/components/VoyageEstimateModal.tsx');
 const routingProvider = read('src/lib/routingProvider.ts');
+const documentEditor = read('src/components/DocumentEditor.tsx');
 
 assert(!server.includes("testId123"), 'test-user authentication bypass must never ship');
 assert(!server.includes("raw_commodity: raw_commodity || 'coil'"), 'deterministic parser must never invent COIL');
@@ -210,6 +211,23 @@ assert(
   !routingProvider.includes('simulated_sea_route_fallback') &&
   routingProvider.includes("provider: 'unavailable'"),
   'routing provider errors must fail closed instead of returning simulated sea distances'
+);
+assert(
+  !documentEditor.includes('Marina Petrova') &&
+  !documentEditor.includes('James Wilson') &&
+  !documentEditor.includes('BIMCO Verified') &&
+  !documentEditor.includes('100% WITHIN 3 BANKING DAYS') &&
+  !documentEditor.includes('FIOST 1/1') &&
+  !documentEditor.includes('AS AGREED PDPR') &&
+  documentEditor.includes('Human Review Required'),
+  'document editor must not ship fictitious counterparties, unagreed charter terms, or false verification claims'
+);
+assert(
+  !settingsClient.includes('Global Maritime Holdings') &&
+  !settingsClient.includes('PACIFIC MATERIALS TRADING') &&
+  !settingsClient.includes('John Harrison') &&
+  settingsClient.includes('TBA / EXPRESS AGREEMENT REQUIRED'),
+  'document settings must use neutral placeholders instead of fictitious commercial parties'
 );
 
 if (!process.exitCode) {
