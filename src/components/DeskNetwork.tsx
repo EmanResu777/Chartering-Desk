@@ -436,15 +436,17 @@ export const DeskNetwork: React.FC<DeskNetworkProps> = ({ networkState }) => {
     }
   };
 
-  // Fetch Connected contacts (IDs)
+  // Accepted Desk Network connections are stored in the private networkConnections subcollection.
   useEffect(() => {
     if (!user) return;
-    const unsubUser = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
-      const userData = docSnap.data();
-      const connectedTo: string[] = Array.from(new Set(userData?.connectedTo || []));
-      setContactsIds(connectedTo);
+    const q = query(collection(db, `users/${user.uid}/networkConnections`));
+    const unsubConnections = onSnapshot(q, (snap) => {
+      setContactsIds(Array.from(new Set(snap.docs.map(d => d.id).filter(Boolean))));
+    }, (err) => {
+      console.error("Connection list error:", err);
+      setContactsIds([]);
     });
-    return () => unsubUser();
+    return () => unsubConnections();
   }, [user]);
 
   // Fetch Feed
@@ -566,16 +568,21 @@ export const DeskNetwork: React.FC<DeskNetworkProps> = ({ networkState }) => {
   const handleAcceptInvite = async (invite: any) => {
     if (!user) return;
     try {
-      await updateDoc(doc(db, `users/${user.uid}/networkInvites`, invite.id), {
-        status: 'accepted',
-        updatedAt: serverTimestamp()
+      const token = await user.getIdToken();
+      const response = await fetch('/api/network/invites/accept', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ inviteId: invite.id })
       });
-      await setDoc(doc(db, `users/${user.uid}/networkConnections`, invite.fromUserId), {
-        connectedAt: serverTimestamp(),
-        source: 'invite_accept'
-      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || 'Unable to accept invite');
+      notify({ title: 'Desk Connected', message: 'Network connection accepted for both desks.', type: 'success' });
     } catch (e: any) {
       console.warn("Failed to accept invite:", e.message);
+      notify({ title: 'Connection Failed', message: e.message || 'Unable to accept invite', type: 'error' });
     }
   };
 
