@@ -375,25 +375,106 @@ const NotesTab = ({ room, notes }: { room: DealRoom, notes: DealRoomNote[] }) =>
    );
 };
 
-const DocumentsTab = ({ room }: { room: DealRoom }) => (
-   <div className="max-w-3xl space-y-4">
-      <h3 className="text-lg font-display uppercase tracking-widest text-on-surface">Documents</h3>
-      {room.linkedRecapId && (
-        <div className="border border-outline/30 p-4 bg-surface-container-low flex justify-between items-center">
-           <div>
-             <div className="text-[10px] uppercase tracking-widest text-primary font-bold">Recap Draft Linked</div>
-             <div className="text-sm font-mono text-on-surface mt-1">{room.linkedRecapId}</div>
-           </div>
-           <button className="px-3 py-1.5 border border-outline/50 hover:bg-surface text-[9px] uppercase tracking-widest font-bold">View Source</button>
-        </div>
-      )}
-      <div className="border border-dashed border-outline/30 p-12 flex flex-col items-center justify-center text-center group hover:border-primary/50 transition-colors cursor-not-allowed cursor-pointer">
-         <FileText className="w-8 h-8 text-on-surface-variant group-hover:text-primary mb-4 opacity-50" />
-         <p className="text-[10px] uppercase tracking-widest font-bold text-on-surface font-mono">Document Management Placeholder (Not Implemented)</p>
-         <p className="text-[9px] uppercase tracking-widest text-on-surface-variant font-mono mt-2">Exported DOCX/PDF References and External Uploads will appear here.</p>
+const DocumentsTab = ({ room }: { room: DealRoom }) => {
+   const { user } = useAuth();
+   const [drafts, setDrafts] = useState<any[]>([]);
+   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+   useEffect(() => {
+      if (!user) {
+         setDrafts([]);
+         return;
+      }
+
+      const draftsRef = collection(db, `users/${user.uid}/recapDrafts`);
+      const unsub = onSnapshot(draftsRef, (snap) => {
+         const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+         const related = all.filter(draft => {
+            if (room.linkedRecapId && (draft.id === room.linkedRecapId || draft.draftId === room.linkedRecapId)) return true;
+            if (room.linkedCargoId && draft.cargoId === room.linkedCargoId) return true;
+            if (room.linkedVesselId && draft.vesselId === room.linkedVesselId) return true;
+            return false;
+         });
+         setDrafts(related.sort((a, b) => {
+            const aTime = a.updatedAt?.toMillis ? a.updatedAt.toMillis() : 0;
+            const bTime = b.updatedAt?.toMillis ? b.updatedAt.toMillis() : 0;
+            return bTime - aTime;
+         }));
+      }, (error) => {
+         console.error('Failed to load deal documents:', error);
+         setDrafts([]);
+      });
+
+      return unsub;
+   }, [user, room.id, room.linkedRecapId, room.linkedCargoId, room.linkedVesselId]);
+
+   const copyDraft = async (draft: any) => {
+      if (!draft?.content) return;
+      await navigator.clipboard.writeText(String(draft.content));
+      setCopiedId(draft.id);
+      window.setTimeout(() => setCopiedId(null), 1800);
+   };
+
+   return (
+      <div className="max-w-3xl space-y-4">
+         <div>
+            <h3 className="text-lg font-display uppercase tracking-widest text-on-surface">Documents & References</h3>
+            <p className="mt-1 text-[10px] text-on-surface-variant">
+               Broker-owned recap drafts linked by this deal's cargo, vessel or recap reference.
+            </p>
+         </div>
+
+         {room.linkedRecapId && !drafts.some(d => d.id === room.linkedRecapId || d.draftId === room.linkedRecapId) && (
+            <div className="border border-outline/30 p-4 bg-surface-container-low">
+               <div className="text-[10px] uppercase tracking-widest text-primary font-bold">Linked recap reference</div>
+               <div className="text-sm font-mono text-on-surface mt-1 break-all">{room.linkedRecapId}</div>
+               <div className="mt-2 text-[9px] uppercase tracking-wider text-on-surface-variant">
+                  Reference exists on the Deal Room but is not present in your private recapDrafts collection.
+               </div>
+            </div>
+         )}
+
+         {drafts.length === 0 ? (
+            <div className="border border-dashed border-outline/30 p-8 flex flex-col items-center justify-center text-center">
+               <FileText className="w-8 h-8 text-on-surface-variant mb-4 opacity-50" />
+               <p className="text-[10px] uppercase tracking-widest font-bold text-on-surface font-mono">No linked drafts yet</p>
+               <p className="text-[9px] text-on-surface-variant font-mono mt-2 max-w-md">
+                  Save a RECAP/GENCON draft from the document editor for this deal's cargo or vessel and it will appear here.
+               </p>
+            </div>
+         ) : (
+            <div className="space-y-3">
+               {drafts.map(draft => (
+                  <div key={draft.id} className="border border-outline/30 bg-surface-container-low p-4">
+                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                        <div className="min-w-0">
+                           <div className="text-[10px] uppercase tracking-widest text-primary font-bold">
+                              {draft.status || 'review_required'}
+                           </div>
+                           <div className="mt-1 text-sm text-on-surface font-medium truncate">
+                              {draft.title || draft.recapReference || draft.id}
+                           </div>
+                           <div className="mt-2 flex flex-wrap gap-2 text-[9px] font-mono uppercase tracking-wider text-on-surface-variant">
+                              <span>Missing: {Number(draft.missingFieldsCount || 0)}</span>
+                              <span>Assumed: {Number(draft.assumedFieldsCount || 0)}</span>
+                              <span>Confirmed: {Number(draft.confirmedFieldsCount || 0)}</span>
+                           </div>
+                        </div>
+                        <button
+                           onClick={() => copyDraft(draft)}
+                           disabled={!draft.content}
+                           className="min-h-9 px-3 py-2 border border-outline/50 hover:border-primary/50 text-[9px] uppercase tracking-widest font-bold disabled:opacity-40"
+                        >
+                           {copiedId === draft.id ? 'Copied' : 'Copy Draft'}
+                        </button>
+                     </div>
+                  </div>
+               ))}
+            </div>
+         )}
       </div>
-   </div>
-);
+   );
+};
 
 const RecapTab = ({ room }: { room: DealRoom }) => (
   <div className="max-w-3xl border border-outline/30 bg-surface-container-low p-8 text-center space-y-6">
