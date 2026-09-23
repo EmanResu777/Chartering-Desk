@@ -3260,6 +3260,84 @@ async function startServer() {
     }
   };
 
+  app.get('/api/email/accounts', async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
+    if (!(await checkRateLimit(user.uid, 120, 'email-accounts-list'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    try {
+      const snap = await firestore.collection(`users/${user.uid}/emailAccounts`).get();
+      const accounts = snap.docs.map(docSnap => {
+        const data = docSnap.data() || {};
+        const provider = String(data.provider || 'imap');
+        return {
+          id: docSnap.id,
+          email: String(data.email || data.username || docSnap.id),
+          provider: ['gmail', 'outlook', 'icloud', 'imap'].includes(provider) ? provider : 'imap',
+          active: data.active !== false
+        };
+      });
+      return res.json({ accounts });
+    } catch (error: any) {
+      console.error('[Email Accounts] List failed:', error.message);
+      return res.status(500).json({ error: 'Unable to list email accounts' });
+    }
+  });
+
+  app.post('/api/email/accounts/set-active', express.json({ limit: '8kb' }), async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
+    if (!(await checkRateLimit(user.uid, 60, 'email-accounts-update'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    const accountId = String(req.body?.accountId || '').trim();
+    const active = req.body?.active;
+    if (!accountId || accountId.length > 320 || accountId.includes('/') || typeof active !== 'boolean') {
+      return res.status(400).json({ error: 'Invalid account update' });
+    }
+
+    try {
+      const accountRef = firestore.collection(`users/${user.uid}/emailAccounts`).doc(accountId);
+      const snap = await accountRef.get();
+      if (!snap.exists) return res.status(404).json({ error: 'Email account not found' });
+      await accountRef.update({ active, updatedAt: FieldValue.serverTimestamp() });
+      return res.json({ success: true, accountId, active });
+    } catch (error: any) {
+      console.error('[Email Accounts] Update failed:', error.message);
+      return res.status(500).json({ error: 'Unable to update email account' });
+    }
+  });
+
+  app.post('/api/email/accounts/remove', express.json({ limit: '8kb' }), async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
+    if (!(await checkRateLimit(user.uid, 30, 'email-accounts-remove'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    const accountId = String(req.body?.accountId || '').trim();
+    if (!accountId || accountId.length > 320 || accountId.includes('/')) {
+      return res.status(400).json({ error: 'Invalid account id' });
+    }
+
+    try {
+      const accountRef = firestore.collection(`users/${user.uid}/emailAccounts`).doc(accountId);
+      const snap = await accountRef.get();
+      if (!snap.exists) return res.status(404).json({ error: 'Email account not found' });
+      await accountRef.delete();
+      return res.json({ success: true, accountId });
+    } catch (error: any) {
+      console.error('[Email Accounts] Remove failed:', error.message);
+      return res.status(500).json({ error: 'Unable to remove email account' });
+    }
+  });
+
   app.post('/api/market/matches/notify', express.json({ limit: '16kb' }), async (req, res) => {
     const user = await requireFirebaseUser(req);
     if (!user) return res.status(401).json({ error: 'Authentication required' });
