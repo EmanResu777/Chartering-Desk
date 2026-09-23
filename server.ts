@@ -1154,7 +1154,8 @@ async function startServer() {
           await firestore.collection('users').doc(userId).set({
             stripeCustomerId: session.customer,
             stripeSubscriptionId: session.subscription,
-            planId: planId,
+            planId,
+            subscription: planId === 'desk' ? 'maximum' : 'premium',
             billingStatus: 'active'
           }, { merge: true });
 
@@ -1178,7 +1179,8 @@ async function startServer() {
            await firestore.collection('users').doc(userId).set({
              stripeCustomerId: subscription.customer,
              stripeSubscriptionId: subscription.id,
-             planId: planId,
+             planId,
+             subscription: planId === 'desk' ? 'maximum' : 'premium',
              billingStatus: subscription.status
            }, { merge: true });
 
@@ -1201,7 +1203,8 @@ async function startServer() {
         if (userId) {
            await firestore.collection('users').doc(userId).set({
              billingStatus: 'cancelled',
-             planId: 'trial' // downgrade to trial/free
+             planId: 'trial',
+             subscription: 'basic'
            }, { merge: true });
 
            const period = getCurrentUsagePeriod();
@@ -3112,7 +3115,7 @@ async function startServer() {
 
     // 2. Identify laycan line
     const monthRegex = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)/i;
-    const yearRegex = /202[5678]/;
+    const yearRegex = /20\\d{2}/;
     const datePatternRegex = /\d{1,2}[–\/.-]\s*\d{1,2}/;
     for (const line of lines) {
       const isRoute = line.includes('/') && !line.toLowerCase().includes('load/discharge') && !line.toLowerCase().includes('load / discharge') && !line.toLowerCase().includes('rate');
@@ -3214,7 +3217,7 @@ async function startServer() {
       let hasQty = false;
       
       const monthRegex = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)/i;
-      const yearRegex = /202[5678]/;
+      const yearRegex = /20\\d{2}/;
       const datePatternRegex = /\d{1,2}[–\/.-]\s*\d{1,2}/;
 
       for (const line of lines) {
@@ -3694,12 +3697,24 @@ async function startServer() {
         return res.status(403).json({ error: "Forbidden: userId mismatch" });
       }
 
-      let assumptionsText = "make realistic standard maritime market estimates (e.g. bunker $600/mt, hire $10000/day, port $30000, speed 13kn).";
-      if (assumptions) {
-         assumptionsText = `use the provided market assumptions: Bunker Price: $${assumptions.bunkerPrice}/mt, Daily Hire: $${assumptions.dailyHire}/day, Port Costs: $${assumptions.portCost}, Canal Costs: $${assumptions.canalCost}, Ballast Speed: ${assumptions.ballastSpeed}kn, Laden Speed: ${assumptions.ladenSpeed}kn, Ballast Cons: ${assumptions.ballastConsumption}mt/day, Laden Cons: ${assumptions.ladenConsumption}mt/day, Idle Cons: ${assumptions.idleConsumption}mt/day, Waiting Days: ${assumptions.waitingDays} days.`;
+      let assumptionsText = "No voyage-cost assumptions were supplied. Do not invent bunker prices, hire, port/canal costs, speeds, consumption, distance, freight, or TCE. Score technical/position/laycan fit only from supplied facts and mark commercial fields as pending.";
+      if (assumptions && typeof assumptions === 'object') {
+         const safeAssumptions = Object.fromEntries(
+           Object.entries(assumptions).filter(([, value]) => value !== undefined && value !== null && value !== '')
+         );
+         assumptionsText = `Use only these user-provided market assumptions. Missing assumptions remain pending: ${JSON.stringify(safeAssumptions)}`;
       }
 
-      const unoptimizedTokenEstimate = Math.ceil((JSON.stringify(cargo).length + JSON.stringify(vessels).length + 1500) / 4);
+      if (!cargo || typeof cargo !== 'object' || !Array.isArray(vessels) || vessels.length === 0 || vessels.length > 100) {
+        return res.status(400).json({ error: "A cargo object and 1-100 vessels are required" });
+      }
+
+      const serializedInputLength = JSON.stringify(cargo).length + JSON.stringify(vessels).length;
+      if (serializedInputLength > 500_000) {
+        return res.status(413).json({ error: "Matching payload is too large" });
+      }
+
+      const unoptimizedTokenEstimate = Math.ceil((serializedInputLength + 1500) / 4);
 
       const compactCargo = {
         id: cargo.id,
@@ -3788,6 +3803,50 @@ async function startServer() {
       }
 
       const data = await safeAIParseJSON(response.text || '{}');
+
+      const numericCargoQuantity = Number(cargo.quantityMt ?? cargo.quantity_mt ?? cargo.quantity ?? 0);
+      const normalizedMatches = (Array.isArray(data.matches) ? data.matches : []).slice(0, compactVessels.length).map((match: any) => {
+        const vessel = compactVessels.find((item: any) => String(item.id) === String(match.vesselId)) ||
+          compactVessels.find((item: any) => String(item.name || '').toLowerCase() === String(match.vesselName || match.name || '').toLowerCase());
+
+        const clamp = (value: any, min = 0, max = 100) => {
+          const parsed = Number(value);
+          return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : 0;
+        };
+
+        const vesselDwt = Number(vessel?.dwt || 0);
+        const impossibleCapacity = numericCargoQuantity > 0 && vesselDwt > 0 && numericCargoQuantity > vesselDwt;
+        const riskAdjustment = Math.min(0, Math.max(-100, Number(match.riskAdjustment) || 0));
+        let score = clamp(match.score);
+        if (impossibleCapacity) score = Math.min(score, 10);
+
+        const reasoning = Array.isArray(match.reasoning)
+          ? match.reasoning.filter((item: any) => typeof item === 'string' && item.trim()).slice(0, 12)
+          : [];
+        if (impossibleCapacity && !reasoning.some((item: string) => item.toLowerCase().includes('capacity'))) {
+          reasoning.unshift('Capacity check failed: cargo quantity exceeds stated vessel DWT.');
+        }
+
+        const missingCommercialData = Boolean(match.missingCommercialData) || !assumptions || !cargo.freightRate;
+        return {
+          ...match,
+          score,
+          technicalFit: clamp(match.technicalFit),
+          positionFit: clamp(match.positionFit),
+          laycanFit: clamp(match.laycanFit),
+          commercialViability: missingCommercialData ? Math.min(clamp(match.commercialViability), 50) : clamp(match.commercialViability),
+          riskAdjustment,
+          reasoning,
+          missingCommercialData,
+          calculatorOutputs: {
+            ...(match.calculatorOutputs || {}),
+            estimatedTCE: missingCommercialData ? null : Number(match.calculatorOutputs?.estimatedTCE || 0),
+            totalVoyageCost: missingCommercialData ? null : Number(match.calculatorOutputs?.totalVoyageCost || 0),
+            isViable: impossibleCapacity ? false : Boolean(match.calculatorOutputs?.isViable),
+            recommendation: impossibleCapacity ? 'Reject / Not Commercial' : (match.calculatorOutputs?.recommendation || 'Conditional Match')
+          }
+        };
+      });
       
       if (verifiedUid && firestore) {
           try {
@@ -3817,7 +3876,7 @@ async function startServer() {
       }
 
       const responsePayload = { 
-        matches: data.matches || [],
+        matches: normalizedMatches,
         degraded_analysis: degraded || response.degraded || false,
         actualModel: response.actualModel,
         actualProvider: response.actualProvider,
