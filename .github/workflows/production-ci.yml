@@ -39,6 +39,11 @@ jobs:
       - name: Commercial production regression gates
         run: node scripts/production-regression.cjs
 
+      - name: Focused production tests
+        run: |
+          node --test tests/security/*.test.cjs
+          npx tsx --test tests/unit/*.test.ts
+
       - name: Production build
         run: npm run build
 
@@ -52,6 +57,9 @@ jobs:
 
       - name: High and critical dependency audit
         run: npm audit --omit=dev --audit-level=high
+
+      - name: Production container build
+        run: docker build -t chartering-desk-ci .
 
       - name: Server boot smoke test
         shell: bash
