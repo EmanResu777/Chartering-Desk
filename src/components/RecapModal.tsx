@@ -120,28 +120,22 @@ export const RecapModal = ({ deal, user, onClose }: any) => {
              await setDoc(doc(db, 'users', deal.vesselOwnerUid, 'recapDrafts', (deal.dealId || deal.id)), draftPointer, { merge: true });
            }
 
-           import('../lib/alertService').then(({ createAlert }) => {
-              if (deal.cargoOwnerUid && deal.cargoOwnerUid !== 'system') {
-                  createAlert({
-                      recipientUid: deal.cargoOwnerUid,
-                      title: 'Recap Draft Created',
-                      message: `A recap draft has been generated for a deal involving you.`,
-                      priority: 'high',
-                      category: 'recap_draft',
-                      actionRoute: '/dashboard'
-                  }).catch(console.error);
-              }
-              if (deal.vesselOwnerUid && deal.vesselOwnerUid !== 'system' && deal.vesselOwnerUid !== deal.cargoOwnerUid) {
-                  createAlert({
-                      recipientUid: deal.vesselOwnerUid,
-                      title: 'Recap Draft Created',
-                      message: `A recap draft has been generated for a deal involving you.`,
-                      priority: 'high',
-                      category: 'recap_draft',
-                      actionRoute: '/dashboard'
-                  }).catch(console.error);
-              }
-           });
+           try {
+             const token = await user.getIdToken();
+             const notificationResponse = await fetch('/api/recaps/notify-created', {
+               method: 'POST',
+               headers: {
+                 'Content-Type': 'application/json',
+                 'Authorization': `Bearer ${token}`
+               },
+               body: JSON.stringify({ dealId: deal.dealId || deal.id })
+             });
+             if (!notificationResponse.ok) {
+               console.warn(`Recap draft notification rejected: HTTP ${notificationResponse.status}`);
+             }
+           } catch (notificationError) {
+             console.warn('Recap draft notification failed:', notificationError);
+           }
            
         } catch (err: any) {
            console.log("Recap init blocked:", err.message);
@@ -254,19 +248,7 @@ export const RecapModal = ({ deal, user, onClose }: any) => {
          auditTrail: arrayUnion({ action: 'recap_exported_docx', timestamp: new Date(), actorUid: user.uid, safeMessage: 'Recap exported to DOCX.' })
        });
 
-       import('../lib/alertService').then(({ createAlert }) => {
-          const counterpartUid = (deal.cargoOwnerUid === user.uid) ? deal.vesselOwnerUid : deal.cargoOwnerUid;
-          if (counterpartUid && counterpartUid !== 'system' && counterpartUid !== user.uid) {
-             createAlert({
-                 recipientUid: counterpartUid,
-                 title: 'Recap Exported',
-                 message: `The recap was exported to DOCX format by a counterpart.`,
-                 priority: 'info',
-                 category: 'recap_draft',
-                 actionRoute: '/dashboard'
-             }).catch(console.error);
-          }
-       });
+
     } catch(err: any) {
         notify({ title: "Export Error", message: err.message, type: "error" });
     }
@@ -292,19 +274,7 @@ export const RecapModal = ({ deal, user, onClose }: any) => {
         auditTrail: arrayUnion({ action: 'recap_exported_pdf', timestamp: new Date(), actorUid: user.uid, safeMessage: 'Recap exported to PDF.' })
       });
 
-      import('../lib/alertService').then(({ createAlert }) => {
-          const counterpartUid = (deal.cargoOwnerUid === user.uid) ? deal.vesselOwnerUid : deal.cargoOwnerUid;
-          if (counterpartUid && counterpartUid !== 'system' && counterpartUid !== user.uid) {
-             createAlert({
-                 recipientUid: counterpartUid,
-                 title: 'Recap Exported',
-                 message: `The recap was exported to PDF format by a counterpart.`,
-                 priority: 'info',
-                 category: 'recap_draft',
-                 actionRoute: '/dashboard'
-             }).catch(console.error);
-          }
-       });
+
     } catch (err: any) {
        notify({ title: "Export Error", message: err.message, type: "error" });
     }
