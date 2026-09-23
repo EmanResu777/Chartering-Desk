@@ -22,7 +22,7 @@ test('Gmail OAuth is server-bound and popup messages validate origin', () => {
 
 test('admin access has no hard-coded fallback identity', () => {
   const server = read('server.ts');
-  assert.equal(server.includes("process.env.ADMIN_EMAILS || '"), false);
+  assert.equal(/ADMIN_EMAILS\s*\|\|\s*'[^']+'/.test(server), false);
   assert.match(server, /Forbidden: Admin only/);
 });
 
