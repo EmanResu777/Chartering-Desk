@@ -20,16 +20,16 @@ export const MatchingEngine: React.FC<{
   const [processingVesselId, setProcessingVesselId] = useState<string | null>(null);
   const [showAssumptions, setShowAssumptions] = useState(false);
   const [assumptions, setAssumptions] = useState({
-    bunkerPrice: 600,
-    dailyHire: 10000,
-    portCost: 30000,
+    bunkerPrice: 0,
+    dailyHire: 0,
+    portCost: 0,
     canalCost: 0,
-    ballastSpeed: 13,
-    ladenSpeed: 12.5,
-    ballastConsumption: 25,
-    ladenConsumption: 28,
-    idleConsumption: 3,
-    waitingDays: 2
+    ballastSpeed: 0,
+    ladenSpeed: 0,
+    ballastConsumption: 0,
+    ladenConsumption: 0,
+    idleConsumption: 0,
+    waitingDays: 0
   });
   const { notify, addNotification, settings } = useNotification();
 
@@ -142,7 +142,7 @@ export const MatchingEngine: React.FC<{
           <div className="border border-outline bg-surface-container p-4">
             <div className="flex items-center justify-between cursor-pointer" onClick={() => setShowAssumptions(!showAssumptions)}>
               <div className="flex items-center gap-2 font-bold uppercase text-[12px] tracking-widest text-primary">
-                <Calculator className="h-4 w-4" /> Market Assumptions (Estimated)
+                <Calculator className="h-4 w-4" /> Commercial Assumptions (Enter Actuals)
               </div>
               <button className="text-[10px] text-on-surface-variant uppercase hover:text-on-surface">
                 {showAssumptions ? 'Hide Settings' : 'Edit Settings'}
