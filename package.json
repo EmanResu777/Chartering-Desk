@@ -9,7 +9,9 @@
     "start": "NODE_ENV=production node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:production": "node scripts/security-regression.cjs && node scripts/production-regression.cjs && node --test tests/security/*.test.cjs && tsx --test tests/unit/*.test.ts",
+    "verify:production": "npm run lint && npm run test:production && npm run build && npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
