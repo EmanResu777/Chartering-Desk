@@ -127,6 +127,12 @@ export const TopBar: React.FC<{ activeTabLabel: string, onUpgradeClick: () => vo
   const [showNewWorkspaceModal, setShowNewWorkspaceModal] = React.useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = React.useState('');
   const [userProfile, setUserProfile] = React.useState<any>(null);
+  const [clock, setClock] = React.useState(() => new Date());
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setClock(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   React.useEffect(() => {
      if (!user) return;
@@ -262,7 +268,9 @@ export const TopBar: React.FC<{ activeTabLabel: string, onUpgradeClick: () => vo
       </div>
       
       <div className="flex items-center gap-2 sm:gap-6 text-[11px] font-mono">
-        <div className="hidden md:block text-on-surface-variant tracking-widest opacity-80">2026-04-27 14:52 GMT</div>
+        <div className="hidden md:block text-on-surface-variant tracking-widest opacity-80">
+          {clock.toLocaleString('en-GB', { timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })} UTC
+        </div>
         
         <div className="relative">
           <button 
