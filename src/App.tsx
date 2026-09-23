@@ -67,15 +67,64 @@ function AppContent() {
   const [lastFocusedContext, setLastFocusedContext] = useState<'cargo' | 'vessel' | null>(null);
   const [notifications, setNotifications] = useState<Record<string, boolean>>({});
   const [showTrialWelcome, setShowTrialWelcome] = useState(false);
+  const [usageAccess, setUsageAccess] = useState<{ planId: string; billingStatus: string; resetAt?: string; loading: boolean }>({
+    planId: 'unknown',
+    billingStatus: 'loading',
+    loading: true,
+  });
 
   useEffect(() => {
-    if (currentWorkspace && currentWorkspace.trialEndsAt) {
-      const hasSeenTrialWelcome = localStorage.getItem(`trial_welcome_seen_${currentWorkspace.id}`);
-      if (!hasSeenTrialWelcome) {
-        setShowTrialWelcome(true);
-      }
+    if (!user) {
+      setUsageAccess({ planId: 'unknown', billingStatus: 'signed_out', loading: false });
+      return;
     }
-  }, [currentWorkspace]);
+
+    let cancelled = false;
+    const loadUsageAccess = async () => {
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch('/api/usage/summary', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || 'Unable to resolve account access');
+        if (!cancelled) {
+          setUsageAccess({
+            planId: String(body.planId || 'unknown'),
+            billingStatus: String(body.billingStatus || 'unknown'),
+            resetAt: body.resetAt,
+            loading: false,
+          });
+          if (body.planId === 'desk') setSubscription('maximum');
+          else if (body.planId === 'solo') setSubscription('premium');
+          else if (body.planId === 'free' || body.billingStatus === 'trial_expired' || body.billingStatus === 'past_due') setSubscription('basic');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setUsageAccess({ planId: 'unknown', billingStatus: 'unavailable', loading: false });
+        }
+      }
+    };
+
+    loadUsageAccess();
+    const timer = window.setInterval(loadUsageAccess, 2 * 60 * 1000);
+    window.addEventListener('focus', loadUsageAccess);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', loadUsageAccess);
+    };
+  }, [user, setSubscription]);
+
+  useEffect(() => {
+    const trialActive = usageAccess.planId === 'trial' && usageAccess.billingStatus === 'trial';
+    if (trialActive && user) {
+      const key = `trial_welcome_seen_${user.uid}`;
+      if (!localStorage.getItem(key)) setShowTrialWelcome(true);
+    } else {
+      setShowTrialWelcome(false);
+    }
+  }, [usageAccess.planId, usageAccess.billingStatus, user]);
 
   useEffect(() => {
     const handleShowPricing = () => setShowPricing(true);
@@ -84,8 +133,8 @@ function AppContent() {
   }, []);
 
   const handleCloseTrialWelcome = () => {
-    if (currentWorkspace) {
-      localStorage.setItem(`trial_welcome_seen_${currentWorkspace.id}`, 'true');
+    if (user) {
+      localStorage.setItem(`trial_welcome_seen_${user.uid}`, 'true');
     }
     setShowTrialWelcome(false);
   };
@@ -752,18 +801,10 @@ function AppContent() {
   }
 
   const renderContent = () => {
-    const isTrialExpired = (() => {
-      if (!currentWorkspace || !currentWorkspace.trialEndsAt) return false;
-      let trialEnds;
-      if (typeof currentWorkspace.trialEndsAt.toDate === 'function') {
-        trialEnds = currentWorkspace.trialEndsAt.toDate();
-      } else {
-        trialEnds = new Date(currentWorkspace.trialEndsAt);
-      }
-      return new Date() > trialEnds;
-    })();
-
-    const isBasicAndTrialExpired = subscription === 'basic' && isTrialExpired;
+    const trialActive = usageAccess.planId === 'trial' && usageAccess.billingStatus === 'trial';
+    const trialExpired = usageAccess.billingStatus === 'trial_expired';
+    const accessSuspended = usageAccess.planId === 'free' || usageAccess.billingStatus === 'past_due' || usageAccess.billingStatus === 'cancelled';
+    const isBasicAndTrialExpired = subscription === 'basic' && (trialExpired || accessSuspended);
 
     if (isBasicAndTrialExpired && activeTab !== 'settings' && activeTab !== 'docs') {
       return (
@@ -782,7 +823,7 @@ function AppContent() {
     }
     
     // Override subscription level if in trial
-    const effectiveSubscription = isTrialExpired ? subscription : 'maximum';
+    const effectiveSubscription = trialActive ? 'maximum' : subscription;
 
     switch (activeTab) {
       case 'dashboard':
