@@ -5282,7 +5282,12 @@ Custom Context: {CONTEXT}`;
         'routing_estimate_used_in_voyage_estimate',
         'routing_estimate_used_in_smart_radar',
         'routing_estimate_used_in_ai_deal_brief',
-        'routing_estimate_used_in_copilot'
+        'routing_estimate_used_in_copilot',
+        'preferences_updated',
+        'alert_created',
+        'alert_read',
+        'alert_dismissed',
+        'daily_digest_generated'
       ];
 
       if (!ALLOWED_ACTIONS.includes(action)) {
