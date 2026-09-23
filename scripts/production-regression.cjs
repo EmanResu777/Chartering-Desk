@@ -238,6 +238,21 @@ assert(
   recapModal.includes("fixtureStatus: 'DRAFT / NOT CONFIRMED'"),
   'recap drafts must not pre-agree charter-party terms'
 );
+
+assert(
+  server.includes("app.post('/api/recaps/confirm'") &&
+  server.includes("firestore.runTransaction(async tx =>") &&
+  server.includes("auditTrail: FieldValue.arrayUnion(...auditEntries)") &&
+  recapModal.includes("fetch('/api/recaps/confirm'") &&
+  !recapModal.includes('updatePayload.auditTrail.push') &&
+  !recapModal.includes("import('../lib/alertService').then(({ createAlert })"),
+  'recap confirmation and counterpart notifications must be server-authoritative and race-safe'
+);
+assert(
+  server.includes("app.post('/api/recaps/notify-created'") &&
+  recapModal.includes("fetch('/api/recaps/notify-created'"),
+  'recap draft creation must notify the counterpart through authenticated server validation'
+);
 assert(
   !proximityIntelligence.includes("dateStr.toUpperCase() === 'TBD' || dateStr.toUpperCase() === 'SPOT') return new Date()") &&
   proximityIntelligence.includes("['TBD', 'TBA', 'UNKNOWN', 'N/A'].includes(normalized)") &&
