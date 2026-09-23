@@ -4,7 +4,7 @@ import { Email, INITIAL_EMAILS, Cargo, Vessel, cn, determineRelevanceStatus } fr
 import { parseEmail } from '../lib/geminiService';
 import { fetchGmailEmails } from '../lib/gmailService';
 import { isAuthenticated, getAccessToken } from '../lib/googleAuth';
-import { connectImapAccount, fetchImapEmails } from '../lib/imapService';
+import { connectImapAccount, fetchImapEmails, fetchEmailAccounts, setEmailAccountActive, removeEmailAccount } from '../lib/imapService';
 import { useConfig } from '../lib/ConfigContext';
 
 import { motion, AnimatePresence } from 'motion/react';
@@ -99,42 +99,22 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
     return () => window.removeEventListener('SELECT_EMAIL', handleSelectEmail);
   }, []);
 
-  useEffect(() => {
-    let unsubscribe: (() => void) | undefined;
-    let cancelled = false;
-
-    import('firebase/firestore').then(({ collection, query, onSnapshot }) => {
-      import('../lib/firebase').then(({ db, auth }) => {
-        if (cancelled || !auth.currentUser) return;
-        const q = query(collection(db, `users/${auth.currentUser.uid}/emailAccounts`));
-        unsubscribe = onSnapshot(q, (snapshot) => {
-          const loadedAccounts: Account[] = [];
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data();
-            const provider = data.provider as Account['provider'];
-            if (!['gmail', 'outlook', 'icloud', 'imap'].includes(provider)) return;
-            const email = String(data.email || data.username || '').trim();
-            if (!email) return;
-            loadedAccounts.push({
-              id: docSnap.id,
-              email,
-              provider,
-              active: data.active !== false
-            });
-          });
-          setAccounts(loadedAccounts);
-          setIsLoggedIn(isAuthenticated() || loadedAccounts.some(account => account.active));
-        }, (error) => {
-          console.error("Error fetching email accounts:", error);
-        });
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      if (unsubscribe) unsubscribe();
-    };
+  const refreshAccounts = React.useCallback(async () => {
+    try {
+      const loadedAccounts = await fetchEmailAccounts();
+      setAccounts(loadedAccounts);
+      setIsLoggedIn(isAuthenticated() || loadedAccounts.some(account => account.active));
+      return loadedAccounts;
+    } catch (error) {
+      console.error("Error fetching email accounts:", error);
+      setAccounts([]);
+      return [];
+    }
   }, []);
+
+  useEffect(() => {
+    refreshAccounts();
+  }, [refreshAccounts]);
 
   const handleConnectNew = async () => {
     if (!newAccForm.email) return;
@@ -152,7 +132,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
             port = '993';
         }
 
-        const result = await connectImapAccount(
+        await connectImapAccount(
           host, 
           port, 
           newAccForm.email, 
@@ -160,15 +140,8 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
           connectingProvider
         );
         notify({ title: 'Account Connected', message: `Connected to ${newAccForm.email} successfully!`, type: 'success' });
-        
-        const newAcc: Account = {
-          id: `acc-${Date.now()}`,
-          email: newAccForm.email,
-          provider: connectingProvider || 'imap',
-          active: true
-        };
-        setAccounts(prev => [...prev, newAcc]);
-        
+        await refreshAccounts();
+        setIsLoggedIn(true);
         await handleFetchEmails();
       } else {
         throw new Error('Unsupported email provider.');
@@ -197,37 +170,32 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
   const [viewMode, setViewMode] = useState<'LIST' | 'SECTIONS'>('LIST');
   const [inboxView, setInboxView] = useState<'FEED' | 'NETWORK'>('FEED');
 
-  const toggleAccount = async (id: string, email: string) => {
-    // Optimistic update
-    setAccounts(prev => prev.map(acc => 
-      acc.id === id ? { ...acc, active: !acc.active } : acc
-    ));
+  const toggleAccount = async (id: string, _email: string) => {
+    const accTarget = accounts.find(a => a.id === id);
+    if (!accTarget) return;
+    const nextActive = !accTarget.active;
+    setAccounts(prev => prev.map(acc => acc.id === id ? { ...acc, active: nextActive } : acc));
     try {
-      const { doc, updateDoc } = await import('firebase/firestore');
-      const { db, auth } = await import('../lib/firebase');
-      if (auth.currentUser) {
-        const accTarget = accounts.find(a => a.id === id);
-        if (accTarget) {
-          await updateDoc(doc(db, `users/${auth.currentUser.uid}/emailAccounts/${email}`), {
-            active: !accTarget.active
-          });
-        }
-      }
+      await setEmailAccountActive(id, nextActive);
+      setIsLoggedIn(isAuthenticated() || accounts.some(acc => acc.id === id ? nextActive : acc.active));
     } catch (err) {
       console.error("Failed to toggle:", err);
+      await refreshAccounts();
+      notify({ title: 'Account Update Failed', message: err instanceof Error ? err.message : 'Unable to update email source', type: 'error' });
     }
   };
 
-  const removeAccount = async (id: string, email: string) => {
+  const removeAccount = async (id: string, _email: string) => {
+    const previous = accounts;
     setAccounts(prev => prev.filter(acc => acc.id !== id));
     try {
-      const { doc, deleteDoc } = await import('firebase/firestore');
-      const { db, auth } = await import('../lib/firebase');
-      if (auth.currentUser) {
-        await deleteDoc(doc(db, `users/${auth.currentUser.uid}/emailAccounts/${email}`));
-      }
+      await removeEmailAccount(id);
+      const remaining = previous.filter(acc => acc.id !== id);
+      setIsLoggedIn(isAuthenticated() || remaining.some(acc => acc.active));
     } catch (err) {
       console.error("Failed to delete:", err);
+      await refreshAccounts();
+      notify({ title: 'Account Removal Failed', message: err instanceof Error ? err.message : 'Unable to remove email source', type: 'error' });
     }
   };
 
@@ -477,6 +445,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
       }
       await getAccessToken();
       setIsLoggedIn(true);
+      await refreshAccounts();
       handleFetchEmails();
     } catch (error: any) {
       console.error('Auth error:', error);
