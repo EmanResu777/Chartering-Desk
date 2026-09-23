@@ -3396,6 +3396,80 @@ async function startServer() {
     }
   });
 
+  app.post('/api/recaps/notify-created', express.json({ limit: '8kb' }), async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
+    if (!(await checkRateLimit(user.uid, 20, 'recap-created-notify'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    const dealId = String(req.body?.dealId || '').trim();
+    if (!/^[A-Za-z0-9_.:-]{1,240}$/.test(dealId)) {
+      return res.status(400).json({ error: 'Invalid deal id' });
+    }
+
+    try {
+      const dealRef = firestore.collection('deskNetworkUrgentDeals').doc(dealId);
+      const recapRef = dealRef.collection('recaps').doc('draft');
+      const [dealSnap, recapSnap] = await Promise.all([dealRef.get(), recapRef.get()]);
+      if (!dealSnap.exists || !recapSnap.exists) {
+        return res.status(404).json({ error: 'Deal or recap not found' });
+      }
+
+      const deal = dealSnap.data() || {};
+      const recap = recapSnap.data() || {};
+      const cargoOwnerUid = String(deal.cargoOwnerUid || '');
+      const vesselOwnerUid = String(deal.vesselOwnerUid || '');
+      if (user.uid !== cargoOwnerUid && user.uid !== vesselOwnerUid) {
+        return res.status(403).json({ error: 'Not a recap participant' });
+      }
+      if (deal.status !== 'dual_approved' || String(recap.dealId || '') !== dealId) {
+        return res.status(409).json({ error: 'Recap is not backed by a dual-approved deal' });
+      }
+
+      const targetUid = user.uid === cargoOwnerUid ? vesselOwnerUid : cargoOwnerUid;
+      if (!targetUid || targetUid === 'system' || targetUid === user.uid) {
+        return res.json({ success: true, notified: false });
+      }
+
+      const alertId = `recap_created_${createHash('sha256').update(`${dealId}:${targetUid}`).digest('hex').slice(0, 32)}`;
+      const alertRef = firestore.collection('alerts').doc(alertId);
+      const existing = await alertRef.get();
+      if (!existing.exists) {
+        await alertRef.set({
+          id: alertId,
+          recipientUid: targetUid,
+          createdBySystem: true,
+          category: 'recap_draft',
+          priority: 'high',
+          title: 'Recap Draft Created',
+          message: 'A working recap draft was created for a dual-approved Desk Network deal involving you.',
+          sourceType: 'recap',
+          sourceId: dealId,
+          actionLabel: 'Review',
+          actionRoute: '/dashboard',
+          read: false,
+          dismissed: false,
+          createdAt: Date.now(),
+          visibility: 'private'
+        });
+      }
+
+      await firestore.collection('auditEvents').add({
+        action: 'recap_draft_notification',
+        uid: user.uid,
+        metadata: { dealId, targetUid },
+        timestamp: FieldValue.serverTimestamp()
+      });
+
+      return res.json({ success: true, notified: !existing.exists });
+    } catch (error: any) {
+      console.error('[Recap Draft Notify] Failed:', error.message);
+      return res.status(500).json({ error: 'Unable to notify recap participant' });
+    }
+  });
+
   app.post('/api/recaps/confirm', express.json({ limit: '8kb' }), async (req, res) => {
     const user = await requireFirebaseUser(req);
     if (!user) return res.status(401).json({ error: 'Authentication required' });
