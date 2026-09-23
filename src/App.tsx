@@ -116,13 +116,10 @@ function AppContent() {
   useEffect(() => {
     // Check for Stripe success URL parameters
     const queryStr = new URLSearchParams(window.location.search);
-    if (queryStr.get('success') === 'true') {
-      const tier = queryStr.get('tier');
-      if (tier === 'basic' || tier === 'premium' || tier === 'maximum') {
-        setSubscription(tier);
-        // Clean up URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
+    if (queryStr.get('success') === 'true' || queryStr.get('canceled') === 'true') {
+      // Entitlements are server-controlled via Stripe webhook + Firestore.
+      // Never unlock paid UI solely from redirect query parameters.
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [setSubscription]);
 
@@ -297,9 +294,12 @@ function AppContent() {
       const unsubUser = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          if (data.subscription && (data.subscription === 'basic' || data.subscription === 'premium' || data.subscription === 'maximum')) {
-            setSubscription(data.subscription);
-          }
+          const derivedSubscription =
+            data.planId === 'desk' ? 'maximum' :
+            data.planId === 'solo' ? 'premium' :
+            (data.subscription === 'basic' || data.subscription === 'premium' || data.subscription === 'maximum') ? data.subscription :
+            'basic';
+          setSubscription(derivedSubscription);
           if (data.onboardingCompleted === undefined || data.onboardingCompleted === false) {
              setShowOnboarding(true);
           } else {
