@@ -70,7 +70,7 @@ export const DealRoomDetail: React.FC<DealRoomDetailProps> = ({ roomId, onClose 
         animate={{ x: 0, opacity: 1 }}
         exit={{ x: '100%', opacity: 0.5 }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="absolute inset-y-0 right-0 w-full lg:w-[800px] bg-surface-container-low border-l border-outline/30 shadow-2xl z-50 flex items-center justify-center p-8 backdrop-blur-3xl"
+        className="absolute inset-y-0 right-0 w-full lg:w-[800px] bg-surface-container-low border-l border-outline/30 shadow-2xl z-50 flex items-center justify-center p-4 sm:p-8 backdrop-blur-3xl"
       >
          <div className="w-8 h-8 border-t-2 border-primary border-solid rounded-full animate-spin"></div>
       </motion.div>
@@ -117,13 +117,13 @@ export const DealRoomDetail: React.FC<DealRoomDetailProps> = ({ roomId, onClose 
       transition={{ type: 'spring', damping: 25, stiffness: 200 }}
       className="absolute inset-y-0 right-0 w-full lg:w-[900px] bg-surface-container border-l border-outline/30 z-50 flex flex-col shadow-[-20px_0_40px_rgba(0,0,0,0.5)]"
     >
-       <div className="flex-none p-6 border-b border-outline/20 bg-surface-container-low flex justify-between items-start sticky top-0 z-10 backdrop-blur-md">
+       <div className="flex-none p-3 sm:p-6 border-b border-outline/20 bg-surface-container-low flex justify-between items-start gap-3 sticky top-0 z-10 backdrop-blur-md">
          <div>
             <div className="flex items-center gap-3 mb-2">
                 <span className="px-2 py-0.5 text-[8px] uppercase tracking-widest font-bold font-mono border border-primary text-primary bg-primary/10">Deal Room</span>
                 <span className="text-[10px] uppercase font-mono tracking-widest text-on-surface-variant font-bold">{room.id.substring(0,8)}</span>
             </div>
-            <h2 className="text-2xl font-display text-on-surface font-light flex items-center gap-3">
+            <h2 className="text-xl sm:text-2xl font-display text-on-surface font-light flex items-center gap-3 break-words">
                {room.title}
             </h2>
          </div>
