@@ -9,7 +9,6 @@ import { AIDealBriefCard } from './AIDealBriefCard';
 import { CounterpartyLinker } from './CounterpartyLinker';
 import { VoyageEstimateSection } from './VoyageEstimateSection';
 import { OpportunityMap } from './OpportunityMap';
-import { calculateProximity } from '../lib/proximityIntelligence';
 
 interface Watchlist {
   id: string;
@@ -315,77 +314,7 @@ const MatchEngineView = ({ watchlists }: { watchlists: Watchlist[] }) => {
             const snap = await getDocs(matchesQuery);
             let loadedMatches = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-            // For presentation, if empty let's mock one locally but save it
-            if (loadedMatches.length === 0 && watchlists.length > 0) {
-                const w = watchlists[0];
-                const mockID = `mock-${Date.now()}`;
-                const mockVessel = { id: 'mock-v', name: 'Mock Vessel', latitude: 45.0, longitude: -10.0, positionSource: 'system', aisStale: false };
-                const mockCargo = { id: 'mock-c', commodity: w.filters?.commodity || 'Commodity', loadLocation: { latitude: 48.0, longitude: -5.0 } };
-                
-                // Get routing estimate
-                let routeExt = null;
-                try {
-                   const { getRouteEstimate } = await import('../lib/routingClient');
-                   const r = await getRouteEstimate({
-                       fromCoordinates: { lat: mockVessel.latitude, lng: mockVessel.longitude },
-                       toCoordinates: mockCargo.loadLocation,
-                       vesselId: mockVessel.id,
-                       cargoId: mockCargo.id,
-                       speedKnots: 12
-                   });
-                   if (r && !r.stale) routeExt = r;
-                } catch(e) {}
-
-                const prox = calculateProximity(mockVessel, mockCargo);
-                
-                // Override proximity distance if we have route distance
-                if (routeExt && routeExt.routeDistanceNm != null) {
-                    prox.distanceNm = routeExt.routeDistanceNm;
-                    prox.distanceConfidence = routeExt.confidence as any;
-                    prox.explanation = `Routing: ${routeExt.sanitizedPreview}. ${prox.explanation}`;
-                }
-
-                import('../lib/proximityIntelligence').then(({ logProximityAudit }) => {
-                    logProximityAudit('proximity_used_in_smart_radar', {
-                        vesselId: mockVessel.id,
-                        cargoId: mockCargo.id,
-                        proximityScore: prox.proximityScore,
-                        proximityLabel: prox.proximityLabel,
-                        sourceModule: 'smart_radar'
-                    });
-                });
-
-                const m = {
-                   id: mockID,
-                   watchlistId: w.id,
-                   createdByUid: user.uid,
-                   matchedItemType: w.type === 'cargo' ? 'vessel' : 'cargo',
-                   source: 'Desk Network',
-                   score: Math.min(100, 80 + prox.proximityScore),
-                   label: prox.proximityScore > 30 ? 'excellent' : 'good',
-                   reasons: [`Commodity match (${w.filters?.commodity || 'Grain'})`, `Load area match (${w.filters?.loadArea || 'Continent'})`, prox.explanation],
-                   proximity: prox,
-                   suggestedActions: ['View', 'Interest', 'Dismiss'],
-                   itemDetails: { title: `35,000t ${w.filters?.commodity || 'Commodity'}`, route: 'Med - Cont', laycan: 'Mid May' },
-                   createdAt: new Date().toISOString()
-                };
-                await setDoc(doc(db, 'watchlistMatches', mockID), m);
-                
-                // Trigger Smart Alert for strong match
-                if (m.score >= 80) { // Default strong match threshold
-                   import('../lib/alertService').then(({ createAlert }) => {
-                      createAlert({
-                         recipientUid: user.uid,
-                         title: `Strong Match Detected`,
-                         message: `Smart Radar found an excellent match for your "${w.name}" watchlist: ${m.itemDetails.title} (${m.score}%).`,
-                         priority: 'high',
-                         category: 'smart_radar_match',
-                         actionRoute: `/radar`
-                      }).catch(console.error);
-                   });
-                }
-                loadedMatches.push(m);
-            }
+            // Empty is a valid production state. Never synthesize commercial opportunities.
             setMatches(loadedMatches);
          } catch (err) {
             console.error(err);
