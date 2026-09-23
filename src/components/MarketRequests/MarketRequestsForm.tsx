@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Save, AlertCircle } from 'lucide-react';
 import { MarketRequestType, MarketRequestVisibility } from '../../lib/utils';
 import { useAuth, db } from '../../lib/firebase';
-import { doc, setDoc, serverTimestamp, getDocs, collection, query, where, arrayUnion } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, getDoc, getDocs, collection, query, where } from 'firebase/firestore';
 
 interface MarketRequestsFormProps {
   type: MarketRequestType;
@@ -49,32 +49,41 @@ export const MarketRequestsForm: React.FC<MarketRequestsFormProps> = ({ type, on
     if (!user) return;
 
     const normalize = (value: unknown) => String(value || '').trim().toLowerCase();
-    const contains = (value: unknown, required: unknown) => {
-      const needle = normalize(required);
+    const contains = (value: unknown, wanted: unknown) => {
+      const needle = normalize(wanted);
       return !needle || normalize(value).includes(needle);
     };
-    const numericFromText = (value: unknown) => {
-      if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const firstNumber = (value: unknown): number | null => {
       const match = String(value || '').replace(/,/g, '').match(/\d+(?:\.\d+)?/);
-      return match ? Number(match[0]) : 0;
+      if (!match) return null;
+      const parsed = Number(match[0]);
+      return Number.isFinite(parsed) ? parsed : null;
     };
-    const dateScore = (reqStart: string, reqEnd: string, itemDateText: unknown) => {
-      if (!reqStart && !reqEnd) return 10;
-      if (!itemDateText) return 0;
-      const itemTime = Date.parse(String(itemDateText));
-      if (!Number.isFinite(itemTime)) return 0;
-      const startTime = reqStart ? Date.parse(reqStart) : Number.NEGATIVE_INFINITY;
-      const endTime = reqEnd ? Date.parse(reqEnd) : Number.POSITIVE_INFINITY;
-      if (itemTime < startTime || itemTime > endTime) return 0;
+    const parseDate = (value: unknown): number | null => {
+      const text = String(value || '').trim();
+      if (!text || ['TBD', 'TBA', 'UNKNOWN'].includes(text.toUpperCase())) return null;
+      const parsed = new Date(text).getTime();
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    const dateFit = (reqStart: unknown, reqEnd: unknown, candidateDate: unknown) => {
+      const candidate = parseDate(candidateDate);
+      if (candidate == null) return 0;
+      const start = parseDate(reqStart);
+      const end = parseDate(reqEnd);
+      if (start == null && end == null) return 0;
+      if (start != null && candidate < start) return 0;
+      if (end != null && candidate > end) return 0;
       return 20;
     };
 
     try {
-      const connectionsSnap = await getDocs(collection(db, 'users', user.uid, 'networkConnections'));
-      const connectedOwnerIds = connectionsSnap.docs.map(d => d.id).filter(Boolean);
-      const sharedItems: Array<{ id: string; [key: string]: any }> = [];
+      const userSnap = await getDoc(doc(db, 'users', user.uid));
+      const connectedTo = Array.isArray(userSnap.data()?.connectedTo)
+        ? userSnap.data()!.connectedTo.filter((id: unknown) => typeof id === 'string' && id)
+        : [];
 
-      for (const ownerId of connectedOwnerIds) {
+      const sharedItems: any[] = [];
+      for (const ownerId of connectedTo) {
         const sharedQuery = query(
           collection(db, 'sharedItems'),
           where('ownerId', '==', ownerId),
@@ -88,101 +97,102 @@ export const MarketRequestsForm: React.FC<MarketRequestsFormProps> = ({ type, on
       for (const item of sharedItems) {
         let score = 0;
         const reasons: string[] = [];
+        let relevant = false;
 
-        if (reqData.type === 'cargo_search') {
-          if (item.itemType !== 'cargo') continue;
-          if (reqData.cargoType && !contains(item.commodity, reqData.cargoType)) continue;
-          if (reqData.loadArea && !contains(item.loadPort, reqData.loadArea)) continue;
-          if (reqData.dischargeArea && !contains(item.dischargePort, reqData.dischargeArea)) continue;
-
-          if (reqData.cargoType) { score += 25; reasons.push(`Commodity: ${item.commodity}`); }
-          if (reqData.loadArea) { score += 25; reasons.push(`Load: ${item.loadPort}`); }
-          if (reqData.dischargeArea) { score += 15; reasons.push(`Discharge: ${item.dischargePort}`); }
-
-          const quantity = numericFromText(item.quantity);
-          if (reqData.quantityMin || reqData.quantityMax) {
-            const min = Number(reqData.quantityMin || 0);
-            const max = Number(reqData.quantityMax || Number.POSITIVE_INFINITY);
-            if (!quantity || quantity < min || quantity > max) continue;
+        if (reqData.type === 'cargo_search' && item.itemType === 'cargo') {
+          relevant = true;
+          if (reqData.cargoType) {
+            if (!contains(item.commodity, reqData.cargoType)) continue;
+            score += 25;
+            reasons.push(`commodity: ${item.commodity}`);
+          }
+          if (reqData.loadArea) {
+            if (!contains(item.loadPort, reqData.loadArea)) continue;
             score += 20;
-            reasons.push(`Quantity: ${item.quantity}`);
+            reasons.push(`load: ${item.loadPort}`);
           }
-
-          const ds = dateScore(reqData.dateFrom, reqData.dateTo, item.laycan);
-          score += ds;
-          if (ds) reasons.push(`Laycan: ${item.laycan || 'within requested window'}`);
-        } else if (reqData.type === 'tonnage_search') {
-          if (item.itemType !== 'vessel') continue;
-          if (reqData.vesselType && !contains(item.vessel_type || item.type, reqData.vesselType)) continue;
-          if (reqData.loadArea && !contains(item.openPort, reqData.loadArea)) continue;
-
-          if (reqData.vesselType) { score += 35; reasons.push(`Type: ${item.vessel_type || item.type}`); }
-          if (reqData.loadArea) { score += 35; reasons.push(`Open: ${item.openPort}`); }
-          const ds = dateScore(reqData.dateFrom, reqData.dateTo, item.openDate);
-          score += ds;
-          if (ds) reasons.push(`Open date: ${item.openDate || 'within requested window'}`);
-        } else if (reqData.type === 'available_vessel') {
-          if (item.itemType !== 'cargo') continue;
+          if (reqData.dischargeArea) {
+            if (!contains(item.dischargePort, reqData.dischargeArea)) continue;
+            score += 15;
+            reasons.push(`discharge: ${item.dischargePort}`);
+          }
+          const qty = firstNumber(item.quantity);
+          if (qty != null && (reqData.quantityMin || reqData.quantityMax)) {
+            const min = Number(reqData.quantityMin || 0);
+            const max = Number(reqData.quantityMax || Infinity);
+            if (qty < min || qty > max) continue;
+            score += 20;
+            reasons.push(`quantity: ${item.quantity}`);
+          }
+          const laycanScore = dateFit(reqData.dateFrom, reqData.dateTo, item.laycan);
+          if (laycanScore) {
+            score += laycanScore;
+            reasons.push(`date candidate: ${item.laycan}`);
+          }
+        } else if (reqData.type === 'tonnage_search' && item.itemType === 'vessel') {
+          relevant = true;
+          if (reqData.vesselType) {
+            if (!contains(item.vessel_type || item.type, reqData.vesselType)) continue;
+            score += 30;
+            reasons.push(`vessel type: ${item.vessel_type || item.type}`);
+          }
+          if (reqData.loadArea) {
+            if (!contains(item.openPort, reqData.loadArea)) continue;
+            score += 30;
+            reasons.push(`open area: ${item.openPort}`);
+          }
+          const openDateScore = dateFit(reqData.dateFrom, reqData.dateTo, item.openDate);
+          if (openDateScore) {
+            score += openDateScore;
+            reasons.push(`open date candidate: ${item.openDate}`);
+          }
+        } else if (reqData.type === 'available_vessel' && item.itemType === 'cargo') {
+          relevant = true;
+          if (reqData.loadArea) {
+            if (!contains(item.loadPort, reqData.loadArea)) continue;
+            score += 35;
+            reasons.push(`load area: ${item.loadPort}`);
+          }
           const vesselDwt = Number(reqData.dwtMin || 0);
-          const cargoQuantity = numericFromText(item.quantity);
-          if (vesselDwt > 0 && cargoQuantity > 0 && cargoQuantity > vesselDwt) continue;
-
-          if (reqData.loadArea && contains(item.loadPort, reqData.loadArea)) {
-            score += 35;
-            reasons.push(`Load area: ${item.loadPort}`);
+          const cargoQty = firstNumber(item.quantity);
+          if (vesselDwt > 0 && cargoQty != null) {
+            if (cargoQty > vesselDwt) continue;
+            score += 15;
+            reasons.push('quantity is below declared DWT; intake/stowage still requires manual check');
           }
-          if (vesselDwt > 0 && cargoQuantity > 0) {
-            score += 35;
-            reasons.push(`Cargo ${item.quantity} within stated DWT`);
+          const laycanScore = dateFit(reqData.dateFrom, reqData.dateTo, item.laycan);
+          if (laycanScore) {
+            score += laycanScore;
+            reasons.push(`laycan candidate: ${item.laycan}`);
           }
-          const ds = dateScore(reqData.dateFrom, reqData.dateTo || reqData.dateFrom, item.laycan);
-          score += ds;
-          if (ds) reasons.push(`Laycan: ${item.laycan || 'within requested window'}`);
-        } else {
-          continue;
         }
 
-        if (score < 40) continue;
-        const matchId = `MATCH-${requestId}-${item.id}`;
-        const currentUserIsVesselSide = reqData.type === 'available_vessel' || reqData.type === 'cargo_search';
-        // Find Cargo = our vessel-side request matched to another desk's cargo.
-        // Find Tonnage = our cargo-side request matched to another desk's vessel.
-        const vesselOwnerUid = reqData.type === 'tonnage_search' ? item.ownerId : user.uid;
-        const cargoOwnerUid = reqData.type === 'tonnage_search' ? user.uid : item.ownerId;
+        if (!relevant || score < 40) continue;
 
+        const matchId = `MATCH-${crypto.randomUUID()}`;
+        const userIsVesselSide = reqData.type === 'cargo_search' || reqData.type === 'available_vessel';
         matches.push({
           id: matchId,
           requestId,
           sharedItemId: item.id,
           requestType: reqData.type,
-          vesselOwnerUid,
-          cargoOwnerUid,
-          matchScore: Math.min(100, score),
-          label: score >= 80 ? 'strong match' : score >= 60 ? 'possible match' : 'candidate',
+          vesselOwnerUid: userIsVesselSide ? user.uid : item.ownerId,
+          cargoOwnerUid: userIsVesselSide ? item.ownerId : user.uid,
+          matchScore: Math.min(score, 100),
+          scoreType: 'deterministic_criteria_fit_not_probability',
+          label: 'screening candidate',
           reasons,
           status: 'active',
           createdAt: new Date().toISOString(),
-          audit: [{ action: 'deterministic match generated', timestamp: new Date().toISOString(), actor: user.uid }]
+          audit: [{ action: 'deterministic criteria screen', timestamp: new Date().toISOString(), actor: user.uid }]
         });
       }
 
-      const idToken = await user.getIdToken();
       for (const match of matches) {
-        await setDoc(doc(db, 'marketMatches', match.id), match, { merge: true });
-        const notifyResponse = await fetch('/api/market/matches/notify', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
-          },
-          body: JSON.stringify({ matchId: match.id })
-        });
-        if (!notifyResponse.ok) {
-          console.warn(`Market match notification failed for ${match.id}: HTTP ${notifyResponse.status}`);
-        }
+        await setDoc(doc(db, 'marketMatches', match.id), match);
       }
     } catch (err) {
-      console.warn("Failed to generate market request matches:", err);
+      console.warn("Failed to generate market request screening matches:", err);
     }
   };
 
@@ -221,7 +231,7 @@ export const MarketRequestsForm: React.FC<MarketRequestsFormProps> = ({ type, on
         status: 'active',
         expiryAt: expiry.toISOString(),
         createdByUid: user.uid,
-        createdByDeskId: profile?.deskId || 'UNKNOWN',
+        createdByDeskId: profile?.deskId || null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         audit: [{ action: `${type} created`, timestamp: new Date().toISOString(), actor: user.uid }]
