@@ -775,14 +775,17 @@ Return ONLY valid JSON with this exact structure (do not use markdown blocks):
 
 const MATCH_VESSELS_SYSTEM_INSTRUCTION = `Analyze matches between Cargo C and Vessels V.
 Do NOT give 100% score just because DWT and Vessel Type match.
+Do not claim AIS/live position evidence unless numeric position fields are supplied.
+If route distance is not supplied or derivable from supplied numeric coordinates, distance/ETA must be clearly prefixed "Indicative" and treated as low-confidence.
+If cargo quantity in MT exceeds stated vessel DWT, the recommendation must be "Reject / Not Commercial".
 Calculate 5 component scores out of 100:
 1. TechnicalFit: DWT, type, gear, holds, restrictions.
-2. PositionFit: Distance open port to load port.
-3. LaycanFit: Wait time, reach time.
-4. CommercialViability: Repositioning and idle cost. ${COMMERCIAL_SAFETY_RULES}
+2. PositionFit: position evidence and open port proximity; lower confidence when only port names are available.
+3. LaycanFit: wait time and reach-time evidence.
+4. CommercialViability: repositioning and idle cost. ${COMMERCIAL_SAFETY_RULES}
 5. RiskAdjustment: 0 to -100 depending on risks.
 Score = average(Technical, Position, Laycan, Commercial) + RiskAdjustment. Severe penalties for long ballast.
-Calculate Owner Loss Calculator details using provided assumptions.
+Calculate Owner Loss Calculator details only from provided assumptions. Do not invent a live bunker/hire/PDA value.
 Ensure 'recommendation' is one of: 'Strong Match', 'Conditional Match', 'Weak Match', 'Reject / Not Commercial'.
 Return ONLY valid JSON with this exact structure (no markdown blocks):
 {
@@ -3992,7 +3995,9 @@ async function startServer() {
         terms: cargo.terms,
         specialRequirements: cargo.specialRequirements,
         riskFlags: cargo.riskFlags,
-        status: cargo.status
+        status: cargo.status,
+        loadLocation: cargo.loadLocation,
+        dischargeLocation: cargo.dischargeLocation
       };
       
       const compactVessels = vessels.map((v: any) => ({
@@ -4009,7 +4014,13 @@ async function startServer() {
         consumption: v.consumption,
         flag: v.flag,
         built: v.builtYear || v.built,
-        status: v.status
+        status: v.status,
+        openingLocation: v.openingLocation,
+        currentLocation: v.currentLocation,
+        latitude: v.latitude,
+        longitude: v.longitude,
+        positionSource: v.positionSource,
+        positionUpdatedAt: v.positionUpdatedAt
       }));
 
       const contentsInput = `C:${JSON.stringify(compactCargo)}\nV:${JSON.stringify(compactVessels)}\nCost assumptions: ${assumptionsText}`;
@@ -4088,9 +4099,28 @@ async function startServer() {
           reasoning.unshift('Capacity check failed: cargo quantity exceeds stated vessel DWT.');
         }
 
+        const vesselLat = Number(vessel?.openingLocation?.lat ?? vessel?.currentLocation?.lat ?? vessel?.latitude);
+        const vesselLng = Number(vessel?.openingLocation?.lng ?? vessel?.currentLocation?.lng ?? vessel?.longitude);
+        const loadLat = Number(cargo?.loadLocation?.lat);
+        const loadLng = Number(cargo?.loadLocation?.lng);
+        const hasPositionEvidence =
+          Number.isFinite(vesselLat) && Number.isFinite(vesselLng) &&
+          Number.isFinite(loadLat) && Number.isFinite(loadLng);
+
         const missingCommercialData = Boolean(match.missingCommercialData) || !assumptions || !cargo.freightRate;
+        const normalizedDistance = hasPositionEvidence
+          ? String(match.distance || 'Pending')
+          : (match.distance ? `Indicative ~ ${String(match.distance).replace(/^Indicative\s*~?\s*/i, '')}` : 'Indicative / position data pending');
+        const normalizedEta = hasPositionEvidence
+          ? String(match.eta || 'Pending')
+          : (match.eta ? `Indicative ${String(match.eta).replace(/^Indicative\s*/i, '')}` : 'Indicative / position data pending');
+
         return {
           ...match,
+          distance: normalizedDistance,
+          eta: normalizedEta,
+          positionEvidence: hasPositionEvidence ? 'coordinates_supplied' : 'port_name_only',
+          missingPositionData: !hasPositionEvidence,
           score,
           technicalFit: clamp(match.technicalFit),
           positionFit: clamp(match.positionFit),
