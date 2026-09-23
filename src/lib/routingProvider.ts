@@ -107,23 +107,20 @@ export async function estimateRoute(
          });
       })
       .catch(err => {
-         // Fallback on error
-         const routeDistanceNm = straightLineNm * 1.2;
-         const estimatedRouteDays = routeDistanceNm / (speedKnots * 24);
-
+         console.warn('Routing provider failed:', err?.message || err);
          resolve({
-            routeDistanceNm,
-            estimatedRouteDays,
+            routeDistanceNm: null,
+            estimatedRouteDays: null,
             estimatedSpeedKnots: speedKnots,
             fromLocation: from,
             toLocation: to,
-            provider: 'simulated_sea_route_fallback',
-            confidence: 'low_simulated',
+            provider: 'unavailable',
+            confidence: 'none',
             isEstimated: true,
-            stale: false,
+            stale: true,
             routeCalculatedAt: new Date().toISOString(),
-            sanitizedPreview: `Simulated Route: ${Math.round(routeDistanceNm)} Nm (~${estimatedRouteDays.toFixed(1)} days @ ${speedKnots} kn)`,
-            disclaimer: 'This is a SIMULATED fallback route estimate due to provider error. Not valid for navigation or exact commercial calculation.'
+            sanitizedPreview: 'Sea-route provider unavailable',
+            disclaimer: 'No sea-route distance is available. Do not substitute a simulated multiplier for commercial calculation.'
          });
       });
     }, 50); 
