@@ -121,15 +121,15 @@ export const MatchingEngine: React.FC<{
         <div className="bg-surface-container-lowest border border-outline p-3 font-mono text-[10px] text-tertiary/80 space-y-1">
           <div className="flex gap-4">
             <span className="text-[#2d3f5a]">&gt;&gt; [14:40:01]</span>
-            <span>INTEL_SCAN: FETCHING AIS TELEMETRY... [OK]</span>
+            <span>SOURCE_CHECK: LOADING SAVED VESSEL POSITION DATA... [OK]</span>
           </div>
           <div className="flex gap-4">
             <span className="text-[#2d3f5a]">&gt;&gt; [14:40:02]</span>
-            <span>FILTER: APPLYING LAYCAN_TOLERANCE (±2.5d)... [OK]</span>
+            <span>FILTER: APPLYING CAPACITY / POSITION / LAYCAN CHECKS... [OK]</span>
           </div>
           <div className="flex gap-4">
             <span className="text-[#2d3f5a]">&gt;&gt; [14:40:03]</span>
-            <span className="animate-pulse">COMPUTING: MATCH_PROBABILITY_MATRIX...</span>
+            <span className="animate-pulse">COMPUTING: COMMERCIAL MATCH SCENARIO...</span>
           </div>
           {!loading && (
              <div className="pt-2 text-tertiary font-bold uppercase">
