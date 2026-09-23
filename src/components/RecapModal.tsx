@@ -180,84 +180,37 @@ export const RecapModal = ({ deal, user, onClose }: any) => {
     setSaving(false);
   };
 
-  const handleToggleConfirmation = async (side: 'cargoSide' | 'vesselSide', confirm: boolean) => {
+  const handleToggleConfirmation = async (_side: 'cargoSide' | 'vesselSide', confirm: boolean) => {
     if (!recapData || !user) return;
     try {
-      const recapRef = doc(db, 'deskNetworkUrgentDeals', deal.dealId || deal.id, 'recaps', 'draft');
-      const otherSide = side === 'cargoSide' ? 'vesselSide' : 'cargoSide';
-      const isOtherSideConfirmed = recapData.confirmations?.[otherSide]?.confirmed;
-
-      let status = 'pending';
-      if (confirm && isOtherSideConfirmed) status = 'confirmed_by_both_sides';
-      else if (confirm && side === 'cargoSide') status = 'confirmed_by_cargo_side';
-      else if (confirm && side === 'vesselSide') status = 'confirmed_by_vessel_side';
-      else if (!confirm) status = 'confirmation_revoked';
-
-      const updatePayload: any = {
-        [`confirmations.${side}.confirmed`]: confirm,
-        [`confirmations.${side}.confirmedBy`]: confirm ? user.uid : null,
-        [`confirmations.${side}.confirmedAt`]: confirm ? serverTimestamp() : null,
-        [`confirmations.${side}.revokedAt`]: !confirm ? serverTimestamp() : null,
-        confirmationStatus: status,
-        lastConfirmationActionAt: serverTimestamp(),
-        lastConfirmationActionBy: user.uid,
-        updatedAt: serverTimestamp(),
-        auditTrail: arrayUnion({ 
-          action: confirm ? `recap_confirmed_by_${side.replace('Side', '_side')}` : 'recap_confirmation_revoked', 
-          timestamp: new Date(), 
-          actorUid: user.uid, 
-          side: side.replace('Side', ''),
-          safeMessage: confirm ? `Recap confirmed by ${side.replace('Side', ' side')}` : `Confirmation revoked by ${side.replace('Side', ' side')}`
+      const token = await user.getIdToken();
+      const response = await fetch('/api/recaps/confirm', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          dealId: deal.dealId || deal.id,
+          confirm
         })
-      };
-
-      if (status === 'confirmed_by_both_sides') {
-        updatePayload.status = 'locked';
-        updatePayload.fullyConfirmedAt = serverTimestamp();
-        updatePayload.auditTrail.push({ action: 'recap_confirmed_by_both_sides', timestamp: new Date(), actorUid: 'system', safeMessage: 'Recap confirmed by both sides.' });
-        updatePayload.auditTrail.push({ action: 'recap_locked', timestamp: new Date(), actorUid: 'system', safeMessage: 'Recap locked after both sides confirmed.' });
-      } else if (!confirm && recapData.status === 'locked') {
-         updatePayload.status = 'draft';
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body.error || 'Unable to update recap confirmation');
       }
 
-      await updateDoc(recapRef, updatePayload);
-      
-      const draftPointer = {
-        updatedAt: serverTimestamp(),
-        status: status === 'confirmed_by_both_sides' ? 'locked' : 'draft',
-        confirmationStatus: status
-      };
-      // Optimistically update pointers, safely ignore if fails
-      try {
-        if (deal.cargoOwnerUid && deal.cargoOwnerUid !== 'system') {
-          await setDoc(doc(db, 'users', deal.cargoOwnerUid, 'recapDrafts', (deal.dealId || deal.id)), draftPointer, { merge: true });
-        }
-        if (deal.vesselOwnerUid && deal.vesselOwnerUid !== 'system') {
-          await setDoc(doc(db, 'users', deal.vesselOwnerUid, 'recapDrafts', (deal.dealId || deal.id)), draftPointer, { merge: true });
-        }
-
-        const counterpartUid = side === 'cargoSide' ? deal.vesselOwnerUid : deal.cargoOwnerUid;
-        if (confirm) {
-           import('../lib/alertService').then(({ createAlert }) => {
-              if (status === 'confirmed_by_both_sides') {
-                 // Alert both
-                 if (deal.cargoOwnerUid && deal.cargoOwnerUid !== 'system') {
-                    createAlert({ recipientUid: deal.cargoOwnerUid, title: 'Recap Locked', message: 'Both sides have confirmed the recap.', priority: 'high', category: 'recap_confirmation', actionRoute: '/dashboard' }).catch(console.error);
-                 }
-                 if (deal.vesselOwnerUid && deal.vesselOwnerUid !== 'system' && deal.vesselOwnerUid !== deal.cargoOwnerUid) {
-                    createAlert({ recipientUid: deal.vesselOwnerUid, title: 'Recap Locked', message: 'Both sides have confirmed the recap.', priority: 'high', category: 'recap_confirmation', actionRoute: '/dashboard' }).catch(console.error);
-                 }
-              } else if (counterpartUid && counterpartUid !== 'system') {
-                 // Counterpart is pending
-                 createAlert({ recipientUid: counterpartUid, title: 'Recap Confirmation Pending', message: `Broker confirmed the recap on ${side}. Awaiting your confirmation.`, priority: 'high', category: 'broker_confirmation_waiting', actionRoute: '/dashboard' }).catch(console.error);
-              }
-           });
-        }
-      } catch (e) {}
-      
-      notify({ title: "Confirmation Updated", message: confirm ? "You have confirmed the recap." : "Your confirmation was revoked.", type: "success" });
+      notify({
+        title: "Confirmation Updated",
+        message: body.recapStatus === 'locked'
+          ? "Both sides have confirmed. The recap is now locked."
+          : confirm
+            ? "Your recap confirmation was recorded."
+            : "Your recap confirmation was revoked.",
+        type: "success"
+      });
     } catch (err: any) {
-       notify({ title: "Update Error", message: err.message, type: "error" });
+      notify({ title: "Update Error", message: err.message, type: "error" });
     }
   };
 
