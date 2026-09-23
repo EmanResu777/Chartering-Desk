@@ -3421,9 +3421,58 @@ async function startServer() {
         return res.status(403).json({ error: 'Not a participant in this match' });
       }
 
-      const targetUid = user.uid === vesselOwnerUid ? cargoOwnerUid : vesselOwnerUid;
-      if (!targetUid || targetUid === user.uid) {
-        return res.status(200).json({ success: true, notified: false });
+      const requestId = String(match.requestId || '');
+      const sharedItemId = String(match.sharedItemId || '');
+      if (!requestId || !sharedItemId) {
+        return res.status(400).json({ error: 'Match provenance is incomplete' });
+      }
+
+      const [requestSnap, sharedItemSnap] = await Promise.all([
+        firestore.collection('marketRequests').doc(requestId).get(),
+        firestore.collection('sharedItems').doc(sharedItemId).get()
+      ]);
+      if (!requestSnap.exists || !sharedItemSnap.exists) {
+        return res.status(400).json({ error: 'Match source records are unavailable' });
+      }
+
+      const marketRequest = requestSnap.data() || {};
+      const sharedItem = sharedItemSnap.data() || {};
+      if (
+        marketRequest.createdByUid !== user.uid ||
+        marketRequest.status !== 'active' ||
+        marketRequest.visibility !== 'network' ||
+        String(match.requestType || '') !== String(marketRequest.type || '')
+      ) {
+        return res.status(403).json({ error: 'Match is not backed by your active network request' });
+      }
+
+      const targetUid = String(sharedItem.ownerId || '');
+      if (!targetUid || targetUid === user.uid || sharedItem.status !== 'active') {
+        return res.status(403).json({ error: 'Shared-item counterpart is invalid' });
+      }
+
+      const requestType = String(marketRequest.type || '');
+      const itemType = String(sharedItem.itemType || '');
+      const ownershipValid =
+        ((requestType === 'cargo_search' || requestType === 'available_vessel') &&
+          itemType === 'cargo' &&
+          vesselOwnerUid === user.uid &&
+          cargoOwnerUid === targetUid) ||
+        (requestType === 'tonnage_search' &&
+          itemType === 'vessel' &&
+          cargoOwnerUid === user.uid &&
+          vesselOwnerUid === targetUid);
+
+      if (!ownershipValid) {
+        return res.status(403).json({ error: 'Match participant mapping is invalid' });
+      }
+
+      const [callerConnection, counterpartConnection] = await Promise.all([
+        firestore.collection(`users/${user.uid}/networkConnections`).doc(targetUid).get(),
+        firestore.collection(`users/${targetUid}/networkConnections`).doc(user.uid).get()
+      ]);
+      if (!callerConnection.exists || !counterpartConnection.exists) {
+        return res.status(403).json({ error: 'Accepted reciprocal network connection required' });
       }
 
       const score = Math.max(0, Math.min(100, Number(match.matchScore) || 0));
@@ -3438,7 +3487,7 @@ async function startServer() {
           category: 'market_request_match',
           priority: score >= 80 ? 'high' : 'info',
           title: 'New Market Match',
-          message: `A connected desk market request matched one of your shared items (criteria-fit score ${Math.round(score)}/100; not a probability or fixture recommendation).`,
+          message: 'A connected desk market request produced a screening candidate against one of your shared items. Review the underlying facts before any commercial action.',
           sourceType: 'market_match',
           sourceId: matchId,
           actionLabel: 'Review',
@@ -3453,7 +3502,7 @@ async function startServer() {
       await firestore.collection('auditEvents').add({
         action: 'market_match_notification',
         uid: user.uid,
-        metadata: { matchId, targetUid, score },
+        metadata: { matchId, requestId, sharedItemId, targetUid, criteriaFitScore: score },
         timestamp: FieldValue.serverTimestamp()
       });
 
