@@ -296,7 +296,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
         )}
       >
         <div className="flex justify-between items-start mb-2 gap-4">
-          <div className="flex flex-wrap items-center gap-2 md:gap-4 shrink-0 max-w-[60%]">
+          <div className="flex flex-wrap items-center gap-2 md:gap-4 min-w-0 max-w-[70%] sm:max-w-[60%]">
              {!isCompact && (
                <input 
                  type="checkbox" 
@@ -904,7 +904,7 @@ export const InboxParser: React.FC<InboxParserProps> = ({ networkState, emails, 
                       initial={{ opacity: 0, scale: 0.95, y: 10 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                      className="absolute right-0 mt-2 w-72 bg-surface-container border border-primary shadow-[0_0_50px_rgba(29,155,240,0.15)] z-50 p-6 space-y-6 overflow-hidden"
+                      className="absolute right-0 mt-2 w-[calc(100vw-2rem)] max-w-72 bg-surface-container border border-primary shadow-[0_0_50px_rgba(29,155,240,0.15)] z-50 p-6 space-y-6 overflow-hidden"
                     >
                       {/* Header with back button if connecting */}
                       <div className="flex items-center justify-between mb-2">
