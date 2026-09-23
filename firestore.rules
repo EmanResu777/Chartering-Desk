@@ -376,6 +376,27 @@ service cloud.firestore {
            : true
         )
         && (
+          incoming().get('confirmations', {}).get('cargoSide', {}).get('confirmed', false) != true ||
+          incoming().get('confirmations', {}).get('cargoSide', {}).get('confirmedBy', null) ==
+            get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(dealId)).data.cargoOwnerUid
+        )
+        && (
+          incoming().get('confirmations', {}).get('vesselSide', {}).get('confirmed', false) != true ||
+          incoming().get('confirmations', {}).get('vesselSide', {}).get('confirmedBy', null) ==
+            get(/databases/$(database)/documents/deskNetworkUrgentDeals/$(dealId)).data.vesselOwnerUid
+        )
+        && (
+          (
+            incoming().get('confirmations', {}).get('cargoSide', {}).get('confirmed', false) == true &&
+            incoming().get('confirmations', {}).get('vesselSide', {}).get('confirmed', false) == true
+          )
+          ? (
+              incoming().status == 'locked' &&
+              incoming().get('confirmationStatus', '') == 'confirmed_by_both_sides'
+            )
+          : incoming().status != 'locked'
+        )
+        && (
            (
              existing().get('confirmations', {}).get('cargoSide', {}).get('confirmed', false) == true || 
              existing().get('confirmations', {}).get('vesselSide', {}).get('confirmed', false) == true
