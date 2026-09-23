@@ -503,280 +503,98 @@ const BrokerConfig = ({ profile, setProfile }: { profile: any, setProfile: any }
 };
 
 const AutomationConfig = () => {
-  const [autoSync, setAutoSync] = useState(true);
-  const [syncInterval, setSyncInterval] = useState('5 min');
-  const [autoParse, setAutoParse] = useState(true);
-  const [smartReply, setSmartReply] = useState(false);
   const [isGmailConnected, setIsGmailConnected] = useState(isAuthenticated());
-  
-  const [logs, setLogs] = useState<string[]>([
-    'ENGINE_STARTED: Monitoring incoming terminal data...',
-    'SYNC_COMPLETE: Ruleset v2.4 successfully loaded.'
-  ]);
+  const [connecting, setConnecting] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  const [rules, setRules] = useState([
-    { id: 1, text: 'If TCE > $25k, reply with generic interest', lastTriggered: '2h ago' },
-    { id: 2, text: 'If Cargo < 5000mt, ignore', lastTriggered: '14m ago' },
-    { id: 3, text: 'If Port == "War Zone", flag as high priority', lastTriggered: 'Never' }
-  ]);
-  const [isAdding, setIsAdding] = useState(false);
-  const [newRule, setNewRule] = useState({ 
-    condition: 'TCE', 
-    operator: '>', 
-    value: '', 
-    action: 'Reply with interest' 
-  });
-
-  // Simulate automation activity
-  React.useEffect(() => {
-    if (!autoParse && !smartReply && !autoSync) return;
-
-    const interval = setInterval(() => {
-      const activities = [
-        `SCANNING: Inbox ${Math.floor(Math.random() * 100)}% complete...`,
-        'PARSING: New cargo offer detected in "Subject: Open Cargo USG/CONT"',
-        'MATCHING: Cross-referencing 4 vessels for fixture potential...',
-        'IDLE: Waiting for new data nodes...'
-      ];
-      
-      if (autoSync && Math.random() > 0.8) {
-        activities.push(`SYNC: Mailbox refresh complete (${syncInterval} interval)`);
-      }
-
-      if (smartReply && Math.random() > 0.7) {
-        activities.push('AUTO_REPLY: Responding to "Cargo ID 9283" (Matched Rule #1)');
-        setRules(prev => prev.map(r => r.id === 1 ? { ...r, lastTriggered: 'Just now' } : r));
-      }
-
-      setLogs(prev => [activities[Math.floor(Math.random() * activities.length)], ...prev].slice(0, 5));
-    }, 4000);
-
-    return () => clearInterval(interval);
-  }, [autoParse, smartReply, autoSync, syncInterval]);
-
-  const addRule = () => {
-    if (!newRule.value) return;
-    const ruleText = `If ${newRule.condition} ${newRule.operator} ${newRule.value}, ${newRule.action.toLowerCase()}`;
-    setRules([...rules, { id: Date.now(), text: ruleText, lastTriggered: 'Added just now' }]);
-    setIsAdding(false);
-    setNewRule({ condition: 'TCE', operator: '>', value: '', action: 'Reply with interest' });
-  };
-
-  const removeRule = (id: number) => {
-    setRules(rules.filter(r => r.id !== id));
-  };
-  
   const handleConnectGmail = async () => {
+    setConnecting(true);
+    setConnectionError(null);
     try {
       const { getAccessToken } = await import('../lib/googleAuth');
       await getAccessToken(true);
       setIsGmailConnected(true);
     } catch (e: any) {
       console.error(e);
-      alert(e.message || "Could not connect Gmail");
+      setConnectionError(e.message || "Could not connect Gmail");
+    } finally {
+      setConnecting(false);
     }
   };
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <SectionHeader title="Workflow_Automation" sub="Rules for email parsing and automated broker interactions." />
-      
-      <div className="space-y-4">
-        {/* Email Connection */}
-        <div className="p-4 border border-outline bg-surface-container flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <SectionHeader
+        title="Workflow_Automation"
+        sub="Production controls are intentionally conservative: AI may parse and draft, but outbound communication always requires human approval."
+      />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="p-4 border border-outline bg-surface-container flex flex-col gap-4">
           <div>
             <h5 className="text-[12px] font-bold text-on-surface uppercase mb-1">Email Integration</h5>
             <p className="text-[10px] text-on-surface-variant leading-relaxed">
-              Connect your Gmail to let Chartering Desk scan chartering emails and extract cargo/vessel opportunities. You can skip this and use the platform manually.
+              Connect Gmail for authenticated inbox ingestion. IMAP sources can be configured from the Inbox source manager.
             </p>
           </div>
           {isGmailConnected ? (
-             <div className="px-4 py-2 bg-primary/10 text-primary border border-primary/30 rounded-sm text-[10px] font-bold uppercase tracking-widest text-center whitespace-nowrap">
-               Gmail Connected
-             </div>
+            <div className="px-4 py-3 bg-primary/10 text-primary border border-primary/30 text-[10px] font-bold uppercase tracking-widest text-center">
+              Gmail Connected
+            </div>
           ) : (
-            <button 
+            <button
               onClick={handleConnectGmail}
-              className="px-6 py-2 bg-on-surface text-surface hover:bg-on-surface/90 rounded-sm text-[10px] font-bold uppercase tracking-widest shadow-md transition-colors whitespace-nowrap flex items-center justify-center gap-2"
+              disabled={connecting}
+              className="min-h-11 px-6 py-3 bg-on-surface text-surface hover:bg-on-surface/90 text-[10px] font-bold uppercase tracking-widest transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              <Mail className="w-3.5 h-3.5" /> Connect Gmail
+              {connecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+              {connecting ? 'Connecting...' : 'Connect Gmail'}
             </button>
+          )}
+          {connectionError && (
+            <div className="border border-error/30 bg-error/5 p-3 text-[10px] text-error">{connectionError}</div>
           )}
         </div>
 
-        {/* Live Status Monitor */}
-        <div className="p-4 bg-surface-container-highest border border-primary/30 rounded-sm">
-           <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                 <div className={cn("h-2 w-2 rounded-full animate-pulse", (autoParse || smartReply || autoSync) ? "bg-tertiary" : "bg-red-500")} />
-                 <span className="text-[10px] font-bold text-on-surface uppercase tracking-widest">Live_Automation_Log</span>
-              </div>
-              <span className="text-[9px] font-mono text-primary">CPU_LOAD: 0.0{Math.floor(Math.random() * 9)}%</span>
-           </div>
-           <div className="space-y-1">
-              {logs.map((log, i) => (
-                <div key={i} className="text-[9px] font-mono text-on-surface-variant flex gap-2">
-                   <span className="text-primary shrink-0">[{new Date().toLocaleTimeString([], { hour12: false })}]</span>
-                   <span className={cn(log.startsWith('AUTO_REPLY') ? "text-tertiary" : log.startsWith('SYNC') ? "text-primary" : "")}>{log}</span>
-                </div>
-              ))}
-           </div>
-        </div>
-
-        <div className="flex items-center justify-between p-4 border border-outline bg-surface-container hover:border-primary/20 transition-colors">
-          <div>
-            <h5 className="text-[12px] font-bold text-on-surface uppercase mb-1">Auto-sync Emails</h5>
-            <p className="text-[10px] text-on-surface-variant">Automatically check for new emails</p>
+        <div className="p-4 border border-tertiary/30 bg-tertiary/5 flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-tertiary" />
+            <h5 className="text-[12px] font-bold text-on-surface uppercase">Human Approval Gate</h5>
           </div>
-          <Toggle active={autoSync} onToggle={() => setAutoSync(!autoSync)} />
+          <p className="text-[10px] text-on-surface-variant leading-relaxed">
+            Automatic outbound email is disabled by design. AI can classify messages, extract cargo/tonnage, prepare risk notes and draft replies; a broker must review and explicitly send any external communication.
+          </p>
+          <div className="text-[9px] font-mono uppercase tracking-widest text-tertiary">
+            OUTBOUND_MODE: MANUAL_APPROVAL_ONLY
+          </div>
         </div>
+      </div>
 
-        {autoSync && (
-          <div className="space-y-3 px-1 animate-in fade-in duration-200">
-            <h4 className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Sync Interval</h4>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {['1 min', '5 min', '15 min', '1 hour'].map((interval) => (
-                <button
-                  key={interval}
-                  onClick={() => setSyncInterval(interval)}
-                  className={cn(
-                    "p-3 border transition-all text-center text-[11px] font-bold uppercase tracking-wider",
-                    syncInterval === interval 
-                      ? "border-primary bg-primary/10 text-primary" 
-                      : "border-outline bg-surface-container text-on-surface-variant hover:border-primary/30"
-                  )}
-                >
-                  {interval}
-                </button>
-              ))}
+      <div className="border border-outline bg-surface-container p-4 sm:p-5">
+        <h4 className="text-[11px] font-bold text-on-surface uppercase tracking-widest mb-4">Production Workflow</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            ['1', 'Ingest', 'Gmail / IMAP / manual text enters the private workspace.'],
+            ['2', 'Analyze', 'AI extracts structured cargo or vessel fields and flags uncertainty.'],
+            ['3', 'Approve', 'Broker reviews extracted data, matching, economics and any drafted response before action.']
+          ].map(([step, title, body]) => (
+            <div key={step} className="border border-outline/40 bg-surface-container-low p-4">
+              <div className="text-[9px] font-mono text-primary uppercase tracking-widest mb-2">Step {step}</div>
+              <div className="text-[12px] font-bold text-on-surface uppercase mb-2">{title}</div>
+              <p className="text-[10px] leading-relaxed text-on-surface-variant">{body}</p>
             </div>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between p-4 border border-outline bg-surface-container hover:border-primary/20 transition-colors">
-          <div>
-            <h5 className="text-[12px] font-bold text-on-surface uppercase mb-1">Auto-Parse Inbox</h5>
-            <p className="text-[10px] text-on-surface-variant">Automatically extract cargo offers from incoming emails.</p>
-          </div>
-          <Toggle active={autoParse} onToggle={() => setAutoParse(!autoParse)} />
+          ))}
         </div>
+      </div>
 
-        <div className="flex items-center justify-between p-4 border border-outline bg-surface-container hover:border-primary/20 transition-colors">
+      <div className="border border-outline bg-surface-container-low p-4">
+        <div className="flex items-start gap-3">
+          <Info className="w-4 h-4 text-primary mt-0.5 shrink-0" />
           <div>
-            <h5 className="text-[12px] font-bold text-on-surface uppercase mb-1">Smart Auto-Reply</h5>
-            <p className="text-[10px] text-on-surface-variant">Notify shippers if vessel matches are found immediately.</p>
-          </div>
-          <Toggle active={smartReply} onToggle={() => setSmartReply(!smartReply)} />
-        </div>
-
-        <div className="space-y-2 mt-6">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-[11px] font-bold text-on-surface-variant uppercase tracking-widest px-1">Auto-Reply Rules</h4>
-            <span className="text-[9px] text-primary font-mono">ACTIVE_ENGINE_v2.4</span>
-          </div>
-          
-          <div className="space-y-2">
-            {rules.map((rule) => (
-              <div key={rule.id} className="flex items-center justify-between p-3 bg-surface-dim border border-outline text-[11px] text-on-surface-variant font-mono group hover:border-primary/30 transition-colors">
-                <div className="flex items-center gap-3">
-                   <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-                   <div className="flex flex-col">
-                      <span>{rule.text}</span>
-                      <span className="text-[8px] opacity-50 uppercase tracking-tighter">Applied: {rule.lastTriggered}</span>
-                   </div>
-                </div>
-                <button 
-                  onClick={() => removeRule(rule.id)}
-                  className="p-1 hover:bg-red-500/20 rounded transition-colors"
-                >
-                  <Trash2 className="h-3.5 w-3.5 text-red-400 opacity-0 group-hover:opacity-100 cursor-pointer" />
-                </button>
-              </div>
-            ))}
-
-            <AnimatePresence>
-              {isAdding ? (
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  className="p-4 border border-primary bg-surface-container shadow-xl space-y-4"
-                >
-                  <div className="flex items-center gap-2 text-primary mb-2">
-                    <AlertCircle className="h-3 w-3" />
-                    <span className="text-[9px] font-bold uppercase tracking-widest">Rule_Builder_Interface</span>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <select 
-                      value={newRule.condition}
-                      onChange={(e) => setNewRule({...newRule, condition: e.target.value})}
-                      className="bg-surface-container-highest border border-outline text-on-surface p-2 text-[10px] focus:outline-none focus:border-primary"
-                    >
-                      <option>TCE</option>
-                      <option>Quantity</option>
-                      <option>Port</option>
-                      <option>Commodity</option>
-                      <option>Laycan</option>
-                    </select>
-
-                    <select 
-                      value={newRule.operator}
-                      onChange={(e) => setNewRule({...newRule, operator: e.target.value})}
-                      className="bg-surface-container-highest border border-outline text-on-surface p-2 text-[10px] focus:outline-none focus:border-primary"
-                    >
-                      <option>&gt;</option>
-                      <option>&lt;</option>
-                      <option>==</option>
-                      <option>contains</option>
-                    </select>
-
-                    <input 
-                      type="text"
-                      placeholder="Value"
-                      value={newRule.value}
-                      onChange={(e) => setNewRule({...newRule, value: e.target.value})}
-                      className="bg-surface-container-highest border border-outline text-on-surface p-2 text-[10px] focus:outline-none focus:border-primary"
-                    />
-
-                    <select 
-                      value={newRule.action}
-                      onChange={(e) => setNewRule({...newRule, action: e.target.value})}
-                      className="bg-surface-container-highest border border-outline text-on-surface p-2 text-[10px] focus:outline-none focus:border-primary"
-                    >
-                      <option>Reply with interest</option>
-                      <option>Ignore</option>
-                      <option>Flag Priority</option>
-                      <option>Notify Manager</option>
-                    </select>
-                  </div>
-
-                  <div className="flex justify-end gap-2 pt-2 border-t border-outline">
-                    <button 
-                      onClick={() => setIsAdding(false)}
-                      className="px-3 py-1 text-[9px] font-bold uppercase text-on-surface-variant hover:text-on-surface"
-                    >
-                      Cancel
-                    </button>
-                    <button 
-                      onClick={addRule}
-                      className="px-4 py-1 bg-primary text-on-surface text-[9px] font-bold uppercase rounded-sm flex items-center gap-1"
-                    >
-                      <Check className="h-3 w-3" />
-                      Commit_Rule
-                    </button>
-                  </div>
-                </motion.div>
-              ) : (
-                <button 
-                  onClick={() => setIsAdding(true)}
-                  className="w-full p-3 border border-dashed border-outline text-primary text-[10px] font-bold uppercase hover:bg-primary/5 transition-all flex items-center justify-center gap-2"
-                >
-                  <Plus className="h-4 w-4" />
-                  Initialize_New_Automation_Sequence
-                </button>
-              )}
-            </AnimatePresence>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-on-surface">No synthetic automation telemetry</div>
+            <p className="mt-1 text-[10px] leading-relaxed text-on-surface-variant">
+              This screen does not fabricate CPU load, inbox scans, matches, rules or sent replies. Operational state comes from the actual inbox, usage, alerts and deployment diagnostics.
+            </p>
           </div>
         </div>
       </div>
