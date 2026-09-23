@@ -28,6 +28,8 @@ const routingProvider = read('src/lib/routingProvider.ts');
 const recapModal = read('src/components/RecapModal.tsx');
 const proximityIntelligence = read('src/lib/proximityIntelligence.ts');
 const marketRequestsForm = read('src/components/MarketRequests/MarketRequestsForm.tsx');
+const deskNetwork = read('src/components/DeskNetwork.tsx');
+const imapService = read('src/lib/imapService.ts');
 const documentEditor = read('src/components/DocumentEditor.tsx');
 
 assert(!server.includes("testId123"), 'test-user authentication bypass must never ship');
@@ -244,6 +246,29 @@ assert(
   marketRequestsForm.includes("scoreType: 'deterministic_criteria_fit_not_probability'") &&
   marketRequestsForm.includes("label: 'screening candidate'"),
   'Market Requests must use the current connection-scoped network schema without presenting screening score as probability'
+);
+
+assert(
+  server.includes("app.get('/api/email/accounts'") &&
+  server.includes("app.post('/api/email/accounts/set-active'") &&
+  server.includes("app.post('/api/email/accounts/remove'") &&
+  imapService.includes("fetch('/api/email/accounts'") &&
+  !inboxParser.includes("collection(db, `users/${auth.currentUser.uid}/emailAccounts`)"),
+  'email account secrets must remain server-only while the client uses authenticated management endpoints'
+);
+assert(
+  server.includes("app.post('/api/network/invites/accept'") &&
+  server.includes("networkConnections`).doc(fromUserId)") &&
+  server.includes("networkConnections`).doc(user.uid)") &&
+  deskNetwork.includes("collection(db, `users/${user.uid}/networkConnections`)") &&
+  marketRequestsForm.includes("collection(db, `users/${user.uid}/networkConnections`)") &&
+  smartRadar.includes("collection(db, `users/${user.uid}/networkConnections`)"),
+  'Desk Network acceptance and all matching surfaces must use reciprocal accepted connections'
+);
+assert(
+  server.includes('criteria-fit score') &&
+  server.includes('not a probability or fixture recommendation'),
+  'market match notifications must not present deterministic screening scores as probabilities'
 );
 assert(
   !documentEditor.includes('Marina Petrova') &&
