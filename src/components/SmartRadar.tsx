@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Bot, Plus, Radar, CheckSquare, Settings, Save, X, Search, ShieldCheck, MapPin } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth, db } from '../lib/firebase';
-import { collection, query, where, getDocs, onSnapshot, setDoc, doc, deleteDoc, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, onSnapshot, setDoc, doc, deleteDoc, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 
 import { AIDealBriefCard } from './AIDealBriefCard';
 import { CounterpartyLinker } from './CounterpartyLinker';
@@ -302,28 +302,129 @@ const MatchEngineView = ({ watchlists }: { watchlists: Watchlist[] }) => {
    const [loading, setLoading] = useState(true);
 
    useEffect(() => {
-      // Simulation of generating matches based on active watchlists.
-      // In a real scenario, this would query marketMatches or pull sharedItems 
-      // and do intersection.
       if (!user) return;
-      
+
+      let cancelled = false;
+
+      const normalize = (value: unknown) => String(value || '').trim().toLowerCase();
+      const includesTerm = (value: unknown, term: unknown) => {
+        const needle = normalize(term);
+        return !needle || normalize(value).includes(needle);
+      };
+
+      const scoreSharedItem = (watchlist: Watchlist, item: any) => {
+        if (watchlist.status !== 'active') return null;
+        const filters = watchlist.filters || {};
+        const reasons: string[] = [];
+        let score = 55;
+
+        const wantsCargo = watchlist.type === 'cargo' || watchlist.type === 'route' || watchlist.type === 'commodity';
+        const wantsVessel = watchlist.type === 'tonnage';
+        if (wantsCargo && item.itemType !== 'cargo') return null;
+        if (wantsVessel && item.itemType !== 'vessel') return null;
+        if (watchlist.type === 'urgent' && !item.isUrgent) return null;
+
+        if (filters.commodity) {
+          if (item.itemType !== 'cargo' || !includesTerm(item.commodity, filters.commodity)) return null;
+          reasons.push(`Commodity: ${item.commodity}`);
+          score += 12;
+        }
+        if (filters.vesselType) {
+          if (item.itemType !== 'vessel' || !includesTerm(item.vessel_type || item.type, filters.vesselType)) return null;
+          reasons.push(`Vessel type: ${item.vessel_type || item.type}`);
+          score += 12;
+        }
+        if (filters.loadArea) {
+          if (item.itemType !== 'cargo' || !includesTerm(item.loadPort, filters.loadArea)) return null;
+          reasons.push(`Load area: ${item.loadPort}`);
+          score += 10;
+        }
+        if (filters.dischargeArea) {
+          if (item.itemType !== 'cargo' || !includesTerm(item.dischargePort, filters.dischargeArea)) return null;
+          reasons.push(`Discharge area: ${item.dischargePort}`);
+          score += 10;
+        }
+        if (item.isUrgent) {
+          reasons.push('Marked urgent by source desk');
+          score += 8;
+        }
+
+        const hasAnyFilter = Boolean(filters.commodity || filters.vesselType || filters.loadArea || filters.dischargeArea || watchlist.type === 'urgent');
+        if (!hasAnyFilter) return null;
+
+        return {
+          score: Math.min(100, score),
+          reasons: reasons.length ? reasons : ['Watchlist criteria matched']
+        };
+      };
+
       const fetchMatches = async () => {
          setLoading(true);
          try {
+            const userSnap = await getDoc(doc(db, 'users', user.uid));
+            const connectedTo = Array.isArray(userSnap.data()?.connectedTo)
+              ? userSnap.data()!.connectedTo.filter((id: unknown) => typeof id === 'string' && id)
+              : [];
+
+            const sharedItems: any[] = [];
+            for (const ownerId of connectedTo) {
+              const sharedQuery = query(
+                collection(db, 'sharedItems'),
+                where('ownerId', '==', ownerId),
+                where('status', '==', 'active')
+              );
+              const sharedSnap = await getDocs(sharedQuery);
+              sharedSnap.forEach(d => sharedItems.push({ id: d.id, ...d.data() }));
+            }
+
+            const activeWatchlists = watchlists.filter(w => w.status === 'active');
+            for (const watchlist of activeWatchlists) {
+              for (const item of sharedItems) {
+                const scored = scoreSharedItem(watchlist, item);
+                if (!scored) continue;
+
+                const matchId = `${watchlist.id}__${item.id}`;
+                const isCargo = item.itemType === 'cargo';
+                const title = isCargo
+                  ? `${item.quantity || ''} ${item.commodity || 'Cargo'}`.trim()
+                  : `${item.name || item.vessel_name || 'Vessel'} ${item.dwt ? `(${Number(item.dwt).toLocaleString()} DWT)` : ''}`.trim();
+
+                await setDoc(doc(db, 'watchlistMatches', matchId), {
+                  id: matchId,
+                  watchlistId: watchlist.id,
+                  createdByUid: user.uid,
+                  sourceItemId: item.id,
+                  sourceOwnerId: item.ownerId,
+                  matchedItemType: item.itemType,
+                  source: 'Desk Network',
+                  score: scored.score,
+                  label: scored.score >= 90 ? 'excellent' : scored.score >= 75 ? 'good' : 'candidate',
+                  reasons: scored.reasons,
+                  suggestedActions: ['View', 'Save', 'Dismiss'],
+                  itemDetails: {
+                    title,
+                    route: isCargo ? `${item.loadPort || 'TBD'} - ${item.dischargePort || 'TBD'}` : item.openPort || 'TBD',
+                    laycan: isCargo ? item.laycan || 'TBD' : item.openDate || 'TBD'
+                  },
+                  updatedAt: serverTimestamp()
+                }, { merge: true });
+              }
+            }
+
             const matchesQuery = query(collection(db, 'watchlistMatches'), where('createdByUid', '==', user.uid));
             const snap = await getDocs(matchesQuery);
-            let loadedMatches = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-            // Empty is a valid production state. Never synthesize commercial opportunities.
-            setMatches(loadedMatches);
+            const loadedMatches = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            if (!cancelled) setMatches(loadedMatches);
          } catch (err) {
-            console.error(err);
+            console.error('Smart Radar scan failed', err);
+            if (!cancelled) setMatches([]);
          } finally {
-            setLoading(false);
+            if (!cancelled) setLoading(false);
          }
       };
       
       fetchMatches();
+      return () => { cancelled = true; };
    }, [user, watchlists]);
 
    const handleAction = async (id: string, action: string) => {
