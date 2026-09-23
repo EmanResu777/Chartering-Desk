@@ -59,6 +59,10 @@ assert(
   'users must not be able to write billing/usage counters'
 );
 assert(
+  /match \/billingState\/\{stateId\}[\s\S]{0,180}allow read, write: if false/.test(rules),
+  'users must not be able to read or write server billing state'
+);
+assert(
   /match \/emailAccounts\/\{accountId\}[\s\S]{0,180}allow read, write: if false/.test(rules),
   'OAuth and IMAP account secrets must be server-only'
 );
