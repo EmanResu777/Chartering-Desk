@@ -352,14 +352,14 @@ const BrokerConfig = ({ profile, setProfile }: { profile: any, setProfile: any }
           label="Full Name" 
           value={profile.name}
           onChange={(e: any) => setProfile({ ...profile, name: e.target.value })}
-          placeholder="Ex: John Harrison" 
+          placeholder="Your name" 
           icon={User} 
         />
         <InputGroup 
           label="Company Name" 
           value={profile.company}
           onChange={(e: any) => setProfile({ ...profile, company: e.target.value })}
-          placeholder="Ex: Meridian Shipbrokers Ltd" 
+          placeholder="Your company" 
           icon={Globe} 
         />
         <InputGroup 
@@ -471,7 +471,7 @@ const BrokerConfig = ({ profile, setProfile }: { profile: any, setProfile: any }
            <div className="space-y-6">
               <div className="h-32 bg-white flex items-center justify-center p-4 shadow-inner border-y-4 border-primary/20">
                  <span className={cn("text-black text-[32px] select-none", profile.signatureStyle)}>
-                    {profile.name || "John Harrison"}
+                    {profile.name || "Broker"}
                  </span>
               </div>
               
