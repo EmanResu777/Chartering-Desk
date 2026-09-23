@@ -3115,7 +3115,7 @@ async function startServer() {
 
     // 2. Identify laycan line
     const monthRegex = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)/i;
-    const yearRegex = /20\\d{2}/;
+    const yearRegex = /20\d{2}/;
     const datePatternRegex = /\d{1,2}[–\/.-]\s*\d{1,2}/;
     for (const line of lines) {
       const isRoute = line.includes('/') && !line.toLowerCase().includes('load/discharge') && !line.toLowerCase().includes('load / discharge') && !line.toLowerCase().includes('rate');
@@ -3217,7 +3217,7 @@ async function startServer() {
       let hasQty = false;
       
       const monthRegex = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)/i;
-      const yearRegex = /20\\d{2}/;
+      const yearRegex = /20\d{2}/;
       const datePatternRegex = /\d{1,2}[–\/.-]\s*\d{1,2}/;
 
       for (const line of lines) {
