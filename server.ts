@@ -3260,6 +3260,74 @@ async function startServer() {
     }
   };
 
+  app.post('/api/market/matches/notify', express.json({ limit: '16kb' }), async (req, res) => {
+    const user = await requireFirebaseUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!firestore) return res.status(503).json({ error: 'Database unavailable' });
+    if (!(await checkRateLimit(user.uid, 60, 'market-match-notify'))) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    const matchId = String(req.body?.matchId || '');
+    if (!/^[A-Za-z0-9_.:-]{1,240}$/.test(matchId)) {
+      return res.status(400).json({ error: 'Invalid matchId' });
+    }
+
+    try {
+      const matchRef = firestore.collection('marketMatches').doc(matchId);
+      const matchSnap = await matchRef.get();
+      if (!matchSnap.exists) return res.status(404).json({ error: 'Match not found' });
+
+      const match = matchSnap.data() || {};
+      const vesselOwnerUid = String(match.vesselOwnerUid || '');
+      const cargoOwnerUid = String(match.cargoOwnerUid || '');
+      if (user.uid !== vesselOwnerUid && user.uid !== cargoOwnerUid) {
+        return res.status(403).json({ error: 'Not a participant in this match' });
+      }
+
+      const targetUid = user.uid === vesselOwnerUid ? cargoOwnerUid : vesselOwnerUid;
+      if (!targetUid || targetUid === user.uid) {
+        return res.status(200).json({ success: true, notified: false });
+      }
+
+      const score = Math.max(0, Math.min(100, Number(match.matchScore) || 0));
+      const alertId = `market_match_${createHash('sha256').update(`${matchId}:${targetUid}`).digest('hex').slice(0, 32)}`;
+      const alertRef = firestore.collection('alerts').doc(alertId);
+      const existing = await alertRef.get();
+      if (!existing.exists) {
+        await alertRef.set({
+          id: alertId,
+          recipientUid: targetUid,
+          createdBySystem: true,
+          category: 'market_request_match',
+          priority: score >= 80 ? 'high' : 'info',
+          title: 'New Market Match',
+          message: `A connected desk market request matched one of your shared items (score ${Math.round(score)}%).`,
+          sourceType: 'market_match',
+          sourceId: matchId,
+          actionLabel: 'Review',
+          actionRoute: '/dashboard',
+          read: false,
+          dismissed: false,
+          createdAt: Date.now(),
+          visibility: 'private'
+        });
+      }
+
+      await firestore.collection('auditEvents').add({
+        action: 'market_match_notification',
+        uid: user.uid,
+        metadata: { matchId, targetUid, score },
+        timestamp: FieldValue.serverTimestamp()
+      });
+
+      return res.json({ success: true, notified: !existing.exists });
+    } catch (error: any) {
+      console.error('[Market Match Notify] Failed:', error.message);
+      return res.status(500).json({ error: 'Unable to notify market match participant' });
+    }
+  });
+
   app.get('/api/market/snapshot', async (req, res) => {
     const user = await requireFirebaseUser(req);
     if (!user) return res.status(401).json({ error: 'Authentication required' });
