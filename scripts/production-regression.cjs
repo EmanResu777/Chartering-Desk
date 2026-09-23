@@ -12,6 +12,7 @@ function assert(condition, message) {
 }
 
 const server = read('server.ts');
+const firestoreRules = read('firestore.rules');
 const selectionDesk = read('src/components/SelectionDesk.tsx');
 const cargoDesk = read('src/components/CargoDesk.tsx');
 const vesselMonitor = read('src/components/VesselMonitor.tsx');
@@ -270,9 +271,23 @@ assert(
   'Desk Network acceptance and all matching surfaces must use reciprocal accepted connections'
 );
 assert(
-  server.includes('criteria-fit score') &&
-  server.includes('not a probability or fixture recommendation'),
-  'market match notifications must not present deterministic screening scores as probabilities'
+  server.includes('produced a screening candidate') &&
+  server.includes('Review the underlying facts before any commercial action.') &&
+  !server.includes('criteria-fit score ${Math.round(score)}/100'),
+  'market match notifications must not present client-generated screening scores as probabilities or commercial recommendations'
+);
+
+assert(
+  server.includes("marketRequest.createdByUid !== user.uid") &&
+  server.includes("sharedItem.status !== 'active'") &&
+  server.includes("Accepted reciprocal network connection required"),
+  'server notification must revalidate request ownership, shared-item provenance, and reciprocal network access'
+);
+assert(
+  firestoreRules.includes("function isValidMarketMatchCreate(data)") &&
+  firestoreRules.includes("data.scoreType == 'deterministic_criteria_fit_not_probability'") &&
+  firestoreRules.includes("allow update: if false;"),
+  'Firestore must reject fabricated market matches and keep generated screening records immutable'
 );
 assert(
   !documentEditor.includes('Marina Petrova') &&
