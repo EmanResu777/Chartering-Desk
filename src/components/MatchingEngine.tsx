@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cargo, Vessel, INITIAL_VESSELS, MatchResult, cn } from '../lib/utils';
+import { Cargo, Vessel, MatchResult, cn } from '../lib/utils';
 import { matchVessels } from '../lib/geminiService';
 import { ShieldCheck, Zap, Ship, MapPin, Gauge, Edit3, MessageSquare, RotateCw, ArrowRight, AlertTriangle, Calculator, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
