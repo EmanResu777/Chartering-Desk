@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Ship, Package2, ArrowRight, Zap, Loader2, Info, TrendingUp, DollarSign, Fuel, Map, Navigation as NavIcon, Calendar } from 'lucide-react';
-import { Cargo, Vessel, INITIAL_CARGO, INITIAL_VESSELS, cn } from '../lib/utils';
+import { Cargo, Vessel, cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { DocumentEditor } from './DocumentEditor';
 import { useNotification } from '../lib/NotificationContext';
