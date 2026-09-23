@@ -69,6 +69,16 @@ assert(
   'production JSON payloads must have a bounded default size'
 );
 assert(
+  server.includes("app.set('query parser', 'simple')"),
+  'public query strings must avoid the extended qs parser'
+);
+assert(
+  server.includes("collection('billingState').doc('current')") &&
+  server.includes("userRecord.metadata.creationTime") &&
+  server.includes("billingStatus: activeTrial ? 'trial' : 'trial_expired'"),
+  'trial eligibility must be account-bound to Firebase Auth creation time'
+);
+assert(
   server.includes("Unauthorized to use this vessel") &&
   server.includes("vesselData.sharedItemId"),
   'process-offer must authorize the selected vessel, including network sharing'
